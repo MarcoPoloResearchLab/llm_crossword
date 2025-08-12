@@ -299,13 +299,33 @@
     }
 
     // clues (create <li>, index by entry id, add hover highlight)
+// clues (create <li>, index by entry id, add hover H/L + click-to-focus)
     function put(ol, list){
       for (const ent of list){
         const li = document.createElement("li");
         li.dataset.entryId = ent.id;
         li.textContent = `${ent.num}. ${sanitizeClue(ent.clue)} (${ent.answer.length})`;
+
+        // highlight on hover
         li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
         li.addEventListener("mouseleave", () => { clearHL(); });
+
+        // CLICK -> focus first square of this entry
+        li.addEventListener("click", (e) => {
+          e.preventDefault();
+          const cells = cellsById.get(ent.id) || [];
+          if (!cells.length) return;
+          activeDir = ent.dir;                   // set current typing direction
+          const first = cells[0];
+          first.input.focus();
+          first.input.select();
+          // bring into view if the grid is scrollable
+          first.el.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+          // make sure the highlight reflects the focused word
+          clearHL();
+          addHL([ent.id]);
+        });
+
         clueById.set(ent.id, li);
         ol.appendChild(li);
       }
