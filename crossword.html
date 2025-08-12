@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width,initial-scale=1" name="viewport"/>
+  <title>Crossword Widget</title>
+
+  <!-- load order matters: generator -> payloads (uses generator) -> renderer -->
+  <link as="script" href="../llm_crossword/js/generator.js" rel="preload">
+  <link as="script" href="../llm_crossword/js/payloads.js"  rel="preload">
+  <link as="script" href="../llm_crossword/js/crossword.js" rel="preload">
+
+  <link rel="stylesheet" href="../llm_crossword/css/crossword.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <h1 id="title"></h1>
+    <div class="sub" id="subtitle"></div>
+    <label style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+      <span style="opacity:.85;font-size:13px;">Choose puzzle:</span>
+      <select id="puzzleSelect"></select>
+    </label>
+  </div>
+
+  <div class="pane">
+    <!-- Scrollable + draggable viewport -->
+    <div id="gridViewport" class="gridViewport">
+      <div class="grid" id="grid"></div>
+    </div>
+    <div class="clues">
+      <div class="cluegrp"><h3>Across</h3>
+        <ol id="across"></ol>
+      </div>
+      <div class="cluegrp"><h3>Down</h3>
+        <ol id="down"></ol>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="check">Check</button>
+    <button class="secondary" id="reveal">Reveal</button>
+    <div class="status" id="status"></div>
+  </div>
+  <div class="error" id="errorBox"></div>
+</div>
+
+<script src="../llm_crossword/js/generator.js"></script>
+<script src="../llm_crossword/js/payloads.js"></script>
+<script src="../llm_crossword/js/crossword.js"></script>
+</body>
+</html>
