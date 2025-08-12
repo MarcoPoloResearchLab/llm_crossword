@@ -14,11 +14,9 @@
 
   function sanitizeClue(text) { return (text || "").replace(/^\s*\d+\.?\s*/, ""); }
 
-  // --- auto compute minimal board size from entries (0-based)
   function computeGridSize(entries){
     let minRow = Infinity, minCol = Infinity;
     let maxRow = -1,       maxCol = -1;
-
     for (const e of entries){
       minRow = Math.min(minRow, e.row);
       minCol = Math.min(minCol, e.col);
@@ -31,13 +29,7 @@
       }
     }
     if (!isFinite(minRow)) { minRow = 0; minCol = 0; maxRow = 0; maxCol = 0; }
-
-    return {
-      rows: (maxRow - minRow + 1),
-      cols: (maxCol - minCol + 1),
-      offsetRow: minRow,
-      offsetCol: minCol
-    };
+    return { rows: (maxRow - minRow + 1), cols: (maxCol - minCol + 1), offsetRow: minRow, offsetCol: minCol };
   }
 
   function validatePayload(p){
@@ -75,16 +67,15 @@
     return e;
   }
 
-  // build grid model
   function buildModel(p, rows, cols, offsetRow, offsetCol){
-    // 1) empty grid
     const model = Array.from({length: rows}, (_, r) =>
-      Array.from({length: cols}, (_, c) => ({
-        r, c, block: true, sol: null, num: null, input: null, prev: ""
-      }))
+        Array.from({length: cols}, (_, c) => ({
+          r, c, block: true, sol: null, num: null, input: null, prev: "",
+          links: { across: {prev:null,next:null}, down: {prev:null,next:null} }
+        }))
     );
+    const getCell = (r,c) => (model[r] && model[r][c]) || null;
 
-    // 2) place letters (normalized coords)
     for (const ent of p.entries) {
       const L = ent.answer.length;
       for (let i = 0; i < L; i++) {
@@ -98,21 +89,32 @@
       }
     }
 
-    // 3) canonical entry objects (single source of truth for numbers)
     const refsById = new Map(p.entries.map(e => [e.id, { ...e }]));
 
-    // map of normalized start-cells -> { across?:ref, down?:ref }
     const starts = new Map();
     for (const ent of p.entries) {
       const r0 = ent.row - offsetRow;
       const c0 = ent.col - offsetCol;
       const k = `${r0}:${c0}`;
       const slot = starts.get(k) || {};
-      slot[ent.dir] = refsById.get(ent.id); // use the canonical ref
+      slot[ent.dir] = refsById.get(ent.id);
       starts.set(k, slot);
     }
 
-    // 4) global numbering in row-major order
+    // build navigation links along each entry
+    for (const ent of p.entries) {
+      const L = ent.answer.length;
+      for (let i = 0; i < L; i++) {
+        const r = (ent.dir === "across" ? ent.row         : ent.row + i) - offsetRow;
+        const c = (ent.dir === "across" ? ent.col + i     : ent.col    ) - offsetCol;
+        const cell = getCell(r,c);
+        const dir = ent.dir;
+        if (!cell) continue;
+        if (i > 0)  cell.links[dir].prev = { r: dir==="across" ? r : r-1, c: dir==="across" ? c-1 : c };
+        if (i < L-1)cell.links[dir].next = { r: dir==="across" ? r : r+1, c: dir==="across" ? c+1 : c };
+      }
+    }
+
     let nextNum = 1;
     const across = [];
     const down   = [];
@@ -121,18 +123,16 @@
         const slot = starts.get(`${r}:${c}`);
         if (!slot) continue;
         if (model[r][c].block) continue;
-
         model[r][c].num = nextNum;
         if (slot.across) { slot.across.num = nextNum; across.push(slot.across); }
         if (slot.down)   { slot.down.num   = nextNum; down.push(slot.down); }
         nextNum++;
       }
     }
-
     across.sort((a,b) => a.num - b.num);
     down.sort((a,b)   => a.num - b.num);
 
-    return { model, across, down, rows, cols };
+    return { model, across, down, rows, cols, getCell };
   }
 
   function render(p){
@@ -149,71 +149,109 @@
       errorBox.textContent = "Payload error:\n• " + errors.join("\n• ");
       return;
     }
+
     const size = computeGridSize(p.entries);
     let built;
     try { built = buildModel(p, size.rows, size.cols, size.offsetRow, size.offsetCol); }
-    catch (err) {
-      errorBox.style.display = "block";
-      errorBox.textContent = "Placement conflict: " + err.message;
-      return;
-    }
-    const { model, across, down, rows, cols } = built;
+    catch (err) { errorBox.style.display = "block"; errorBox.textContent = "Placement conflict: " + err.message; return; }
 
-    // set CSS grid tracks (rows/cols)
+    const { model, across, down, rows, cols, getCell } = built;
+
+    // define grid size (rows *and* cols)
     gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell))`;
     gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell))`;
 
-    // --- draw only NON-BLOCK cells, placed sparsely on the grid
-    for (let r = 0; r < rows; r++){
-      for (let c = 0; c < cols; c++){
+    // nav helpers
+    let activeDir = "across";
+    const focusCell = (r,c) => {
+      const d = getCell(r,c);
+      if (!d || d.block) return;
+      d.input.focus(); d.input.select();
+    };
+    const step = (d, dir, forward=true) => {
+      const link = d.links[dir][forward ? "next" : "prev"];
+      if (!link) return null;
+      const t = getCell(link.r, link.c);
+      return (t && !t.block) ? t : null;
+    };
+
+    // draw only real cells and place them at exact grid coords
+    for (let r=0;r<rows;r++){
+      for (let c=0;c<cols;c++){
         const d = model[r][c];
-        if (d.block) continue;                     // <<< skip empty squares
+        if (d.block) continue;
 
         const cell = document.createElement("div");
         cell.className = "cell";
-        cell.style.gridColumnStart = c + 1;        // <<< absolute placement
-        cell.style.gridRowStart    = r + 1;
+        // <-- place at r,c in CSS grid
+        cell.style.gridRowStart = (r + 1);
+        cell.style.gridColumnStart = (c + 1);
 
         const input = document.createElement("input");
         input.maxLength = 1;
         input.setAttribute("aria-label", `Row ${r+1} Col ${c+1}`);
-        input.addEventListener("input",(e)=>{
-          e.target.value = e.target.value.replace(/[^A-Za-z]/g,"").toUpperCase();
-          cell.classList.remove("correct","wrong");
-        });
-
-        // smarter nav: skip over gaps/blocks until a real cell is found
-        input.addEventListener("keydown",(e)=>{
-          const step = (dr, dc) => {
-            let rr = r + dr, cc = c + dc;
-            while (rr >= 0 && rr < rows && cc >= 0 && cc < cols) {
-              const d2 = model[rr][cc];
-              if (!d2.block && d2.input) { d2.input.focus(); d2.input.select(); return; }
-              rr += dr; cc += dc;
-            }
-          };
-          if (e.key === "ArrowLeft")  { e.preventDefault(); step(0, -1); }
-          if (e.key === "ArrowRight") { e.preventDefault(); step(0,  1); }
-          if (e.key === "ArrowUp")    { e.preventDefault(); step(-1, 0); }
-          if (e.key === "ArrowDown")  { e.preventDefault(); step( 1, 0); }
-          if (e.key === "Backspace" && !e.target.value) { step(0, -1); }
-        });
-
         d.input = input;
-        cell.appendChild(input);
+
+        input.addEventListener("focus", () => {
+          const hasAcross = !!(d.links.across.prev || d.links.across.next);
+          const hasDown   = !!(d.links.down.prev   || d.links.down.next);
+          if (hasAcross && !hasDown) activeDir = "across";
+          else if (!hasAcross && hasDown) activeDir = "down";
+        });
+
+        input.addEventListener("input",(e)=>{
+          let v = (e.target.value || "").replace(/[^A-Za-z]/g,"").toUpperCase();
+          if (v.length > 1) v = v.slice(-1);
+          e.target.value = v;
+          cell.classList.remove("correct","wrong");
+          if (v) {
+            const nxt = step(d, activeDir, true);
+            if (nxt) focusCell(nxt.r, nxt.c);
+          }
+        });
+
+        input.addEventListener("paste",(e)=>{
+          const text = (e.clipboardData || window.clipboardData).getData("text") || "";
+          const letters = text.toUpperCase().replace(/[^A-Z]/g,"").split("");
+          if (letters.length === 0) return;
+          e.preventDefault();
+          let cur = d;
+          for (const ch of letters) {
+            if (!cur) break;
+            cur.input.value = ch;
+            cur.input.parentElement.classList.remove("correct","wrong");
+            cur = step(cur, activeDir, true);
+          }
+          if (cur) focusCell(cur.r, cur.c);
+        });
+
+        input.addEventListener("keydown",(e)=>{
+          const moveTo = (t)=>{ if(!t) return; focusCell(t.r, t.c); };
+          if (e.key === "ArrowLeft"){ e.preventDefault(); activeDir = "across"; moveTo(step(d,"across",false)); return; }
+          if (e.key === "ArrowRight"){ e.preventDefault(); activeDir = "across"; moveTo(step(d,"across",true));  return; }
+          if (e.key === "ArrowUp"){ e.preventDefault(); activeDir = "down"; moveTo(step(d,"down",false)); return; }
+          if (e.key === "ArrowDown"){ e.preventDefault(); activeDir = "down"; moveTo(step(d,"down",true));  return; }
+          if (e.key === "Tab"){
+            e.preventDefault();
+            const forward = !e.shiftKey;
+            const t = step(d, activeDir, forward);
+            if (t) moveTo(t);
+            return;
+          }
+          if (e.key === "Backspace" && !e.target.value){
+            const t = step(d, activeDir, false);
+            if (t){ e.preventDefault(); moveTo(t); }
+          }
+        });
 
         if (d.num){
-          const n = document.createElement("div");
-          n.className = "num";
-          n.textContent = d.num;
-          cell.appendChild(n);
+          const n=document.createElement("div"); n.className="num"; n.textContent=d.num; cell.appendChild(n);
         }
-
+        cell.appendChild(input);
         gridEl.appendChild(cell);
       }
     }
 
-    // clues (we print real numbers; <ol> list-style is none in CSS)
     function put(ol, list){
       for (const ent of list){
         const li = document.createElement("li");
@@ -223,7 +261,6 @@
     }
     put(acrossOl, across); put(downOl, down);
 
-    // controls
     const checkBtn  = document.getElementById("check");
     const revealBtn = document.getElementById("reveal");
     let revealed = false;
@@ -238,7 +275,6 @@
       statusEl.textContent = "Revealed.";
       statusEl.classList.remove("ok");
     };
-
     const hideAll = () => {
       for (const row of model) for (const d of row) if(!d.block){
         d.input.value = d.prev || "";
@@ -266,11 +302,9 @@
       else          { hideAll();   revealBtn.textContent = "Reveal"; }
     };
 
-    // reset reveal state when puzzle changes
     selectEl.addEventListener("change", () => { revealed = false; revealBtn.textContent = "Reveal"; }, { once: true });
   }
 
-  // --- Simple drag-to-pan for oversized boards (also scrollbars work)
   (function enablePanning(){
     let isDragging=false, startX=0, startY=0, scrollLeft=0, scrollTop=0;
     gridViewport.addEventListener("mousedown",(e)=>{
@@ -289,7 +323,6 @@
       gridViewport.scrollLeft = scrollLeft - (x - startX);
       gridViewport.scrollTop  = scrollTop  - (y - startY);
     });
-    // touch
     gridViewport.addEventListener("touchstart",(e)=>{
       const t=e.touches[0]; isDragging=true;
       startX=t.pageX - gridViewport.offsetLeft; startY=t.pageY - gridViewport.offsetTop;
@@ -306,7 +339,6 @@
     },{passive:true});
   })();
 
-  // dropdown binds to array payload
   CROSSWORD_PUZZLES.forEach((p, idx) => {
     const opt = document.createElement("option");
     opt.value = idx; opt.textContent = p.title;
