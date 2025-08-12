@@ -71,11 +71,14 @@
     const model = Array.from({length: rows}, (_, r) =>
         Array.from({length: cols}, (_, c) => ({
           r, c, block: true, sol: null, num: null, input: null, prev: "",
-          links: { across: {prev:null,next:null}, down: {prev:null,next:null} }
+          links: { across: {prev:null,next:null}, down: {prev:null,next:null} },
+          belongs: new Set(),   // <- entry ids this cell belongs to
+          el: null              // <- DOM node reference later
         }))
     );
     const getCell = (r,c) => (model[r] && model[r][c]) || null;
 
+    // place letters
     for (const ent of p.entries) {
       const L = ent.answer.length;
       for (let i = 0; i < L; i++) {
@@ -86,6 +89,7 @@
         cell.block = false;
         if (cell.sol && cell.sol !== ch) throw new Error(`Conflict at (${r},${c})`);
         cell.sol = ch;
+        cell.belongs.add(ent.id);
       }
     }
 
@@ -132,7 +136,7 @@
     across.sort((a,b) => a.num - b.num);
     down.sort((a,b)   => a.num - b.num);
 
-    return { model, across, down, rows, cols, getCell };
+    return { model, across, down, rows, cols, getCell, refsById };
   }
 
   function render(p){
@@ -161,6 +165,34 @@
     gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell))`;
     gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell))`;
 
+    // --- Highlighting state/maps
+    const clueById = new Map();      // id -> <li>
+    const cellsById = new Map();     // id -> array of cell objects (for fast highlight)
+    for (const ent of [...across, ...down]) {
+      const arr = [];
+      for (let i = 0; i < ent.answer.length; i++) {
+        const r = ent.dir === "across" ? ent.row - size.offsetRow : ent.row - size.offsetRow + i;
+        const c = ent.dir === "across" ? ent.col - size.offsetCol + i : ent.col - size.offsetCol;
+        arr.push(getCell(r,c));
+      }
+      cellsById.set(ent.id, arr);
+    }
+
+    const addHL = (ids) => {
+      // highlight cells
+      for (const id of ids) {
+        const cells = cellsById.get(id) || [];
+        for (const cell of cells) cell.el.classList.add("hl");
+        const li = clueById.get(id);
+        if (li) li.classList.add("clueHL");
+      }
+    };
+    const clearHL = () => {
+      gridEl.querySelectorAll(".hl").forEach(n => n.classList.remove("hl"));
+      acrossOl.querySelectorAll(".clueHL").forEach(n => n.classList.remove("clueHL"));
+      downOl.querySelectorAll(".clueHL").forEach(n => n.classList.remove("clueHL"));
+    };
+
     // nav helpers
     let activeDir = "across";
     const focusCell = (r,c) => {
@@ -183,20 +215,34 @@
 
         const cell = document.createElement("div");
         cell.className = "cell";
-        // <-- place at r,c in CSS grid
         cell.style.gridRowStart = (r + 1);
         cell.style.gridColumnStart = (c + 1);
+        d.el = cell;
 
         const input = document.createElement("input");
         input.maxLength = 1;
         input.setAttribute("aria-label", `Row ${r+1} Col ${c+1}`);
         d.input = input;
 
+        const updateWordHL = () => {
+          // highlight every entry this cell participates in
+          clearHL();
+          addHL(d.belongs);
+        };
+
         input.addEventListener("focus", () => {
           const hasAcross = !!(d.links.across.prev || d.links.across.next);
           const hasDown   = !!(d.links.down.prev   || d.links.down.next);
           if (hasAcross && !hasDown) activeDir = "across";
           else if (!hasAcross && hasDown) activeDir = "down";
+          updateWordHL();
+        });
+        input.addEventListener("blur", () => {
+          // keep highlight if new focus goes to another cell; we'll clear on next focus
+          // but if the whole widget loses focus, remove highlight after a tick
+          setTimeout(() => {
+            if (!gridEl.contains(document.activeElement)) clearHL();
+          }, 0);
         });
 
         input.addEventListener("input",(e)=>{
@@ -252,10 +298,15 @@
       }
     }
 
+    // clues (create <li>, index by entry id, add hover highlight)
     function put(ol, list){
       for (const ent of list){
         const li = document.createElement("li");
+        li.dataset.entryId = ent.id;
         li.textContent = `${ent.num}. ${sanitizeClue(ent.clue)} (${ent.answer.length})`;
+        li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
+        li.addEventListener("mouseleave", () => { clearHL(); });
+        clueById.set(ent.id, li);
         ol.appendChild(li);
       }
     }
