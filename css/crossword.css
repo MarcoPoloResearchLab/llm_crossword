@@ -1,6 +1,7 @@
 :root {
     --cell: 44px;
     --gap: 4px;
+    --puzzle-max-size: 520px;
 }
 
 * {
@@ -67,7 +68,7 @@ select {
 
 /* Viewport: keep scrolling/panning, but no panel look */
 .gridViewport {
-    max-width: min(520px, 94vw);
+    max-width: min(var(--puzzle-max-size), 100%);
     max-height: 520px;
     overflow: auto;
     /* no background, border, or radius so the page gradient shows through */
