@@ -8,7 +8,7 @@
     --pane-breakpoint: 800px;
     --clue-breakpoint: 600px;
     --wrap-offset: 48px;
-    --pane-gap: 0px;
+    --pane-gap: 18px;
     --clue-track-size: max-content;
     --clue-stack-track-size: 1fr;
     --full-size: 100%;
@@ -39,12 +39,12 @@ body {
     background: rgba(255, 255, 255, .06);
     border: 1px solid rgba(255, 255, 255, .15);
     border-radius: 16px;
-    padding: 18px;
+    padding: var(--pane-gap);
     box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
     backdrop-filter: blur(6px);
     display: grid;
     grid-template-rows: auto 1fr auto;
-    gap: 16px;
+    gap: var(--pane-gap);
     min-height: calc(100vh - var(--wrap-offset));
 }
 
