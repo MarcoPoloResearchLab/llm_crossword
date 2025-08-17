@@ -12,6 +12,8 @@
     --clue-track-size: max-content;
     --clue-stack-track-size: 1fr;
     --full-size: 100%;
+    --wrap-max-width: calc(100vw - var(--wrap-offset));
+    --wrap-max-height: calc(100vh - var(--wrap-offset));
 }
 
 * {
@@ -35,7 +37,9 @@ body {
 
 .wrap {
     width: fit-content;
-    max-width: calc(100vw - var(--wrap-offset));
+    max-width: var(--wrap-max-width);
+    height: var(--wrap-max-height);
+    overflow: hidden;
     background: rgba(255, 255, 255, .06);
     border: 1px solid rgba(255, 255, 255, .15);
     border-radius: 16px;
@@ -45,7 +49,6 @@ body {
     display: grid;
     grid-template-rows: auto 1fr auto;
     gap: var(--pane-gap);
-    min-height: calc(100vh - var(--wrap-offset));
 }
 
 .hdr {
@@ -78,6 +81,8 @@ select {
     gap: var(--pane-gap);
     height: 100%;
     min-height: 0;
+    max-width: var(--full-size);
+    overflow: hidden;
 }
 
 @media (max-width: var(--pane-breakpoint)) {
@@ -88,15 +93,15 @@ select {
 
 /* Viewport: keep scrolling/panning, but no panel look */
 .gridViewport {
-    width: max-content;
     max-width: var(--full-size);
     overflow: auto;
     background: transparent;
     border: 0;
     border-radius: 0;
     height: var(--full-size);
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-width: 0;
+    min-height: 0;
 }
 
 .gridViewport.dragging {
@@ -170,11 +175,12 @@ select {
     grid-template-columns: var(--clue-track-size) var(--clue-track-size);
     gap: 12px 18px;
     overflow: auto;
-    height: var(--full-size);
+    max-height: var(--full-size);
     flex: 0 0 auto;
     margin-left: 0;
     align-self: stretch;
     width: max-content;
+    max-width: var(--full-size);
 }
 
 @media (max-width: var(--clue-breakpoint)) {
