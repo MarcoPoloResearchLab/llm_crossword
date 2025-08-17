@@ -1,6 +1,8 @@
 :root {
     --cell: 44px;
     --gap: 4px;
+    --pane-breakpoint: 800px;
+    --clue-breakpoint: 600px;
     --widget-min-width: 800px;
 }
 
@@ -60,7 +62,7 @@ select {
     margin-top: 16px;
 }
 
-@media (max-width: 880px) {
+@media (max-width: var(--pane-breakpoint)) {
     .pane {
         grid-template-columns:1fr;
     }
@@ -149,7 +151,7 @@ select {
     gap: 12px 18px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: var(--clue-breakpoint)) {
     .clues {
         grid-template-columns:1fr;
     }
