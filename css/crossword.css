@@ -1,6 +1,7 @@
 :root {
     --cell: 44px;
     --gap: 4px;
+    --controls-breakpoint: 500px;
     --pane-breakpoint: 800px;
     --clue-breakpoint: 600px;
     --widget-min-width: 800px;
@@ -196,6 +197,16 @@ button {
 
 button.secondary {
     background: #334155;
+}
+
+@media (max-width: var(--controls-breakpoint)) {
+    .controls {
+        flex-direction: column;
+    }
+
+    button {
+        width: 100%;
+    }
 }
 
 .status {
