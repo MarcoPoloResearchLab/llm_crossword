@@ -82,10 +82,13 @@ select {
     min-height: 0;
     max-width: var(--full-size);
     overflow: hidden;
+    flex: 1 1 auto;
 }
 
 @media (max-width: var(--pane-breakpoint)) {
     .pane {
+        flex: 1 1 auto;
+        overflow: hidden;
         flex-direction: column;
     }
 }
