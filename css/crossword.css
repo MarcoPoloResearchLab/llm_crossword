@@ -3,6 +3,7 @@
     --gap: 4px;
     --pane-breakpoint: 800px;
     --clue-breakpoint: 600px;
+    --widget-min-width: 800px;
 }
 
 * {
@@ -20,7 +21,7 @@ body {
 }
 
 .wrap {
-    width: min(980px, 94vw);
+    width: max(var(--widget-min-width), calc(100vw - 48px));
     background: rgba(255, 255, 255, .06);
     border: 1px solid rgba(255, 255, 255, .15);
     border-radius: 16px;
