@@ -1,4 +1,7 @@
 :root {
+    --cell-size: 44px;
+    --gap-size: 4px;
+    --border-radius: 10px;
     --cell: 44px;
     --gap: 4px;
     --puzzle-max-size: 520px;
@@ -53,7 +56,7 @@ select {
     background: #0f142a;
     color: #e9edff;
     border: 1px solid #2a2f45;
-    border-radius: 10px;
+    border-radius: var(--border-radius);
     padding: 8px 10px;
 }
 
@@ -88,7 +91,7 @@ select {
 /* The grid itself should also be transparent & panel-less */
 .grid {
     display: grid;
-    gap: var(--gap);
+    gap: var(--gap-size);
     /* remove panel visuals */
     background: transparent;
     border: 0;
@@ -98,8 +101,8 @@ select {
 
 /* Individual cells keep the dark style */
 .cell {
-    width: var(--cell);
-    height: var(--cell);
+    width: var(--cell-size);
+    height: var(--cell-size);
     position: relative;
     border-radius: 6px;
     border: 1px solid #2a2f45;
@@ -176,7 +179,7 @@ li {
     padding: 8px 10px;
     background: rgba(255, 255, 255, .05);
     border: 1px solid rgba(255, 255, 255, .12);
-    border-radius: 10px;
+    border-radius: var(--border-radius);
 }
 
 .controls {
@@ -190,7 +193,7 @@ button {
     background: #3b82f6;
     color: #fff;
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--border-radius);
     padding: 10px 14px;
     font-weight: 700;
     cursor: pointer;
@@ -225,7 +228,7 @@ button.secondary {
 .error {
     margin-top: 10px;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: var(--border-radius);
     background: rgba(255, 107, 107, .1);
     border: 1px solid rgba(255, 107, 107, .35);
     color: #ffd0d0;

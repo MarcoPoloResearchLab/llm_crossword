@@ -162,8 +162,8 @@
     const { model, across, down, rows, cols, getCell } = built;
 
     // define grid size (rows *and* cols)
-    gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell))`;
-    gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell))`;
+    gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
+    gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell-size))`;
 
     // --- Highlighting state/maps
     const clueById = new Map();      // id -> <li>
