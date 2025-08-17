@@ -12,6 +12,20 @@
   const subEl    = document.getElementById("subtitle");
   const selectEl = document.getElementById("puzzleSelect");
 
+  // viewportEvents holds DOM event identifiers for drag interactions.
+  const viewportEvents = {
+    mouseDown: "mousedown",
+    mouseUp: "mouseup",
+    mouseLeave: "mouseleave",
+    mouseMove: "mousemove",
+    touchStart: "touchstart",
+    touchEnd: "touchend",
+    touchMove: "touchmove"
+  };
+
+  // draggingClass is applied to gridViewport while dragging.
+  const draggingClass = "dragging";
+
   function sanitizeClue(text) { return (text || "").replace(/^\s*\d+\.?\s*/, ""); }
 
   function computeGridSize(entries){
@@ -376,38 +390,68 @@
     selectEl.addEventListener("change", () => { revealed = false; revealBtn.textContent = "Reveal"; }, { once: true });
   }
 
-  (function enablePanning(){
-    let isDragging=false, startX=0, startY=0, scrollLeft=0, scrollTop=0;
-    gridViewport.addEventListener("mousedown",(e)=>{
-      isDragging=true; gridViewport.classList.add("dragging");
-      startX = e.pageX - gridViewport.offsetLeft;
-      startY = e.pageY - gridViewport.offsetTop;
-      scrollLeft = gridViewport.scrollLeft;
-      scrollTop  = gridViewport.scrollTop;
+  // enablePanning attaches drag handlers to scroll the grid viewport.
+  (function enablePanning() {
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let initialScrollLeft = 0;
+    let initialScrollTop = 0;
+
+    gridViewport.addEventListener(viewportEvents.mouseDown, event => {
+      isDragging = true;
+      gridViewport.classList.add(draggingClass);
+      dragStartX = event.pageX - gridViewport.offsetLeft;
+      dragStartY = event.pageY - gridViewport.offsetTop;
+      initialScrollLeft = gridViewport.scrollLeft;
+      initialScrollTop = gridViewport.scrollTop;
     });
-    ["mouseleave","mouseup"].forEach(ev => gridViewport.addEventListener(ev, ()=>{ isDragging=false; gridViewport.classList.remove("dragging"); }));
-    gridViewport.addEventListener("mousemove",(e)=>{
-      if(!isDragging) return;
-      e.preventDefault();
-      const x = e.pageX - gridViewport.offsetLeft;
-      const y = e.pageY - gridViewport.offsetTop;
-      gridViewport.scrollLeft = scrollLeft - (x - startX);
-      gridViewport.scrollTop  = scrollTop  - (y - startY);
+
+    [viewportEvents.mouseLeave, viewportEvents.mouseUp].forEach(eventName => {
+      gridViewport.addEventListener(eventName, () => {
+        isDragging = false;
+        gridViewport.classList.remove(draggingClass);
+      });
     });
-    gridViewport.addEventListener("touchstart",(e)=>{
-      const t=e.touches[0]; isDragging=true;
-      startX=t.pageX - gridViewport.offsetLeft; startY=t.pageY - gridViewport.offsetTop;
-      scrollLeft=gridViewport.scrollLeft; scrollTop=gridViewport.scrollTop;
-    },{passive:true});
-    gridViewport.addEventListener("touchend",()=>{ isDragging=false; },{passive:true});
-    gridViewport.addEventListener("touchmove",(e)=>{
-      if(!isDragging) return;
-      const t=e.touches[0];
-      const x=t.pageX - gridViewport.offsetLeft;
-      const y=t.pageY - gridViewport.offsetTop;
-      gridViewport.scrollLeft = scrollLeft - (x - startX);
-      gridViewport.scrollTop  = scrollTop  - (y - startY);
-    },{passive:true});
+
+    gridViewport.addEventListener(viewportEvents.mouseMove, event => {
+      if (!isDragging) return;
+      event.preventDefault();
+      const x = event.pageX - gridViewport.offsetLeft;
+      const y = event.pageY - gridViewport.offsetTop;
+      const nextScrollLeft = initialScrollLeft - (x - dragStartX);
+      const nextScrollTop = initialScrollTop - (y - dragStartY);
+      const maxScrollLeft = gridViewport.scrollWidth - gridViewport.clientWidth;
+      const maxScrollTop = gridViewport.scrollHeight - gridViewport.clientHeight;
+      gridViewport.scrollLeft = Math.min(Math.max(0, nextScrollLeft), maxScrollLeft);
+      gridViewport.scrollTop = Math.min(Math.max(0, nextScrollTop), maxScrollTop);
+    });
+
+    gridViewport.addEventListener(viewportEvents.touchStart, event => {
+      const touch = event.touches[0];
+      isDragging = true;
+      dragStartX = touch.pageX - gridViewport.offsetLeft;
+      dragStartY = touch.pageY - gridViewport.offsetTop;
+      initialScrollLeft = gridViewport.scrollLeft;
+      initialScrollTop = gridViewport.scrollTop;
+    }, { passive: true });
+
+    gridViewport.addEventListener(viewportEvents.touchEnd, () => {
+      isDragging = false;
+    }, { passive: true });
+
+    gridViewport.addEventListener(viewportEvents.touchMove, event => {
+      if (!isDragging) return;
+      const touch = event.touches[0];
+      const x = touch.pageX - gridViewport.offsetLeft;
+      const y = touch.pageY - gridViewport.offsetTop;
+      const nextScrollLeft = initialScrollLeft - (x - dragStartX);
+      const nextScrollTop = initialScrollTop - (y - dragStartY);
+      const maxScrollLeft = gridViewport.scrollWidth - gridViewport.clientWidth;
+      const maxScrollTop = gridViewport.scrollHeight - gridViewport.clientHeight;
+      gridViewport.scrollLeft = Math.min(Math.max(0, nextScrollLeft), maxScrollLeft);
+      gridViewport.scrollTop = Math.min(Math.max(0, nextScrollTop), maxScrollTop);
+    }, { passive: true });
   })();
 
   CROSSWORD_PUZZLES.forEach((p, idx) => {

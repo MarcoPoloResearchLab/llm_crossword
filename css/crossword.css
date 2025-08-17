@@ -93,7 +93,8 @@ select {
 
 /* Viewport: keep scrolling/panning, but no panel look */
 .gridViewport {
-    max-width: var(--full-size);
+    max-width: 100%;
+    max-height: 100%;
     overflow: auto;
     background: transparent;
     border: 0;
@@ -175,12 +176,12 @@ select {
     grid-template-columns: var(--clue-track-size) var(--clue-track-size);
     gap: 12px 18px;
     overflow: auto;
-    max-height: var(--full-size);
-    flex: 0 0 auto;
+    max-height: 100%;
+    max-width: 100%;
+    flex: 0 0 35%;
     margin-left: 0;
     align-self: stretch;
     width: max-content;
-    max-width: var(--full-size);
 }
 
 @media (max-width: var(--clue-breakpoint)) {
