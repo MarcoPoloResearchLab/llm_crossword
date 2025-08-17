@@ -2,6 +2,10 @@
     --cell: 44px;
     --gap: 4px;
     --puzzle-max-size: 520px;
+    --controls-breakpoint: 500px;
+    --pane-breakpoint: 800px;
+    --clue-breakpoint: 600px;
+    --widget-min-width: 800px;
 }
 
 * {
@@ -19,7 +23,7 @@ body {
 }
 
 .wrap {
-    width: min(980px, 94vw);
+    width: max(var(--widget-min-width), calc(100vw - 48px));
     background: rgba(255, 255, 255, .06);
     border: 1px solid rgba(255, 255, 255, .15);
     border-radius: 16px;
@@ -60,7 +64,7 @@ select {
     margin-top: 16px;
 }
 
-@media (max-width: 880px) {
+@media (max-width: var(--pane-breakpoint)) {
     .pane {
         grid-template-columns:1fr;
     }
@@ -149,7 +153,7 @@ select {
     gap: 12px 18px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: var(--clue-breakpoint)) {
     .clues {
         grid-template-columns:1fr;
     }
@@ -194,6 +198,16 @@ button {
 
 button.secondary {
     background: #334155;
+}
+
+@media (max-width: var(--controls-breakpoint)) {
+    .controls {
+        flex-direction: column;
+    }
+
+    button {
+        width: 100%;
+    }
 }
 
 .status {
