@@ -13,7 +13,6 @@
     --clue-stack-track-size: 1fr;
     --full-size: 100%;
     --wrap-max-width: calc(100vw - var(--wrap-offset));
-    --wrap-max-height: calc(100vh - var(--wrap-offset));
 }
 
 * {
@@ -38,7 +37,7 @@ body {
 .wrap {
     width: fit-content;
     max-width: var(--wrap-max-width);
-    height: var(--wrap-max-height);
+    height: calc(100vh - var(--wrap-offset));
     overflow: hidden;
     background: rgba(255, 255, 255, .06);
     border: 1px solid rgba(255, 255, 255, .15);
