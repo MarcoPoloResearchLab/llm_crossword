@@ -38,7 +38,7 @@ body {
     box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
     backdrop-filter: blur(6px);
     display: grid;
-    grid-template-rows: auto 1fr auto auto;
+    grid-template-rows: auto 1fr auto;
     gap: 16px;
     min-height: calc(100vh - 48px);
 }
@@ -235,7 +235,7 @@ button.secondary {
 }
 
 .error {
-    margin-top: 10px;
+    flex-basis: 100%;
     padding: 10px 12px;
     border-radius: var(--border-radius);
     background: rgba(255, 107, 107, .1);
