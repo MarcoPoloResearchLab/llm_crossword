@@ -12,6 +12,29 @@
   const subEl    = document.getElementById("subtitle");
   const selectEl = document.getElementById("puzzleSelect");
 
+  /** cssViewportHeightProperty holds the name of the custom property for viewport height. */
+  const cssViewportHeightProperty = "--viewport-height";
+  /** resizeEventName identifies the resize event. */
+  const resizeEventName = "resize";
+  /** orientationChangeEventName identifies the orientation change event. */
+  const orientationChangeEventName = "orientationchange";
+  /** viewportResizeEventNames lists events that can change the viewport height. */
+  const viewportResizeEventNames = [resizeEventName, orientationChangeEventName];
+
+  /** updateViewportHeightProperty sets the viewport height custom property. */
+  function updateViewportHeightProperty() {
+    const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    document.documentElement.style.setProperty(cssViewportHeightProperty, `${viewportHeight}px`);
+  }
+
+  updateViewportHeightProperty();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener(resizeEventName, updateViewportHeightProperty);
+  }
+  for (const eventName of viewportResizeEventNames) {
+    window.addEventListener(eventName, updateViewportHeightProperty);
+  }
+
   function sanitizeClue(text) { return (text || "").replace(/^\s*\d+\.?\s*/, ""); }
 
   function computeGridSize(entries){

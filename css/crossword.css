@@ -11,6 +11,7 @@
     --pane-gap: 18px;
     --clue-track-size: max-content;
     --clue-stack-track-size: 1fr;
+    --viewport-height: 100vh;
     --full-size: 100%;
     --wrap-max-width: calc(100vw - var(--wrap-offset));
 }
@@ -30,14 +31,14 @@ body {
     color: #e9edff;
     display: grid;
     place-items: start center;
-    min-height: 100vh;
+    min-height: var(--viewport-height);
 }
 
 
 .wrap {
     width: fit-content;
     max-width: var(--wrap-max-width);
-    height: calc(100vh - var(--wrap-offset));
+    height: calc(var(--viewport-height) - var(--wrap-offset));
     overflow: hidden;
     background: rgba(255, 255, 255, .06);
     border: 1px solid rgba(255, 255, 255, .15);
