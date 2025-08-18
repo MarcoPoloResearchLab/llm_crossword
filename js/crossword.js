@@ -20,6 +20,44 @@
   const orientationChangeEventName = "orientationchange";
   /** viewportResizeEventNames lists events that can change the viewport height. */
   const viewportResizeEventNames = [resizeEventName, orientationChangeEventName];
+  /** cssCellSizeProperty holds the name of the custom property for cell size. */
+  const cssCellSizeProperty = "--cell-size";
+  /** cssGapSizeProperty holds the name of the custom property for gap size between cells. */
+  const cssGapSizeProperty = "--gap-size";
+  /** focusEventName identifies the focus event. */
+  const focusEventName = "focus";
+  /** blurEventName identifies the blur event. */
+  const blurEventName = "blur";
+  /** inputEventName identifies the input event. */
+  const inputEventName = "input";
+  /** pasteEventName identifies the paste event. */
+  const pasteEventName = "paste";
+  /** keydownEventName identifies the keydown event. */
+  const keydownEventName = "keydown";
+  /** mouseEnterEventName identifies the mouseenter event. */
+  const mouseEnterEventName = "mouseenter";
+  /** mouseLeaveEventName identifies the mouseleave event. */
+  const mouseLeaveEventName = "mouseleave";
+  /** clickEventName identifies the click event. */
+  const clickEventName = "click";
+  /** changeEventName identifies the change event. */
+  const changeEventName = "change";
+  /** mouseDownEventName identifies the mousedown event. */
+  const mouseDownEventName = "mousedown";
+  /** mouseUpEventName identifies the mouseup event. */
+  const mouseUpEventName = "mouseup";
+  /** mouseMoveEventName identifies the mousemove event. */
+  const mouseMoveEventName = "mousemove";
+  /** touchStartEventName identifies the touchstart event. */
+  const touchStartEventName = "touchstart";
+  /** touchEndEventName identifies the touchend event. */
+  const touchEndEventName = "touchend";
+  /** touchMoveEventName identifies the touchmove event. */
+  const touchMoveEventName = "touchmove";
+  /** currentRowCount holds the number of grid rows for cell size calculations. */
+  let currentRowCount = 0;
+  /** currentColumnCount holds the number of grid columns for cell size calculations. */
+  let currentColumnCount = 0;
 
   /** cssCellSizeProperty identifies the custom property for cell size. */
   const cssCellSizeProperty = "--cell-size";
@@ -36,12 +74,31 @@
     document.documentElement.style.setProperty(cssViewportHeightProperty, `${viewportHeight}px`);
   }
 
+  /** updateCellSizeVariables adjusts cell related custom properties to fit the viewport. */
+  function updateCellSizeVariables(rowCount, columnCount) {
+    if (!rowCount || !columnCount) return;
+    const rootStyles = getComputedStyle(document.documentElement);
+    const gapSize = parseFloat(rootStyles.getPropertyValue(cssGapSizeProperty)) || 0;
+    const viewportWidth = gridViewport.clientWidth;
+    const viewportHeight = gridViewport.clientHeight;
+    const widthAvailable = viewportWidth - (columnCount - 1) * gapSize;
+    const heightAvailable = viewportHeight - (rowCount - 1) * gapSize;
+    const cellSize = Math.floor(Math.min(widthAvailable / columnCount, heightAvailable / rowCount));
+    document.documentElement.style.setProperty(cssCellSizeProperty, `${cellSize}px`);
+  }
+
+  /** handleViewportResize updates viewport and cell size properties on resize-like events. */
+  function handleViewportResize() {
+    updateViewportHeightProperty();
+    updateCellSizeVariables(currentRowCount, currentColumnCount);
+  }
+
   updateViewportHeightProperty();
   if (window.visualViewport) {
-    window.visualViewport.addEventListener(resizeEventName, updateViewportHeightProperty);
+    window.visualViewport.addEventListener(resizeEventName, handleViewportResize);
   }
   for (const eventName of viewportResizeEventNames) {
-    window.addEventListener(eventName, updateViewportHeightProperty);
+    window.addEventListener(eventName, handleViewportResize);
   }
 
   /** updateCellSizeVariables adjusts the grid cell size to fit within the viewport. */
@@ -207,7 +264,12 @@
 
     const { model, across, down, rows, cols, getCell } = built;
 
-    updateCellSizeVariables(rows, cols);
+    currentRowCount = rows;
+    currentColumnCount = cols;
+    updateCellSizeVariables(currentRowCount, currentColumnCount);
+
+    gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
+    gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell-size))`;
 
     // --- Highlighting state/maps
     const clueById = new Map();      // id -> <li>
@@ -274,14 +336,14 @@
           addHL(d.belongs);
         };
 
-        input.addEventListener("focus", () => {
+        input.addEventListener(focusEventName, () => {
           const hasAcross = !!(d.links.across.prev || d.links.across.next);
           const hasDown   = !!(d.links.down.prev   || d.links.down.next);
           if (hasAcross && !hasDown) activeDir = "across";
           else if (!hasAcross && hasDown) activeDir = "down";
           updateWordHL();
         });
-        input.addEventListener("blur", () => {
+        input.addEventListener(blurEventName, () => {
           // keep highlight if new focus goes to another cell; we'll clear on next focus
           // but if the whole widget loses focus, remove highlight after a tick
           setTimeout(() => {
@@ -289,48 +351,48 @@
           }, 0);
         });
 
-        input.addEventListener("input",(e)=>{
-          let v = (e.target.value || "").replace(/[^A-Za-z]/g,"").toUpperCase();
-          if (v.length > 1) v = v.slice(-1);
-          e.target.value = v;
+        input.addEventListener(inputEventName,(event)=>{
+          let value = (event.target.value || "").replace(/[^A-Za-z]/g,"").toUpperCase();
+          if (value.length > 1) value = value.slice(-1);
+          event.target.value = value;
           cell.classList.remove("correct","wrong");
-          if (v) {
-            const nxt = step(d, activeDir, true);
-            if (nxt) focusCell(nxt.r, nxt.c);
+          if (value) {
+            const nextCell = step(d, activeDir, true);
+            if (nextCell) focusCell(nextCell.r, nextCell.c);
           }
         });
 
-        input.addEventListener("paste",(e)=>{
-          const text = (e.clipboardData || window.clipboardData).getData("text") || "";
+        input.addEventListener(pasteEventName,(event)=>{
+          const text = (event.clipboardData || window.clipboardData).getData("text") || "";
           const letters = text.toUpperCase().replace(/[^A-Z]/g,"").split("");
           if (letters.length === 0) return;
-          e.preventDefault();
-          let cur = d;
-          for (const ch of letters) {
-            if (!cur) break;
-            cur.input.value = ch;
-            cur.input.parentElement.classList.remove("correct","wrong");
-            cur = step(cur, activeDir, true);
+          event.preventDefault();
+          let currentCell = d;
+          for (const letter of letters) {
+            if (!currentCell) break;
+            currentCell.input.value = letter;
+            currentCell.input.parentElement.classList.remove("correct","wrong");
+            currentCell = step(currentCell, activeDir, true);
           }
-          if (cur) focusCell(cur.r, cur.c);
+          if (currentCell) focusCell(currentCell.r, currentCell.c);
         });
 
-        input.addEventListener("keydown",(e)=>{
-          const moveTo = (t)=>{ if(!t) return; focusCell(t.r, t.c); };
-          if (e.key === "ArrowLeft"){ e.preventDefault(); activeDir = "across"; moveTo(step(d,"across",false)); return; }
-          if (e.key === "ArrowRight"){ e.preventDefault(); activeDir = "across"; moveTo(step(d,"across",true));  return; }
-          if (e.key === "ArrowUp"){ e.preventDefault(); activeDir = "down"; moveTo(step(d,"down",false)); return; }
-          if (e.key === "ArrowDown"){ e.preventDefault(); activeDir = "down"; moveTo(step(d,"down",true));  return; }
-          if (e.key === "Tab"){
-            e.preventDefault();
-            const forward = !e.shiftKey;
-            const t = step(d, activeDir, forward);
-            if (t) moveTo(t);
+        input.addEventListener(keydownEventName,(event)=>{
+          const moveTo = (target)=>{ if(!target) return; focusCell(target.r, target.c); };
+          if (event.key === "ArrowLeft"){ event.preventDefault(); activeDir = "across"; moveTo(step(d,"across",false)); return; }
+          if (event.key === "ArrowRight"){ event.preventDefault(); activeDir = "across"; moveTo(step(d,"across",true));  return; }
+          if (event.key === "ArrowUp"){ event.preventDefault(); activeDir = "down"; moveTo(step(d,"down",false)); return; }
+          if (event.key === "ArrowDown"){ event.preventDefault(); activeDir = "down"; moveTo(step(d,"down",true));  return; }
+          if (event.key === "Tab"){
+            event.preventDefault();
+            const forward = !event.shiftKey;
+            const target = step(d, activeDir, forward);
+            if (target) moveTo(target);
             return;
           }
-          if (e.key === "Backspace" && !e.target.value){
-            const t = step(d, activeDir, false);
-            if (t){ e.preventDefault(); moveTo(t); }
+          if (event.key === "Backspace" && !event.target.value){
+            const target = step(d, activeDir, false);
+            if (target){ event.preventDefault(); moveTo(target); }
           }
         });
 
@@ -351,21 +413,19 @@
         li.textContent = `${ent.num}. ${sanitizeClue(ent.clue)} (${ent.answer.length})`;
 
         // highlight on hover
-        li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
-        li.addEventListener("mouseleave", () => { clearHL(); });
+        li.addEventListener(mouseEnterEventName, () => { clearHL(); addHL([ent.id]); });
+        li.addEventListener(mouseLeaveEventName, () => { clearHL(); });
 
         // CLICK -> focus first square of this entry
-        li.addEventListener("click", (e) => {
-          e.preventDefault();
+        li.addEventListener(clickEventName, (event) => {
+          event.preventDefault();
           const cells = cellsById.get(ent.id) || [];
           if (!cells.length) return;
-          activeDir = ent.dir;                   // set current typing direction
-          const first = cells[0];
-          first.input.focus();
-          first.input.select();
-          // bring into view if the grid is scrollable
-          first.el.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
-          // make sure the highlight reflects the focused word
+          activeDir = ent.dir;
+          const firstCell = cells[0];
+          firstCell.input.focus();
+          firstCell.input.select();
+          firstCell.el.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
           clearHL();
           addHL([ent.id]);
         });
@@ -417,40 +477,40 @@
       else          { hideAll();   revealBtn.textContent = "Reveal"; }
     };
 
-    selectEl.addEventListener("change", () => { revealed = false; revealBtn.textContent = "Reveal"; }, { once: true });
+    selectEl.addEventListener(changeEventName, () => { revealed = false; revealBtn.textContent = "Reveal"; }, { once: true });
   }
 
   (function enablePanning(){
     let isDragging=false, startX=0, startY=0, scrollLeft=0, scrollTop=0;
-    gridViewport.addEventListener("mousedown",(e)=>{
+    gridViewport.addEventListener(mouseDownEventName,(event)=>{
       isDragging=true; gridViewport.classList.add("dragging");
-      startX = e.pageX - gridViewport.offsetLeft;
-      startY = e.pageY - gridViewport.offsetTop;
+      startX = event.pageX - gridViewport.offsetLeft;
+      startY = event.pageY - gridViewport.offsetTop;
       scrollLeft = gridViewport.scrollLeft;
       scrollTop  = gridViewport.scrollTop;
     });
-    ["mouseleave","mouseup"].forEach(ev => gridViewport.addEventListener(ev, ()=>{ isDragging=false; gridViewport.classList.remove("dragging"); }));
-    gridViewport.addEventListener("mousemove",(e)=>{
+    [mouseLeaveEventName, mouseUpEventName].forEach(eventName => gridViewport.addEventListener(eventName, ()=>{ isDragging=false; gridViewport.classList.remove("dragging"); }));
+    gridViewport.addEventListener(mouseMoveEventName,(event)=>{
       if(!isDragging) return;
-      e.preventDefault();
-      const x = e.pageX - gridViewport.offsetLeft;
-      const y = e.pageY - gridViewport.offsetTop;
-      gridViewport.scrollLeft = scrollLeft - (x - startX);
-      gridViewport.scrollTop  = scrollTop  - (y - startY);
+      event.preventDefault();
+      const pointerX = event.pageX - gridViewport.offsetLeft;
+      const pointerY = event.pageY - gridViewport.offsetTop;
+      gridViewport.scrollLeft = scrollLeft - (pointerX - startX);
+      gridViewport.scrollTop  = scrollTop  - (pointerY - startY);
     });
-    gridViewport.addEventListener("touchstart",(e)=>{
-      const t=e.touches[0]; isDragging=true;
-      startX=t.pageX - gridViewport.offsetLeft; startY=t.pageY - gridViewport.offsetTop;
+    gridViewport.addEventListener(touchStartEventName,(event)=>{
+      const touch=event.touches[0]; isDragging=true;
+      startX=touch.pageX - gridViewport.offsetLeft; startY=touch.pageY - gridViewport.offsetTop;
       scrollLeft=gridViewport.scrollLeft; scrollTop=gridViewport.scrollTop;
     },{passive:true});
-    gridViewport.addEventListener("touchend",()=>{ isDragging=false; },{passive:true});
-    gridViewport.addEventListener("touchmove",(e)=>{
+    gridViewport.addEventListener(touchEndEventName,()=>{ isDragging=false; },{passive:true});
+    gridViewport.addEventListener(touchMoveEventName,(event)=>{
       if(!isDragging) return;
-      const t=e.touches[0];
-      const x=t.pageX - gridViewport.offsetLeft;
-      const y=t.pageY - gridViewport.offsetTop;
-      gridViewport.scrollLeft = scrollLeft - (x - startX);
-      gridViewport.scrollTop  = scrollTop  - (y - startY);
+      const touch=event.touches[0];
+      const pointerX=touch.pageX - gridViewport.offsetLeft;
+      const pointerY=touch.pageY - gridViewport.offsetTop;
+      gridViewport.scrollLeft = scrollLeft - (pointerX - startX);
+      gridViewport.scrollTop  = scrollTop  - (pointerY - startY);
     },{passive:true});
   })();
 
@@ -459,8 +519,8 @@
     opt.value = idx; opt.textContent = p.title;
     document.getElementById("puzzleSelect").appendChild(opt);
   });
-  document.getElementById("puzzleSelect").addEventListener("change", (e)=>{
-    render(CROSSWORD_PUZZLES[Number(e.target.value)]);
+  document.getElementById("puzzleSelect").addEventListener(changeEventName, (event)=>{
+    render(CROSSWORD_PUZZLES[Number(event.target.value)]);
   });
   document.getElementById("puzzleSelect").value = 0;
   render(CROSSWORD_PUZZLES[0]);
