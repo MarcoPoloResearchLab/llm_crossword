@@ -1,423 +1,439 @@
 /* crossword.js - renderer for array payload with explicit placements & overlaps */
-(function () {
+ (function () {
   "use strict";
 
-  const gridViewport = document.getElementById("gridViewport");
-  const gridEl   = document.getElementById("grid");
-  const acrossOl = document.getElementById("across");
-  const downOl   = document.getElementById("down");
-  const statusEl = document.getElementById("status");
+  const DIRECTION_ACROSS = "across";
+  const DIRECTION_DOWN = "down";
+  const GRID_VIEWPORT_ID = "gridViewport";
+  const CLASS_DRAGGING = "dragging";
+  const CLASS_HIGHLIGHT = "hl";
+  const CLASS_CLUE_HIGHLIGHT = "clueHL";
+  const CLASS_CORRECT = "correct";
+  const CLASS_WRONG = "wrong";
+  const CLASS_OK = "ok";
+  const TEXT_HIDE = "Hide";
+  const TEXT_REVEAL = "Reveal";
+  const MESSAGE_REVEALED = "Revealed.";
+  const MESSAGE_ALL_CORRECT = "All correct — nice!";
+  const MESSAGE_CHECKED = "Checked.";
+
+  const gridViewport = document.getElementById(GRID_VIEWPORT_ID);
+  const gridElement = document.getElementById("grid");
+  const acrossListElement = document.getElementById("across");
+  const downListElement = document.getElementById("down");
+  const statusElement = document.getElementById("status");
   const errorBox = document.getElementById("errorBox");
-  const titleEl  = document.getElementById("title");
-  const subEl    = document.getElementById("subtitle");
-  const selectEl = document.getElementById("puzzleSelect");
+  const titleElement = document.getElementById("title");
+  const subtitleElement = document.getElementById("subtitle");
+  const puzzleSelect = document.getElementById("puzzleSelect");
 
-  function sanitizeClue(text) { return (text || "").replace(/^\s*\d+\.?\s*/, ""); }
+  /** sanitizeClue removes leading numbers from a clue. */
+  function sanitizeClue(clueText) { return (clueText || "").replace(/^\s*\d+\.?\s*/, ""); }
 
-  function computeGridSize(entries){
-    let minRow = Infinity, minCol = Infinity;
-    let maxRow = -1,       maxCol = -1;
-    for (const e of entries){
-      minRow = Math.min(minRow, e.row);
-      minCol = Math.min(minCol, e.col);
-      if (e.dir === "across") {
-        maxRow = Math.max(maxRow, e.row);
-        maxCol = Math.max(maxCol, e.col + e.answer.length - 1);
+  /** computeGridSize derives grid dimensions from entries. */
+  function computeGridSize(entryList){
+    let minRow = Infinity;
+    let minCol = Infinity;
+    let maxRow = -1;
+    let maxCol = -1;
+    for (const entry of entryList){
+      minRow = Math.min(minRow, entry.row);
+      minCol = Math.min(minCol, entry.col);
+      if (entry.dir === DIRECTION_ACROSS) {
+        maxRow = Math.max(maxRow, entry.row);
+        maxCol = Math.max(maxCol, entry.col + entry.answer.length - 1);
       } else {
-        maxRow = Math.max(maxRow, e.row + e.answer.length - 1);
-        maxCol = Math.max(maxCol, e.col);
+        maxRow = Math.max(maxRow, entry.row + entry.answer.length - 1);
+        maxCol = Math.max(maxCol, entry.col);
       }
     }
-    if (!isFinite(minRow)) { minRow = 0; minCol = 0; maxRow = 0; maxCol = 0; }
+    if (!isFinite(minRow)) {
+      minRow = 0;
+      minCol = 0;
+      maxRow = 0;
+      maxCol = 0;
+    }
     return { rows: (maxRow - minRow + 1), cols: (maxCol - minCol + 1), offsetRow: minRow, offsetCol: minCol };
   }
 
-  function validatePayload(p){
-    const e = [];
-    if (!p || typeof p !== "object") e.push("Payload missing.");
-    if (!Array.isArray(p.entries) || p.entries.length === 0) e.push("entries[] is required.");
+  /** validatePayload checks the structure of a puzzle payload. */
+  function validatePayload(payload){
+    const errors = [];
+    if (!payload || typeof payload !== "object") errors.push("Payload missing.");
+    if (!Array.isArray(payload.entries) || payload.entries.length === 0) errors.push("entries[] is required.");
 
-    const byId = new Map();
-    for (const ent of p.entries) {
-      for (const k of ["id","dir","row","col","answer","clue"]) {
-        if (ent[k] === undefined) e.push(`Entry missing ${k}: ${JSON.stringify(ent)}`);
+    const entriesById = new Map();
+    for (const entry of payload.entries) {
+      for (const key of ["id","dir","row","col","answer","clue"]) {
+        if (entry[key] === undefined) errors.push(`Entry missing ${key}: ${JSON.stringify(entry)}`);
       }
-      if (!/^(across|down)$/.test(ent.dir)) e.push(`Bad dir for ${ent.id}`);
-      if (!/^[A-Za-z]+$/.test(ent.answer)) e.push(`Non-letters in answer for ${ent.id}`);
-      if (byId.has(ent.id)) e.push(`Duplicate id: ${ent.id}`);
-      byId.set(ent.id, ent);
+      if (!/^(across|down)$/.test(entry.dir)) errors.push(`Bad dir for ${entry.id}`);
+      if (!/^[A-Za-z]+$/.test(entry.answer)) errors.push(`Non-letters in answer for ${entry.id}`);
+      if (entriesById.has(entry.id)) errors.push(`Duplicate id: ${entry.id}`);
+      entriesById.set(entry.id, entry);
     }
 
-    if (!Array.isArray(p.overlaps)) e.push("overlaps[] is required (can be empty).");
+    if (!Array.isArray(payload.overlaps)) errors.push("overlaps[] is required (can be empty).");
     else {
-      for (const o of p.overlaps) {
-        if (o.a==null||o.b==null||o.aIndex==null||o.bIndex==null){ e.push(`Bad overlap: ${JSON.stringify(o)}`); continue; }
-        const a = byId.get(o.a), b = byId.get(o.b);
-        if (!a || !b) { e.push(`Overlap refers to unknown id: ${JSON.stringify(o)}`); continue; }
-        const ar = a.dir==="across" ? a.row : a.row + o.aIndex;
-        const ac = a.dir==="across" ? a.col + o.aIndex : a.col;
-        const br = b.dir==="across" ? b.row : b.row + o.bIndex;
-        const bc = b.dir==="across" ? b.col + o.bIndex : b.col;
-        if (ar!==br || ac!==bc) e.push(`Overlap coords mismatch for ${o.a}~${o.b}`);
-        const ca = a.answer[o.aIndex].toUpperCase();
-        const cb = b.answer[o.bIndex].toUpperCase();
-        if (ca !== cb) e.push(`Overlap letter mismatch ${o.a}(${ca}) vs ${o.b}(${cb})`);
+      for (const overlap of payload.overlaps) {
+        if (overlap.a==null||overlap.b==null||overlap.aIndex==null||overlap.bIndex==null){ errors.push(`Bad overlap: ${JSON.stringify(overlap)}`); continue; }
+        const entryA = entriesById.get(overlap.a), entryB = entriesById.get(overlap.b);
+        if (!entryA || !entryB) { errors.push(`Overlap refers to unknown id: ${JSON.stringify(overlap)}`); continue; }
+        const rowA = entryA.dir===DIRECTION_ACROSS ? entryA.row : entryA.row + overlap.aIndex;
+        const colA = entryA.dir===DIRECTION_ACROSS ? entryA.col + overlap.aIndex : entryA.col;
+        const rowB = entryB.dir===DIRECTION_ACROSS ? entryB.row : entryB.row + overlap.bIndex;
+        const colB = entryB.dir===DIRECTION_ACROSS ? entryB.col + overlap.bIndex : entryB.col;
+        if (rowA!==rowB || colA!==colB) errors.push(`Overlap coords mismatch for ${overlap.a}~${overlap.b}`);
+        const charA = entryA.answer[overlap.aIndex].toUpperCase();
+        const charB = entryB.answer[overlap.bIndex].toUpperCase();
+        if (charA !== charB) errors.push(`Overlap letter mismatch ${overlap.a}(${charA}) vs ${overlap.b}(${charB})`);
       }
     }
-    return e;
+    return errors;
   }
 
-  function buildModel(p, rows, cols, offsetRow, offsetCol){
-    const model = Array.from({length: rows}, (_, r) =>
-        Array.from({length: cols}, (_, c) => ({
-          r, c, block: true, sol: null, num: null, input: null, prev: "",
+  /** buildModel constructs the internal grid representation. */
+  function buildModel(payload, rowCount, columnCount, rowOffset, columnOffset){
+    const model = Array.from({length: rowCount}, (_, rowIndex) =>
+        Array.from({length: columnCount}, (_, columnIndex) => ({
+          row: rowIndex,
+          col: columnIndex,
+          block: true,
+          solution: null,
+          number: null,
+          input: null,
+          previous: "",
           links: { across: {prev:null,next:null}, down: {prev:null,next:null} },
-          belongs: new Set(),   // <- entry ids this cell belongs to
-          el: null              // <- DOM node reference later
+          belongs: new Set(),
+          element: null
         }))
     );
-    const getCell = (r,c) => (model[r] && model[r][c]) || null;
+    const getCell = (rowIndex,columnIndex) => (model[rowIndex] && model[rowIndex][columnIndex]) || null;
 
-    // place letters
-    for (const ent of p.entries) {
-      const L = ent.answer.length;
-      for (let i = 0; i < L; i++) {
-        const r = (ent.dir === "across" ? ent.row         : ent.row + i) - offsetRow;
-        const c = (ent.dir === "across" ? ent.col + i     : ent.col    ) - offsetCol;
-        const ch = ent.answer[i].toUpperCase();
-        const cell = model[r][c];
+    for (const entry of payload.entries) {
+      const entryLength = entry.answer.length;
+      for (let offset = 0; offset < entryLength; offset++) {
+        const rowIndex = (entry.dir === DIRECTION_ACROSS ? entry.row         : entry.row + offset) - rowOffset;
+        const columnIndex = (entry.dir === DIRECTION_ACROSS ? entry.col + offset     : entry.col    ) - columnOffset;
+        const character = entry.answer[offset].toUpperCase();
+        const cell = model[rowIndex][columnIndex];
         cell.block = false;
-        if (cell.sol && cell.sol !== ch) throw new Error(`Conflict at (${r},${c})`);
-        cell.sol = ch;
-        cell.belongs.add(ent.id);
+        if (cell.solution && cell.solution !== character) throw new Error(`Conflict at (${rowIndex},${columnIndex})`);
+        cell.solution = character;
+        cell.belongs.add(entry.id);
       }
     }
 
-    const refsById = new Map(p.entries.map(e => [e.id, { ...e }]));
+    const referencesById = new Map(payload.entries.map(entry => [entry.id, { ...entry }]));
 
     const starts = new Map();
-    for (const ent of p.entries) {
-      const r0 = ent.row - offsetRow;
-      const c0 = ent.col - offsetCol;
-      const k = `${r0}:${c0}`;
-      const slot = starts.get(k) || {};
-      slot[ent.dir] = refsById.get(ent.id);
-      starts.set(k, slot);
+    for (const entry of payload.entries) {
+      const startRow = entry.row - rowOffset;
+      const startCol = entry.col - columnOffset;
+      const key = `${startRow}:${startCol}`;
+      const slot = starts.get(key) || {};
+      slot[entry.dir] = referencesById.get(entry.id);
+      starts.set(key, slot);
     }
 
-    // build navigation links along each entry
-    for (const ent of p.entries) {
-      const L = ent.answer.length;
-      for (let i = 0; i < L; i++) {
-        const r = (ent.dir === "across" ? ent.row         : ent.row + i) - offsetRow;
-        const c = (ent.dir === "across" ? ent.col + i     : ent.col    ) - offsetCol;
-        const cell = getCell(r,c);
-        const dir = ent.dir;
+    for (const entry of payload.entries) {
+      const entryLength = entry.answer.length;
+      for (let offset = 0; offset < entryLength; offset++) {
+        const rowIndex = (entry.dir === DIRECTION_ACROSS ? entry.row         : entry.row + offset) - rowOffset;
+        const columnIndex = (entry.dir === DIRECTION_ACROSS ? entry.col + offset     : entry.col    ) - columnOffset;
+        const cell = getCell(rowIndex,columnIndex);
+        const direction = entry.dir;
         if (!cell) continue;
-        if (i > 0)  cell.links[dir].prev = { r: dir==="across" ? r : r-1, c: dir==="across" ? c-1 : c };
-        if (i < L-1)cell.links[dir].next = { r: dir==="across" ? r : r+1, c: dir==="across" ? c+1 : c };
+        if (offset > 0)  cell.links[direction].prev = { row: direction===DIRECTION_ACROSS ? rowIndex : rowIndex-1, col: direction===DIRECTION_ACROSS ? columnIndex-1 : columnIndex };
+        if (offset < entryLength-1)cell.links[direction].next = { row: direction===DIRECTION_ACROSS ? rowIndex : rowIndex+1, col: direction===DIRECTION_ACROSS ? columnIndex+1 : columnIndex };
       }
     }
 
-    let nextNum = 1;
-    const across = [];
-    const down   = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const slot = starts.get(`${r}:${c}`);
+    let nextNumber = 1;
+    const acrossEntries = [];
+    const downEntries   = [];
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
+        const slot = starts.get(`${rowIndex}:${columnIndex}`);
         if (!slot) continue;
-        if (model[r][c].block) continue;
-        model[r][c].num = nextNum;
-        if (slot.across) { slot.across.num = nextNum; across.push(slot.across); }
-        if (slot.down)   { slot.down.num   = nextNum; down.push(slot.down); }
-        nextNum++;
+        if (model[rowIndex][columnIndex].block) continue;
+        model[rowIndex][columnIndex].number = nextNumber;
+        if (slot.across) { slot.across.num = nextNumber; acrossEntries.push(slot.across); }
+        if (slot.down)   { slot.down.num   = nextNumber; downEntries.push(slot.down); }
+        nextNumber++;
       }
     }
-    across.sort((a,b) => a.num - b.num);
-    down.sort((a,b)   => a.num - b.num);
+    acrossEntries.sort((entryA,entryB) => entryA.num - entryB.num);
+    downEntries.sort((entryA,entryB)   => entryA.num - entryB.num);
 
-    return { model, across, down, rows, cols, getCell, refsById };
+    return { model, across: acrossEntries, down: downEntries, rows: rowCount, cols: columnCount, getCell, referencesById };
   }
 
-  function render(p){
-    titleEl.textContent = p.title || "Crossword";
-    subEl.textContent   = p.subtitle || "";
+  /** render displays a puzzle. */
+  function render(payload){
+    titleElement.textContent = payload.title || "Crossword";
+    subtitleElement.textContent = payload.subtitle || "";
 
-    statusEl.textContent = ""; statusEl.classList.remove("ok");
-    gridEl.innerHTML = ""; acrossOl.innerHTML = ""; downOl.innerHTML = "";
-    errorBox.style.display = "none"; errorBox.textContent = "";
+    statusElement.textContent = "";
+    statusElement.classList.remove(CLASS_OK);
+    gridElement.innerHTML = "";
+    acrossListElement.innerHTML = "";
+    downListElement.innerHTML = "";
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
 
-    const errors = validatePayload(p);
+    const errors = validatePayload(payload);
     if (errors.length){
       errorBox.style.display = "block";
       errorBox.textContent = "Payload error:\n• " + errors.join("\n• ");
       return;
     }
 
-    const size = computeGridSize(p.entries);
-    let built;
-    try { built = buildModel(p, size.rows, size.cols, size.offsetRow, size.offsetCol); }
+    const gridSize = computeGridSize(payload.entries);
+    let modelData;
+    try { modelData = buildModel(payload, gridSize.rows, gridSize.cols, gridSize.offsetRow, gridSize.offsetCol); }
     catch (err) { errorBox.style.display = "block"; errorBox.textContent = "Placement conflict: " + err.message; return; }
 
-    const { model, across, down, rows, cols, getCell } = built;
+    const { model, across: acrossEntries, down: downEntries, rows, cols, getCell } = modelData;
 
-    // define grid size (rows *and* cols)
-    gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
-    gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell-size))`;
+    gridElement.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
+    gridElement.style.gridTemplateRows    = `repeat(${rows}, var(--cell-size))`;
 
-    // --- Highlighting state/maps
-    const clueById = new Map();      // id -> <li>
-    const cellsById = new Map();     // id -> array of cell objects (for fast highlight)
-    for (const ent of [...across, ...down]) {
-      const arr = [];
-      for (let i = 0; i < ent.answer.length; i++) {
-        const r = ent.dir === "across" ? ent.row - size.offsetRow : ent.row - size.offsetRow + i;
-        const c = ent.dir === "across" ? ent.col - size.offsetCol + i : ent.col - size.offsetCol;
-        arr.push(getCell(r,c));
+    const clueById = new Map();
+    const cellsById = new Map();
+    for (const entry of [...acrossEntries, ...downEntries]) {
+      const cellArray = [];
+      for (let offset = 0; offset < entry.answer.length; offset++) {
+        const rowIndex = entry.dir === DIRECTION_ACROSS ? entry.row - gridSize.offsetRow : entry.row - gridSize.offsetRow + offset;
+        const columnIndex = entry.dir === DIRECTION_ACROSS ? entry.col - gridSize.offsetCol + offset : entry.col - gridSize.offsetCol;
+        cellArray.push(getCell(rowIndex,columnIndex));
       }
-      cellsById.set(ent.id, arr);
+      cellsById.set(entry.id, cellArray);
     }
 
-    const addHL = (ids) => {
-      // highlight cells
+    const addHighlight = (ids) => {
       for (const id of ids) {
         const cells = cellsById.get(id) || [];
-        for (const cell of cells) cell.el.classList.add("hl");
-        const li = clueById.get(id);
-        if (li) li.classList.add("clueHL");
+        for (const cell of cells) cell.element.classList.add(CLASS_HIGHLIGHT);
+        const listItem = clueById.get(id);
+        if (listItem) listItem.classList.add(CLASS_CLUE_HIGHLIGHT);
       }
     };
-    const clearHL = () => {
-      gridEl.querySelectorAll(".hl").forEach(n => n.classList.remove("hl"));
-      acrossOl.querySelectorAll(".clueHL").forEach(n => n.classList.remove("clueHL"));
-      downOl.querySelectorAll(".clueHL").forEach(n => n.classList.remove("clueHL"));
+    const clearHighlight = () => {
+      gridElement.querySelectorAll("." + CLASS_HIGHLIGHT).forEach(node => node.classList.remove(CLASS_HIGHLIGHT));
+      acrossListElement.querySelectorAll("." + CLASS_CLUE_HIGHLIGHT).forEach(node => node.classList.remove(CLASS_CLUE_HIGHLIGHT));
+      downListElement.querySelectorAll("." + CLASS_CLUE_HIGHLIGHT).forEach(node => node.classList.remove(CLASS_CLUE_HIGHLIGHT));
     };
 
-    // nav helpers
-    let activeDir = "across";
-    const focusCell = (r,c) => {
-      const d = getCell(r,c);
-      if (!d || d.block) return;
-      d.input.focus(); d.input.select();
+    let activeDirection = DIRECTION_ACROSS;
+    const focusCell = (rowIndex,columnIndex) => {
+      const cell = getCell(rowIndex,columnIndex);
+      if (!cell || cell.block) return;
+      cell.input.focus();
+      cell.input.select();
     };
-    const step = (d, dir, forward=true) => {
-      const link = d.links[dir][forward ? "next" : "prev"];
+    const stepCell = (cell, direction, forward=true) => {
+      const link = cell.links[direction][forward ? "next" : "prev"];
       if (!link) return null;
-      const t = getCell(link.r, link.c);
-      return (t && !t.block) ? t : null;
+      const target = getCell(link.row, link.col);
+      return (target && !target.block) ? target : null;
     };
 
-    // draw only real cells and place them at exact grid coords
-    for (let r=0;r<rows;r++){
-      for (let c=0;c<cols;c++){
-        const d = model[r][c];
-        if (d.block) continue;
+    for (let rowIndex=0;rowIndex<rows;rowIndex++){
+      for (let columnIndex=0;columnIndex<cols;columnIndex++){
+        const cellData = model[rowIndex][columnIndex];
+        if (cellData.block) continue;
 
-        const cell = document.createElement("div");
-        cell.className = "cell";
-        cell.style.gridRowStart = (r + 1);
-        cell.style.gridColumnStart = (c + 1);
-        d.el = cell;
+        const cellElement = document.createElement("div");
+        cellElement.className = "cell";
+        cellElement.style.gridRowStart = (rowIndex + 1);
+        cellElement.style.gridColumnStart = (columnIndex + 1);
+        cellData.element = cellElement;
 
         const input = document.createElement("input");
         input.maxLength = 1;
-        input.setAttribute("aria-label", `Row ${r+1} Col ${c+1}`);
-        d.input = input;
+        input.setAttribute("aria-label", `Row ${rowIndex+1} Col ${columnIndex+1}`);
+        cellData.input = input;
 
-        const updateWordHL = () => {
-          // highlight every entry this cell participates in
-          clearHL();
-          addHL(d.belongs);
-        };
+        const updateWordHighlight = () => { clearHighlight(); addHighlight(cellData.belongs); };
 
         input.addEventListener("focus", () => {
-          const hasAcross = !!(d.links.across.prev || d.links.across.next);
-          const hasDown   = !!(d.links.down.prev   || d.links.down.next);
-          if (hasAcross && !hasDown) activeDir = "across";
-          else if (!hasAcross && hasDown) activeDir = "down";
-          updateWordHL();
+          const hasAcross = !!(cellData.links.across.prev || cellData.links.across.next);
+          const hasDown   = !!(cellData.links.down.prev   || cellData.links.down.next);
+          if (hasAcross && !hasDown) activeDirection = DIRECTION_ACROSS;
+          else if (!hasAcross && hasDown) activeDirection = DIRECTION_DOWN;
+          updateWordHighlight();
         });
         input.addEventListener("blur", () => {
-          // keep highlight if new focus goes to another cell; we'll clear on next focus
-          // but if the whole widget loses focus, remove highlight after a tick
           setTimeout(() => {
-            if (!gridEl.contains(document.activeElement)) clearHL();
+            if (!gridElement.contains(document.activeElement)) clearHighlight();
           }, 0);
         });
 
-        input.addEventListener("input",(e)=>{
-          let v = (e.target.value || "").replace(/[^A-Za-z]/g,"").toUpperCase();
-          if (v.length > 1) v = v.slice(-1);
-          e.target.value = v;
-          cell.classList.remove("correct","wrong");
-          if (v) {
-            const nxt = step(d, activeDir, true);
-            if (nxt) focusCell(nxt.r, nxt.c);
+        input.addEventListener("input",(event)=>{
+          let value = (event.target.value || "").replace(/[^A-Za-z]/g,"").toUpperCase();
+          if (value.length > 1) value = value.slice(-1);
+          event.target.value = value;
+          cellElement.classList.remove(CLASS_CORRECT,CLASS_WRONG);
+          if (value) {
+            const nextCell = stepCell(cellData, activeDirection, true);
+            if (nextCell) focusCell(nextCell.row, nextCell.col);
           }
         });
 
-        input.addEventListener("paste",(e)=>{
-          const text = (e.clipboardData || window.clipboardData).getData("text") || "";
+        input.addEventListener("paste",(event)=>{
+          const text = (event.clipboardData || window.clipboardData).getData("text") || "";
           const letters = text.toUpperCase().replace(/[^A-Z]/g,"").split("");
           if (letters.length === 0) return;
-          e.preventDefault();
-          let cur = d;
-          for (const ch of letters) {
-            if (!cur) break;
-            cur.input.value = ch;
-            cur.input.parentElement.classList.remove("correct","wrong");
-            cur = step(cur, activeDir, true);
+          event.preventDefault();
+          let current = cellData;
+          for (const character of letters) {
+            if (!current) break;
+            current.input.value = character;
+            current.input.parentElement.classList.remove(CLASS_CORRECT,CLASS_WRONG);
+            current = stepCell(current, activeDirection, true);
           }
-          if (cur) focusCell(cur.r, cur.c);
+          if (current) focusCell(current.row, current.col);
         });
-
-        input.addEventListener("keydown",(e)=>{
-          const moveTo = (t)=>{ if(!t) return; focusCell(t.r, t.c); };
-          if (e.key === "ArrowLeft"){ e.preventDefault(); activeDir = "across"; moveTo(step(d,"across",false)); return; }
-          if (e.key === "ArrowRight"){ e.preventDefault(); activeDir = "across"; moveTo(step(d,"across",true));  return; }
-          if (e.key === "ArrowUp"){ e.preventDefault(); activeDir = "down"; moveTo(step(d,"down",false)); return; }
-          if (e.key === "ArrowDown"){ e.preventDefault(); activeDir = "down"; moveTo(step(d,"down",true));  return; }
-          if (e.key === "Tab"){
-            e.preventDefault();
-            const forward = !e.shiftKey;
-            const t = step(d, activeDir, forward);
-            if (t) moveTo(t);
+        input.addEventListener("keydown",(event)=>{
+          const moveTo = (target)=>{ if(!target) return; focusCell(target.row, target.col); };
+          if (event.key === "ArrowLeft"){ event.preventDefault(); activeDirection = DIRECTION_ACROSS; moveTo(stepCell(cellData,DIRECTION_ACROSS,false)); return; }
+          if (event.key === "ArrowRight"){ event.preventDefault(); activeDirection = DIRECTION_ACROSS; moveTo(stepCell(cellData,DIRECTION_ACROSS,true));  return; }
+          if (event.key === "ArrowUp"){ event.preventDefault(); activeDirection = DIRECTION_DOWN; moveTo(stepCell(cellData,DIRECTION_DOWN,false)); return; }
+          if (event.key === "ArrowDown"){ event.preventDefault(); activeDirection = DIRECTION_DOWN; moveTo(stepCell(cellData,DIRECTION_DOWN,true));  return; }
+          if (event.key === "Tab"){
+            event.preventDefault();
+            const forward = !event.shiftKey;
+            const target = stepCell(cellData, activeDirection, forward);
+            if (target) moveTo(target);
             return;
           }
-          if (e.key === "Backspace" && !e.target.value){
-            const t = step(d, activeDir, false);
-            if (t){ e.preventDefault(); moveTo(t); }
+          if (event.key === "Backspace" && !event.target.value){
+            const target = stepCell(cellData, activeDirection, false);
+            if (target){ event.preventDefault(); moveTo(target); }
           }
         });
 
-        if (d.num){
-          const n=document.createElement("div"); n.className="num"; n.textContent=d.num; cell.appendChild(n);
+        if (cellData.number){
+          const numberElement=document.createElement("div"); numberElement.className="num"; numberElement.textContent=cellData.number; cellElement.appendChild(numberElement);
         }
-        cell.appendChild(input);
-        gridEl.appendChild(cell);
+        cellElement.appendChild(input);
+        gridElement.appendChild(cellElement);
       }
     }
 
-    // clues (create <li>, index by entry id, add hover highlight)
-// clues (create <li>, index by entry id, add hover H/L + click-to-focus)
-    function put(ol, list){
-      for (const ent of list){
-        const li = document.createElement("li");
-        li.dataset.entryId = ent.id;
-        li.textContent = `${ent.num}. ${sanitizeClue(ent.clue)} (${ent.answer.length})`;
-
-        // highlight on hover
-        li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
-        li.addEventListener("mouseleave", () => { clearHL(); });
-
-        // CLICK -> focus first square of this entry
-        li.addEventListener("click", (e) => {
-          e.preventDefault();
-          const cells = cellsById.get(ent.id) || [];
+    function appendClues(listElement, entries){
+      for (const entry of entries){
+        const listItem = document.createElement("li");
+        listItem.dataset.entryId = entry.id;
+        listItem.textContent = `${entry.num}. ${sanitizeClue(entry.clue)} (${entry.answer.length})`;
+        listItem.addEventListener("mouseenter", () => { clearHighlight(); addHighlight([entry.id]); });
+        listItem.addEventListener("mouseleave", () => { clearHighlight(); });
+        listItem.addEventListener("click", (event) => {
+          event.preventDefault();
+          const cells = cellsById.get(entry.id) || [];
           if (!cells.length) return;
-          activeDir = ent.dir;                   // set current typing direction
+          activeDirection = entry.dir;
           const first = cells[0];
           first.input.focus();
           first.input.select();
-          // bring into view if the grid is scrollable
-          first.el.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
-          // make sure the highlight reflects the focused word
-          clearHL();
-          addHL([ent.id]);
+          first.element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+          clearHighlight();
+          addHighlight([entry.id]);
         });
-
-        clueById.set(ent.id, li);
-        ol.appendChild(li);
+        clueById.set(entry.id, listItem);
+        listElement.appendChild(listItem);
       }
     }
-    put(acrossOl, across); put(downOl, down);
+    appendClues(acrossListElement, acrossEntries); appendClues(downListElement, downEntries);
 
-    const checkBtn  = document.getElementById("check");
-    const revealBtn = document.getElementById("reveal");
+    const checkButton  = document.getElementById("check");
+    const revealButton = document.getElementById("reveal");
     let revealed = false;
 
     const revealAll = () => {
-      for (const row of model) for (const d of row) if(!d.block){
-        d.prev = d.input.value || "";
-        d.input.value = d.sol;
-        d.input.parentElement.classList.remove("wrong");
-        d.input.parentElement.classList.add("correct");
+      for (const row of model) for (const cell of row) if(!cell.block){
+        cell.previous = cell.input.value || "";
+        cell.input.value = cell.solution;
+        cell.input.parentElement.classList.remove(CLASS_WRONG);
+        cell.input.parentElement.classList.add(CLASS_CORRECT);
       }
-      statusEl.textContent = "Revealed.";
-      statusEl.classList.remove("ok");
+      statusElement.textContent = MESSAGE_REVEALED;
+      statusElement.classList.remove(CLASS_OK);
     };
     const hideAll = () => {
-      for (const row of model) for (const d of row) if(!d.block){
-        d.input.value = d.prev || "";
-        d.input.parentElement.classList.remove("correct","wrong");
+      for (const row of model) for (const cell of row) if(!cell.block){
+        cell.input.value = cell.previous || "";
+        cell.input.parentElement.classList.remove(CLASS_CORRECT,CLASS_WRONG);
       }
-      statusEl.textContent = "";
-      statusEl.classList.remove("ok");
+      statusElement.textContent = "";
+      statusElement.classList.remove(CLASS_OK);
     };
 
-    checkBtn.onclick = () => {
-      let all=true;
-      for (const row of model) for (const d of row) if(!d.block){
-        const v=(d.input.value||"").toUpperCase();
-        d.input.parentElement.classList.remove("correct","wrong");
-        if (!v || v!==d.sol){ all=false; if(v) d.input.parentElement.classList.add("wrong"); }
-        else d.input.parentElement.classList.add("correct");
+    checkButton.onclick = () => {
+      let allCorrect=true;
+      for (const row of model) for (const cell of row) if(!cell.block){
+        const value=(cell.input.value||"").toUpperCase();
+        cell.input.parentElement.classList.remove(CLASS_CORRECT,CLASS_WRONG);
+        if (!value || value!==cell.solution){ allCorrect=false; if(value) cell.input.parentElement.classList.add(CLASS_WRONG); }
+        else cell.input.parentElement.classList.add(CLASS_CORRECT);
       }
-      statusEl.textContent = all ? "All correct — nice!" : "Checked.";
-      statusEl.classList.toggle("ok", all);
+      statusElement.textContent = allCorrect ? MESSAGE_ALL_CORRECT : MESSAGE_CHECKED;
+      statusElement.classList.toggle(CLASS_OK, allCorrect);
     };
 
-    revealBtn.onclick = () => {
+    revealButton.onclick = () => {
       revealed = !revealed;
-      if (revealed) { revealAll(); revealBtn.textContent = "Hide"; }
-      else          { hideAll();   revealBtn.textContent = "Reveal"; }
+      if (revealed) { revealAll(); revealButton.textContent = TEXT_HIDE; }
+      else          { hideAll();   revealButton.textContent = TEXT_REVEAL; }
     };
 
-    selectEl.addEventListener("change", () => { revealed = false; revealBtn.textContent = "Reveal"; }, { once: true });
+    puzzleSelect.addEventListener("change", () => { revealed = false; revealButton.textContent = TEXT_REVEAL; }, { once: true });
   }
 
+  /** enablePanning adds mouse and touch panning to the grid viewport. */
   (function enablePanning(){
     let isDragging=false, startX=0, startY=0, scrollLeft=0, scrollTop=0;
-    gridViewport.addEventListener("mousedown",(e)=>{
-      isDragging=true; gridViewport.classList.add("dragging");
-      startX = e.pageX - gridViewport.offsetLeft;
-      startY = e.pageY - gridViewport.offsetTop;
+    gridViewport.addEventListener("mousedown",(event)=>{
+      isDragging=true; gridViewport.classList.add(CLASS_DRAGGING);
+      startX = event.pageX - gridViewport.offsetLeft;
+      startY = event.pageY - gridViewport.offsetTop;
       scrollLeft = gridViewport.scrollLeft;
       scrollTop  = gridViewport.scrollTop;
     });
-    ["mouseleave","mouseup"].forEach(ev => gridViewport.addEventListener(ev, ()=>{ isDragging=false; gridViewport.classList.remove("dragging"); }));
-    gridViewport.addEventListener("mousemove",(e)=>{
+    ["mouseleave","mouseup"].forEach(eventName => gridViewport.addEventListener(eventName, ()=>{ isDragging=false; gridViewport.classList.remove(CLASS_DRAGGING); }));
+    gridViewport.addEventListener("mousemove",(event)=>{
       if(!isDragging) return;
-      e.preventDefault();
-      const x = e.pageX - gridViewport.offsetLeft;
-      const y = e.pageY - gridViewport.offsetTop;
-      gridViewport.scrollLeft = scrollLeft - (x - startX);
-      gridViewport.scrollTop  = scrollTop  - (y - startY);
+      event.preventDefault();
+      const currentX = event.pageX - gridViewport.offsetLeft;
+      const currentY = event.pageY - gridViewport.offsetTop;
+      gridViewport.scrollLeft = scrollLeft - (currentX - startX);
+      gridViewport.scrollTop  = scrollTop  - (currentY - startY);
     });
-    gridViewport.addEventListener("touchstart",(e)=>{
-      const t=e.touches[0]; isDragging=true;
-      startX=t.pageX - gridViewport.offsetLeft; startY=t.pageY - gridViewport.offsetTop;
+    gridViewport.addEventListener("touchstart",(event)=>{
+      const touchPoint=event.touches[0]; isDragging=true;
+      startX=touchPoint.pageX - gridViewport.offsetLeft; startY=touchPoint.pageY - gridViewport.offsetTop;
       scrollLeft=gridViewport.scrollLeft; scrollTop=gridViewport.scrollTop;
     },{passive:true});
     gridViewport.addEventListener("touchend",()=>{ isDragging=false; },{passive:true});
-    gridViewport.addEventListener("touchmove",(e)=>{
+    gridViewport.addEventListener("touchmove",(event)=>{
       if(!isDragging) return;
-      const t=e.touches[0];
-      const x=t.pageX - gridViewport.offsetLeft;
-      const y=t.pageY - gridViewport.offsetTop;
-      gridViewport.scrollLeft = scrollLeft - (x - startX);
-      gridViewport.scrollTop  = scrollTop  - (y - startY);
+      const touchPoint=event.touches[0];
+      const currentX=touchPoint.pageX - gridViewport.offsetLeft;
+      const currentY=touchPoint.pageY - gridViewport.offsetTop;
+      gridViewport.scrollLeft = scrollLeft - (currentX - startX);
+      gridViewport.scrollTop  = scrollTop  - (currentY - startY);
     },{passive:true});
   })();
 
-  CROSSWORD_PUZZLES.forEach((p, idx) => {
-    const opt = document.createElement("option");
-    opt.value = idx; opt.textContent = p.title;
-    document.getElementById("puzzleSelect").appendChild(opt);
+  CROSSWORD_PUZZLES.forEach((puzzle, index) => {
+    const optionElement = document.createElement("option");
+    optionElement.value = index; optionElement.textContent = puzzle.title;
+    puzzleSelect.appendChild(optionElement);
   });
-  document.getElementById("puzzleSelect").addEventListener("change", (e)=>{
-    render(CROSSWORD_PUZZLES[Number(e.target.value)]);
+  puzzleSelect.addEventListener("change", (event)=>{
+    render(CROSSWORD_PUZZLES[Number(event.target.value)]);
   });
-  document.getElementById("puzzleSelect").value = 0;
+  puzzleSelect.value = 0;
   render(CROSSWORD_PUZZLES[0]);
 })();
