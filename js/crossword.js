@@ -59,6 +59,15 @@
   /** currentColumnCount holds the number of grid columns for cell size calculations. */
   let currentColumnCount = 0;
 
+  /** cssCellSizeProperty identifies the custom property for cell size. */
+  const cssCellSizeProperty = "--cell-size";
+  /** cssGapSizeProperty identifies the custom property for gap size. */
+  const cssGapSizeProperty = "--gap-size";
+  /** pixelUnit is the unit suffix for pixel values. */
+  const pixelUnit = "px";
+  /** maximumCellSize is the largest allowed size for a cell in pixels. */
+  const maximumCellSize = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(cssCellSizeProperty));
+
   /** updateViewportHeightProperty sets the viewport height custom property. */
   function updateViewportHeightProperty() {
     const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
@@ -90,6 +99,20 @@
   }
   for (const eventName of viewportResizeEventNames) {
     window.addEventListener(eventName, handleViewportResize);
+  }
+
+  /** updateCellSizeVariables adjusts the grid cell size to fit within the viewport. */
+  function updateCellSizeVariables(numberOfRows, numberOfColumns) {
+    const rootStyles = getComputedStyle(document.documentElement);
+    const gapSize = parseFloat(rootStyles.getPropertyValue(cssGapSizeProperty)) || 0;
+    const widthAvailable = gridViewport.clientWidth - gapSize * (numberOfColumns - 1);
+    const heightAvailable = gridViewport.clientHeight - gapSize * (numberOfRows - 1);
+    const widthBasedCellSize = widthAvailable / numberOfColumns;
+    const heightBasedCellSize = heightAvailable / numberOfRows;
+    const cellSize = Math.min(widthBasedCellSize, heightBasedCellSize, maximumCellSize);
+    document.documentElement.style.setProperty(cssCellSizeProperty, `${cellSize}${pixelUnit}`);
+    gridEl.style.gridTemplateColumns = `repeat(${numberOfColumns}, ${cellSize}${pixelUnit})`;
+    gridEl.style.gridTemplateRows = `repeat(${numberOfRows}, ${cellSize}${pixelUnit})`;
   }
 
   function sanitizeClue(text) { return (text || "").replace(/^\s*\d+\.?\s*/, ""); }
