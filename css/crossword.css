@@ -275,3 +275,8 @@ button.secondary {
     background: rgba(99, 102, 241, .12);
     border-color: rgba(99, 102, 241, .5);
 }
+
+.clueSolved {
+    background: rgba(52, 211, 153, .12);
+    border-color: rgba(52, 211, 153, .5);
+}
