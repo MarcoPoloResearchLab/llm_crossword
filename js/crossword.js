@@ -20,6 +20,8 @@
   const orientationChangeEventName = "orientationchange";
   /** viewportResizeEventNames lists events that can change the viewport height. */
   const viewportResizeEventNames = [resizeEventName, orientationChangeEventName];
+  /** solvedClueClassName identifies the CSS class for solved clues. */
+  const solvedClueClassName = "clueSolved";
 
   /** updateViewportHeightProperty sets the viewport height custom property. */
   function updateViewportHeightProperty() {
@@ -216,6 +218,38 @@
       downOl.querySelectorAll(".clueHL").forEach(n => n.classList.remove("clueHL"));
     };
 
+    /** isEntrySolved reports whether the entry with the given identifier is complete and correct. */
+    function isEntrySolved(entryIdentifier) {
+      const cells = cellsById.get(entryIdentifier) || [];
+      if (cells.length === 0) return false;
+      for (const entryCell of cells) {
+        if ((entryCell.input.value || "").toUpperCase() !== entryCell.sol) return false;
+      }
+      return true;
+    }
+
+    /** updateEntrySolvedState applies or removes the solved clue class for the entry identifier. */
+    function updateEntrySolvedState(entryIdentifier) {
+      const clueElement = clueById.get(entryIdentifier);
+      if (!clueElement) return;
+      if (isEntrySolved(entryIdentifier)) clueElement.classList.add(solvedClueClassName);
+      else clueElement.classList.remove(solvedClueClassName);
+    }
+
+    /** updateSolvedStateForCell recalculates solved state for entries containing the cell. */
+    function updateSolvedStateForCell(cell) {
+      for (const entryIdentifier of cell.belongs) {
+        updateEntrySolvedState(entryIdentifier);
+      }
+    }
+
+    /** updateAllSolvedStates recalculates solved state for all entries. */
+    function updateAllSolvedStates() {
+      for (const entry of [...across, ...down]) {
+        updateEntrySolvedState(entry.id);
+      }
+    }
+
     // nav helpers
     let activeDir = "across";
     const focusCell = (r,c) => {
@@ -273,6 +307,7 @@
           if (v.length > 1) v = v.slice(-1);
           e.target.value = v;
           cell.classList.remove("correct","wrong");
+          updateSolvedStateForCell(d);
           if (v) {
             const nxt = step(d, activeDir, true);
             if (nxt) focusCell(nxt.r, nxt.c);
@@ -289,6 +324,7 @@
             if (!cur) break;
             cur.input.value = ch;
             cur.input.parentElement.classList.remove("correct","wrong");
+            updateSolvedStateForCell(cur);
             cur = step(cur, activeDir, true);
           }
           if (cur) focusCell(cur.r, cur.c);
@@ -366,6 +402,7 @@
         d.input.parentElement.classList.remove("wrong");
         d.input.parentElement.classList.add("correct");
       }
+      updateAllSolvedStates();
       statusEl.textContent = "Revealed.";
       statusEl.classList.remove("ok");
     };
@@ -374,6 +411,7 @@
         d.input.value = d.prev || "";
         d.input.parentElement.classList.remove("correct","wrong");
       }
+      updateAllSolvedStates();
       statusEl.textContent = "";
       statusEl.classList.remove("ok");
     };
