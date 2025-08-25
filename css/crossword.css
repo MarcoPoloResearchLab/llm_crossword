@@ -4,9 +4,6 @@
     --border-radius: 10px;
     --cell: 44px;
     --gap: 4px;
-    --controls-breakpoint: 500px;
-    --pane-breakpoint: 800px;
-    --clue-breakpoint: 600px;
     --wrap-offset: 48px;
     --pane-gap: 18px;
     --clue-track-size: max-content;
@@ -86,7 +83,7 @@ select {
     flex: 1 1 auto;
 }
 
-@media (max-width: var(--pane-breakpoint)) {
+@media (max-width: 800px) {
     .pane {
         flex: 1 1 auto;
         overflow: hidden;
@@ -186,7 +183,7 @@ select {
     max-width: var(--full-size);
 }
 
-@media (max-width: var(--clue-breakpoint)) {
+@media (max-width: 600px) {
     .clues {
         grid-template-columns: var(--clue-stack-track-size);
         width: var(--full-size);
@@ -233,7 +230,7 @@ button.secondary {
     background: #334155;
 }
 
-@media (max-width: var(--controls-breakpoint)) {
+@media (max-width: 500px) {
     .controls {
         flex-direction: column;
     }
