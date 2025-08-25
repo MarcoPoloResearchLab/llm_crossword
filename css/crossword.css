@@ -89,6 +89,12 @@ select {
         overflow: hidden;
         flex-direction: column;
     }
+    .gridViewport {
+        flex: 0 0 auto;
+    }
+    .clues {
+        flex: 1 1 auto;
+    }
 }
 
 /* Viewport: keep scrolling/panning, but no panel look */
