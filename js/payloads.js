@@ -63,7 +63,32 @@ const PUZZLE_SPECS = [
             {word: "nemesis", definition: "Goddess of retribution and justice"},
             {word: "thanatos", definition: "Personification of death"}
         ]
-    }
+    },
+    {
+    title: "Mini Crossword — Nouns (Proper & Common)",
+    subtitle: "All answers are either common or proper nouns, kid-friendly.",
+    items: [
+        // Common nouns
+        { word: "mountain", definition: "A very high landform; taller than a hill" },
+        { word: "ocean", definition: "A very large body of salt water" },
+        { word: "river", definition: "A long, flowing stream of water" },
+        { word: "city", definition: "A large town where many people live" },
+        { word: "teacher", definition: "A person who helps students learn" },
+        { word: "school", definition: "A place where students learn" },
+        { word: "animal", definition: "A living thing that is not a plant" },
+        { word: "music", definition: "Sounds made in a pattern that people enjoy" },
+
+        // Proper nouns
+        { word: "everest", definition: "The tallest mountain on Earth" },
+        { word: "pacific", definition: "The largest ocean on Earth" },
+        { word: "nile", definition: "A famous river in Africa" },
+        { word: "london", definition: "Capital city of the United Kingdom" },
+        { word: "jupiter", definition: "Largest planet in our solar system" },
+        { word: "africa", definition: "A continent south of Europe" },
+        { word: "february", definition: "The second month of the year" },
+        { word: "google", definition: "Company known for its search engine" }
+    ]
+}
 ];
 
 /* Build the array the renderer expects */
