@@ -65,28 +65,28 @@ const PUZZLE_SPECS = [
         ]
     },
     {
-    title: "Mini Crossword — Nouns (Proper & Common)",
-    subtitle: "All answers are either common or proper nouns, kid-friendly.",
+    title: "Mini Crossword — Common & Proper Nouns",
+    subtitle: "Clues tell you which kind of noun to find.",
     items: [
         // Common nouns
-        { word: "mountain", definition: "A very high landform; taller than a hill" },
-        { word: "ocean", definition: "A very large body of salt water" },
-        { word: "river", definition: "A long, flowing stream of water" },
-        { word: "city", definition: "A large town where many people live" },
-        { word: "teacher", definition: "A person who helps students learn" },
-        { word: "school", definition: "A place where students learn" },
-        { word: "animal", definition: "A living thing that is not a plant" },
-        { word: "music", definition: "Sounds made in a pattern that people enjoy" },
+        { word: "mountain", definition: "In the sentence 'We climbed a tall mountain,' what is the common noun?" },
+        { word: "river", definition: "In the sentence 'The river flows quickly,' what is the common noun?" },
+        { word: "teacher", definition: "In the sentence 'The teacher gave homework,' what is the common noun?" },
+        { word: "school", definition: "In the sentence 'The school has a playground,' what is the common noun?" },
+        { word: "animal", definition: "In the sentence 'The animal was sleeping,' what is the common noun?" },
+        { word: "music", definition: "In the sentence 'We listened to music,' what is the common noun?" },
+        { word: "city", definition: "In the sentence 'The city was very busy,' what is the common noun?" },
+        { word: "ocean", definition: "In the sentence 'The ocean has big waves,' what is the common noun?" },
 
         // Proper nouns
-        { word: "everest", definition: "The tallest mountain on Earth" },
-        { word: "pacific", definition: "The largest ocean on Earth" },
-        { word: "nile", definition: "A famous river in Africa" },
-        { word: "london", definition: "Capital city of the United Kingdom" },
-        { word: "jupiter", definition: "Largest planet in our solar system" },
-        { word: "africa", definition: "A continent south of Europe" },
-        { word: "february", definition: "The second month of the year" },
-        { word: "google", definition: "Company known for its search engine" }
+        { word: "everest", definition: "In the sentence 'Mount Everest is very high,' what is the proper noun?" },
+        { word: "pacific", definition: "In the sentence 'The Pacific is the largest ocean,' what is the proper noun?" },
+        { word: "nile", definition: "In the sentence 'The Nile flows through Egypt,' what is the proper noun?" },
+        { word: "london", definition: "In the sentence 'London is a capital city,' what is the proper noun?" },
+        { word: "jupiter", definition: "In the sentence 'Jupiter is the biggest planet,' what is the proper noun?" },
+        { word: "africa", definition: "In the sentence 'Africa is a large continent,' what is the proper noun?" },
+        { word: "february", definition: "In the sentence 'February is the second month,' what is the proper noun?" },
+        { word: "google", definition: "In the sentence 'Google is a famous company,' what is the proper noun?" }
     ]
 }
 ];
