@@ -4,6 +4,29 @@
 */
 
 /* Theme wordlists (clean, real words only) */
+// DINOSAUR_PUZZLE_TITLE provides the title for the dinosaur crossword.
+const DINOSAUR_PUZZLE_TITLE = "Mini Crossword — Dinosaur Edition";
+// DINOSAUR_PUZZLE_SUBTITLE provides the subtitle for the dinosaur crossword.
+const DINOSAUR_PUZZLE_SUBTITLE = "Ten prehistoric reptiles for kids.";
+// DINOSAUR_PUZZLE_ITEMS lists dinosaur names with child-friendly clues.
+const DINOSAUR_PUZZLE_ITEMS = [
+    {word: "tyrannosaurus", definition: "Huge meat-eater with tiny arms"},
+    {word: "triceratops", definition: "Plant eater with three horns"},
+    {word: "stegosaurus", definition: "Dinosaur with plates on its back"},
+    {word: "velociraptor", definition: "Fast hunter with sharp claws"},
+    {word: "brachiosaurus", definition: "Long-necked giant that ate plants"},
+    {word: "diplodocus", definition: "Very long dinosaur with a whip tail"},
+    {word: "allosaurus", definition: "Big predator before T rex"},
+    {word: "iguanodon", definition: "Plant eater with a thumb spike"},
+    {word: "spinosaurus", definition: "Dinosaur with a sail on its back"},
+    {word: "ankylosaurus", definition: "Armored dinosaur with a club tail"}
+];
+// DINOSAUR_PUZZLE_SPEC defines the dinosaur crossword puzzle.
+const DINOSAUR_PUZZLE_SPEC = {
+    title: DINOSAUR_PUZZLE_TITLE,
+    subtitle: DINOSAUR_PUZZLE_SUBTITLE,
+    items: DINOSAUR_PUZZLE_ITEMS
+};
 const PUZZLE_SPECS = [
     {
         title: "Mini Crossword — Moon Edition",
@@ -88,7 +111,8 @@ const PUZZLE_SPECS = [
         { word: "february", definition: "In the sentence 'February is the second month,' what is the proper noun?" },
         { word: "google", definition: "In the sentence 'Google is a famous company,' what is the proper noun?" }
     ]
-}
+},
+    DINOSAUR_PUZZLE_SPEC
 ];
 
 /* Build the array the renderer expects */
