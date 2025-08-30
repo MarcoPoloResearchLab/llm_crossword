@@ -170,11 +170,10 @@ select {
     gap: 12px 18px;
     overflow: auto;
     max-height: var(--full-size);
-    flex: 1 1 auto;
-    margin-left: 0;
-    align-self: stretch;
-    width: var(--full-size);
-    max-width: var(--full-size);
+    flex: 0 0 auto;
+    width: max-content;
+    margin-left: var(--pane-gap);
+    align-self: flex-start;
 }
 
 @media (max-width: var(--narrow-screen-width)) {
@@ -188,6 +187,9 @@ select {
 
     .clues {
         flex: 1 1 auto;
+        width: 100%;
+        margin-left: 0;
+        align-self: stretch;
     }
 }
 
