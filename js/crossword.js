@@ -326,24 +326,33 @@
       verbalSpan.style.display = hiddenStyleValue;
 
       let hintStage = hintStageInitial;
-      let revealedInfo = null;
+      let revealedCellInfo = null;
+
+      /** clearRevealedLetter hides any previously revealed cell. */
+      function clearRevealedLetter() {
+        if (!revealedCellInfo) return;
+        revealedCellInfo.cell.input.value = revealedCellInfo.previousValue || emptyString;
+        revealedCellInfo.cell.input.parentElement.classList.remove(correctClassName);
+        updateEntrySolvedState(entry.id);
+        revealedCellInfo = null;
+      }
+
       hintButton.addEventListener(clickEventName, event => {
         event.preventDefault();
-        if (hintStage === hintStageInitial) {
-          verbalSpan.style.display = emptyString;
-          hintStage = hintStageVerbal;
-        } else if (hintStage === hintStageVerbal) {
-          revealedInfo = revealLetter(entry.id);
-          hintStage = hintStageLetter;
-        } else {
-          if (revealedInfo) {
-            revealedInfo.cell.input.value = revealedInfo.previousValue || emptyString;
-            revealedInfo.cell.input.parentElement.classList.remove(correctClassName);
-            updateEntrySolvedState(entry.id);
-            revealedInfo = null;
-          }
-          verbalSpan.style.display = hiddenStyleValue;
-          hintStage = hintStageInitial;
+        switch (hintStage) {
+          case hintStageInitial:
+            verbalSpan.style.display = emptyString;
+            hintStage = hintStageVerbal;
+            break;
+          case hintStageVerbal:
+            revealedCellInfo = revealLetter(entry.id);
+            hintStage = hintStageLetter;
+            break;
+          default:
+            clearRevealedLetter();
+            verbalSpan.style.display = hiddenStyleValue;
+            hintStage = hintStageInitial;
+            break;
         }
       });
 
