@@ -6,11 +6,11 @@
     --gap: 4px;
     --wrap-offset: 48px;
     --pane-gap: 18px;
-    --clue-track-size: max-content;
     --clue-stack-track-size: 1fr;
     --viewport-height: 100vh;
     --full-size: 100%;
     --wrap-max-width: calc(100vw - var(--wrap-offset));
+    --vertical-flex-direction: column;
 }
 
 * {
@@ -75,26 +75,13 @@ select {
 
 .pane {
     display: flex;
+    flex-direction: var(--vertical-flex-direction);
     gap: var(--pane-gap);
     height: 100%;
     min-height: 0;
     max-width: var(--full-size);
     overflow: hidden;
     flex: 1 1 auto;
-}
-
-@media (max-width: 800px) {
-    .pane {
-        flex: 1 1 auto;
-        overflow: hidden;
-        flex-direction: column;
-    }
-    .gridViewport {
-        flex: 0 0 auto;
-    }
-    .clues {
-        flex: 1 1 auto;
-    }
 }
 
 /* Viewport: keep scrolling/panning, but no panel look */
@@ -105,7 +92,7 @@ select {
     border: 0;
     border-radius: 0;
     height: var(--full-size);
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
     min-height: 0;
 }
@@ -178,22 +165,15 @@ select {
 
 .clues {
     display: grid;
-    grid-template-columns: var(--clue-track-size) var(--clue-track-size);
+    grid-template-columns: var(--clue-stack-track-size);
     gap: 12px 18px;
     overflow: auto;
     max-height: var(--full-size);
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     margin-left: 0;
     align-self: stretch;
-    width: max-content;
+    width: var(--full-size);
     max-width: var(--full-size);
-}
-
-@media (max-width: 600px) {
-    .clues {
-        grid-template-columns: var(--clue-stack-track-size);
-        width: var(--full-size);
-    }
 }
 
 .cluegrp h3 {
