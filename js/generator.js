@@ -17,7 +17,6 @@ function generateCrossword(items, opts = {}) {
     id: `W${itemIndex}`,
     answer: String(item.word || "").toUpperCase().replace(/[^A-Z]/g, ""),
     clue: String(item.definition || "").trim(),
-    image: String(item.image || "").trim(),
     hint: String(item.hint || "").trim(),
   })).filter(word => word.answer.length > 1);
 
@@ -90,7 +89,7 @@ function generateCrossword(items, opts = {}) {
         const c = dir === "across" ? col + i : col;
         set(r, c, wordObj.answer[i]);
       }
-      placed.push({ id: wordObj.id, dir, row, col, answer: wordObj.answer, clue: wordObj.clue, image: wordObj.image, hint: wordObj.hint });
+      placed.push({ id: wordObj.id, dir, row, col, answer: wordObj.answer, clue: wordObj.clue, hint: wordObj.hint });
 
       if (anchor) {
         overlaps.push({ a: wordObj.id, aIndex: anchor.iNew, b: anchor.otherId, bIndex: anchor.iOld });
@@ -239,7 +238,6 @@ function generateCrossword(items, opts = {}) {
               col: entry.col,
               answer: entry.answer,
               clue: entry.clue,
-              image: entry.image,
               hint: entry.hint,
             })),
             overlaps: overlaps.slice()

@@ -293,8 +293,3 @@ button.secondary {
     opacity: .9;
 }
 
-.hintImage {
-    margin-top: 4px;
-    max-width: 100%;
-    border-radius: var(--border-radius);
-}

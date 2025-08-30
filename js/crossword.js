@@ -38,20 +38,14 @@
   const hintContainerTagName = "div";
   /** buttonTagName identifies the button element tag name. */
   const buttonTagName = "button";
-  /** imageTagName identifies the image element tag name. */
-  const imageTagName = "img";
   /** hintTextTagName identifies the verbal hint element tag name. */
   const hintTextTagName = "div";
   /** hintContainerClassName identifies the CSS class for hint container. */
   const hintContainerClassName = "hintControls";
   /** hintTextClassName identifies the CSS class for verbal hints. */
   const hintTextClassName = "hintText";
-  /** hintImageClassName identifies the CSS class for image hints. */
-  const hintImageClassName = "hintImage";
   /** verbalHintButtonText specifies the text for the verbal hint button. */
   const verbalHintButtonText = "Hint";
-  /** imageHintButtonText specifies the text for the image hint button. */
-  const imageHintButtonText = "Image";
   /** letterHintButtonText specifies the text for the letter reveal button. */
   const letterHintButtonText = "Letter";
   /** correctClassName identifies the CSS class for correct letters. */
@@ -300,7 +294,7 @@
       }
     }
 
-    /** attachHints adds hint controls to the clue element. */
+    /** attachHints adds verbal and letter hint controls to the clue element. */
     function attachHints(clueElement, entry) {
       const hintContainer = document.createElement(hintContainerTagName);
       hintContainer.className = hintContainerClassName;
@@ -316,18 +310,6 @@
         verbalSpan.style.display = "";
       });
 
-      const imageButton = document.createElement(buttonTagName);
-      imageButton.textContent = imageHintButtonText;
-      const imageElement = document.createElement(imageTagName);
-      imageElement.className = hintImageClassName;
-      imageElement.src = entry.image;
-      imageElement.alt = entry.hint;
-      imageElement.style.display = hiddenStyleValue;
-      imageButton.addEventListener("click", event => {
-        event.preventDefault();
-        imageElement.style.display = "";
-      });
-
       const letterButton = document.createElement(buttonTagName);
       letterButton.textContent = letterHintButtonText;
       letterButton.addEventListener("click", event => {
@@ -336,11 +318,9 @@
       });
 
       hintContainer.appendChild(verbalButton);
-      hintContainer.appendChild(imageButton);
       hintContainer.appendChild(letterButton);
       clueElement.appendChild(hintContainer);
       clueElement.appendChild(verbalSpan);
-      clueElement.appendChild(imageElement);
     }
 
     // nav helpers
@@ -569,7 +549,7 @@
     if (typeof puzzleSpecification.title !== "string" || typeof puzzleSpecification.subtitle !== "string") return false;
     if (!Array.isArray(puzzleSpecification.items)) return false;
     for (const item of puzzleSpecification.items) {
-      if (typeof item.word !== "string" || typeof item.definition !== "string" || typeof item.image !== "string" || typeof item.hint !== "string") return false;
+      if (typeof item.word !== "string" || typeof item.definition !== "string" || typeof item.hint !== "string") return false;
     }
     return true;
   }
