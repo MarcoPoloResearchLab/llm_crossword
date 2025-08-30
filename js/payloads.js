@@ -111,8 +111,23 @@ const PUZZLE_SPECS = [
         { word: "february", definition: "In the sentence 'February is the second month,' what is the proper noun?" },
         { word: "google", definition: "In the sentence 'Google is a famous company,' what is the proper noun?" }
     ]
-},
-    DINOSAUR_PUZZLE_SPEC
+    },
+    {
+        title: "Mini Crossword — Dinosaur Edition",
+        subtitle: "Ten prehistoric reptiles for kids.",
+        items: [
+            {word: "tyrannosaurus", definition: "Huge meat-eater with tiny arms"},
+            {word: "triceratops", definition: "Plant eater with three horns"},
+            {word: "stegosaurus", definition: "Dinosaur with plates on its back"},
+            {word: "velociraptor", definition: "Fast hunter with sharp claws"},
+            {word: "brachiosaurus", definition: "Long-necked giant that ate plants"},
+            {word: "diplodocus", definition: "Very long dinosaur with a whip tail"},
+            {word: "allosaurus", definition: "Big predator before T rex"},
+            {word: "iguanodon", definition: "Plant eater with a thumb spike"},
+            {word: "spinosaurus", definition: "Dinosaur with a sail on its back"},
+            {word: "ankylosaurus", definition: "Armored dinosaur with a club tail"}
+        ]
+    }
 ];
 
 /* Build the array the renderer expects */
