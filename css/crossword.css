@@ -6,7 +6,6 @@
     --gap: 4px;
     --wrap-offset: 48px;
     --pane-gap: 18px;
-    --clue-track-size: max-content;
     --clue-stack-track-size: 1fr;
     --viewport-height: 100vh;
     --full-size: 100%;
@@ -72,6 +71,7 @@ select {
     border-radius: var(--border-radius);
     padding: 8px 10px;
 }
+
 
 .pane {
     display: flex;
@@ -178,7 +178,7 @@ select {
 
 .clues {
     display: grid;
-    grid-template-columns: var(--clue-track-size) var(--clue-track-size);
+    grid-template-columns: var(--clue-stack-track-size);
     gap: 12px 18px;
     overflow: auto;
     max-height: var(--full-size);
@@ -191,7 +191,6 @@ select {
 
 @media (max-width: 600px) {
     .clues {
-        grid-template-columns: var(--clue-stack-track-size);
         width: var(--full-size);
     }
 }
