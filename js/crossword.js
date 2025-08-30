@@ -54,6 +54,14 @@
   const correctClassName = "correct";
   /** hiddenStyleValue specifies the display style value to hide elements. */
   const hiddenStyleValue = "none";
+  /** emptyString represents an empty string. */
+  const emptyString = "";
+  /** hintStageInitial identifies the initial hint state with no hint visible. */
+  const hintStageInitial = 0;
+  /** hintStageVerbal identifies the state where the verbal hint is displayed. */
+  const hintStageVerbal = 1;
+  /** hintStageLetter identifies the state where a letter has been revealed. */
+  const hintStageLetter = 2;
 
   /** updateViewportHeightProperty sets the viewport height custom property. */
   function updateViewportHeightProperty() {
@@ -282,23 +290,28 @@
       }
     }
 
-    /** revealLetter fills one unsolved cell for the entry identifier. */
+    /**
+     * revealLetter fills one unsolved cell for the entry identifier and returns
+     * the affected cell alongside its previous value.
+     */
     function revealLetter(entryIdentifier) {
       const cells = cellsById.get(entryIdentifier) || [];
       for (const entryCell of cells) {
-        const currentValue = (entryCell.input.value || "").toUpperCase();
+        const currentValue = (entryCell.input.value || emptyString).toUpperCase();
         if (currentValue !== entryCell.sol) {
+          const previousValue = entryCell.input.value;
           entryCell.input.value = entryCell.sol;
           entryCell.input.parentElement.classList.add(correctClassName);
           updateEntrySolvedState(entryIdentifier);
-          break;
+          return { cell: entryCell, previousValue };
         }
       }
+      return null;
     }
 
     /**
-     * attachHints adds a single toggle hint control that first reveals the verbal hint
-     * and on the next activation reveals one letter.
+    * attachHints adds a single toggle hint control that cycles through showing
+    * the verbal hint, revealing one letter, and returning to the hidden state.
      */
     function attachHints(clueElement, entry) {
       const hintContainer = document.createElement(hintContainerTagName);
@@ -312,15 +325,25 @@
       verbalSpan.textContent = entry.hint;
       verbalSpan.style.display = hiddenStyleValue;
 
-      let hintStage = 0;
+      let hintStage = hintStageInitial;
+      let revealedInfo = null;
       hintButton.addEventListener(clickEventName, event => {
         event.preventDefault();
-        if (hintStage === 0) {
-          verbalSpan.style.display = "";
-          hintStage = 1;
+        if (hintStage === hintStageInitial) {
+          verbalSpan.style.display = emptyString;
+          hintStage = hintStageVerbal;
+        } else if (hintStage === hintStageVerbal) {
+          revealedInfo = revealLetter(entry.id);
+          hintStage = hintStageLetter;
         } else {
-          revealLetter(entry.id);
-          hintButton.disabled = true;
+          if (revealedInfo) {
+            revealedInfo.cell.input.value = revealedInfo.previousValue || emptyString;
+            revealedInfo.cell.input.parentElement.classList.remove(correctClassName);
+            updateEntrySolvedState(entry.id);
+            revealedInfo = null;
+          }
+          verbalSpan.style.display = hiddenStyleValue;
+          hintStage = hintStageInitial;
         }
       });
 

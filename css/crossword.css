@@ -283,6 +283,7 @@ button.secondary {
 
 .hintControls {
     display: inline-block;
+    float: right;
     margin-left: 4px;
     padding: 0;
 }
