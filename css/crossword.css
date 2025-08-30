@@ -287,6 +287,14 @@ button.secondary {
     padding: 0;
 }
 
+.hintButton {
+    padding: 0 4px;
+    font-size: 12px;
+    line-height: 1;
+    min-width: 0;
+    border-radius: 4px;
+}
+
 .hintText {
     margin-top: 4px;
     font-size: 13px;

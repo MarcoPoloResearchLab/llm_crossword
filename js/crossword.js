@@ -46,6 +46,8 @@
   const hintContainerClassName = "hintControls";
   /** hintTextClassName identifies the CSS class for verbal hints. */
   const hintTextClassName = "hintText";
+  /** hintButtonClassName identifies the CSS class for the hint button. */
+  const hintButtonClassName = "hintButton";
   /** hintButtonText specifies the text for the toggle hint button. */
   const hintButtonText = "H";
   /** correctClassName identifies the CSS class for correct letters. */
@@ -303,6 +305,7 @@
       hintContainer.className = hintContainerClassName;
 
       const hintButton = document.createElement(buttonTagName);
+      hintButton.className = hintButtonClassName;
       hintButton.textContent = hintButtonText;
       const verbalSpan = document.createElement(hintTextTagName);
       verbalSpan.className = hintTextClassName;
