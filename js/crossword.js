@@ -26,6 +26,8 @@
   const puzzleDataPath = "assets/data/crosswords.json";
   /** selectChangeEventName identifies the change event. */
   const selectChangeEventName = "change";
+  /** clickEventName identifies the click event. */
+  const clickEventName = "click";
   /** optionTagName identifies the option element tag name. */
   const optionTagName = "option";
   /** initialPuzzleIndex holds the initial puzzle selection index. */
@@ -34,6 +36,32 @@
   const errorInvalidSpecificationMessage = "Crossword specification invalid";
   /** errorInvalidDataMessage describes the invalid data error. */
   const errorInvalidDataMessage = "Crossword data must be an array";
+  /** hintContainerTagName identifies the container element for hint controls. */
+  const hintContainerTagName = "span";
+  /** buttonTagName identifies the button element tag name. */
+  const buttonTagName = "button";
+  /** hintTextTagName identifies the verbal hint element tag name. */
+  const hintTextTagName = "div";
+  /** hintContainerClassName identifies the CSS class for hint container. */
+  const hintContainerClassName = "hintControls";
+  /** hintTextClassName identifies the CSS class for verbal hints. */
+  const hintTextClassName = "hintText";
+  /** hintButtonClassName identifies the CSS class for the hint button. */
+  const hintButtonClassName = "hintButton";
+  /** hintButtonText specifies the text for the toggle hint button. */
+  const hintButtonText = "H";
+  /** correctClassName identifies the CSS class for correct letters. */
+  const correctClassName = "correct";
+  /** hiddenStyleValue specifies the display style value to hide elements. */
+  const hiddenStyleValue = "none";
+  /** emptyString represents an empty string. */
+  const emptyString = "";
+  /** hintStageInitial identifies the initial hint state with no hint visible. */
+  const hintStageInitial = 0;
+  /** hintStageVerbal identifies the state where the verbal hint is displayed. */
+  const hintStageVerbal = 1;
+  /** hintStageLetter identifies the state where a letter has been revealed. */
+  const hintStageLetter = 2;
 
   /** updateViewportHeightProperty sets the viewport height custom property. */
   function updateViewportHeightProperty() {
@@ -262,6 +290,80 @@
       }
     }
 
+    /**
+     * revealLetter fills one unsolved cell for the entry identifier and returns
+     * the affected cell alongside its previous value.
+     */
+    function revealLetter(entryIdentifier) {
+      const cells = cellsById.get(entryIdentifier) || [];
+      for (const entryCell of cells) {
+        const currentValue = (entryCell.input.value || emptyString).toUpperCase();
+        if (currentValue !== entryCell.sol) {
+          const previousValue = entryCell.input.value;
+          entryCell.input.value = entryCell.sol;
+          entryCell.input.parentElement.classList.add(correctClassName);
+          updateEntrySolvedState(entryIdentifier);
+          return { cell: entryCell, previousValue };
+        }
+      }
+      return null;
+    }
+
+    /**
+    * attachHints adds a single toggle hint control that cycles through showing
+    * the verbal hint, revealing one letter, and returning to the hidden state.
+     */
+    function attachHints(clueElement, entry) {
+      const hintContainer = document.createElement(hintContainerTagName);
+      hintContainer.className = hintContainerClassName;
+
+      const hintButton = document.createElement(buttonTagName);
+      hintButton.className = hintButtonClassName;
+      hintButton.textContent = hintButtonText;
+      const verbalSpan = document.createElement(hintTextTagName);
+      verbalSpan.className = hintTextClassName;
+      verbalSpan.textContent = entry.hint;
+      verbalSpan.style.display = hiddenStyleValue;
+
+      let hintStage = hintStageInitial;
+      let revealedCellInfo = null;
+
+      /** clearRevealedLetter hides any previously revealed cell. */
+      function clearRevealedLetter() {
+        if (!revealedCellInfo) {
+          return;
+        }
+        revealedCellInfo.cell.input.value = revealedCellInfo.previousValue || emptyString;
+        revealedCellInfo.cell.input.parentElement.classList.remove(correctClassName);
+        updateEntrySolvedState(entry.id);
+        revealedCellInfo = null;
+      }
+
+      /** resetHints hides the verbal hint and removes any revealed letter. */
+      function resetHints() {
+        clearRevealedLetter();
+        verbalSpan.style.display = hiddenStyleValue;
+      }
+
+      hintButton.addEventListener(clickEventName, event => {
+        event.preventDefault();
+        if (hintStage === hintStageInitial) {
+          verbalSpan.style.display = emptyString;
+          hintStage = hintStageVerbal;
+        } else if (hintStage === hintStageVerbal) {
+          revealedCellInfo = revealLetter(entry.id);
+          hintStage = hintStageLetter;
+        } else {
+          resetHints();
+          hintStage = hintStageInitial;
+        }
+      });
+
+      hintContainer.appendChild(hintButton);
+      clueElement.appendChild(hintContainer);
+      clueElement.appendChild(verbalSpan);
+    }
+
     // nav helpers
     let activeDir = "across";
     const focusCell = (r,c) => {
@@ -377,12 +479,10 @@
         li.dataset.entryId = ent.id;
         li.textContent = `${ent.num}. ${sanitizeClue(ent.clue)} (${ent.answer.length})`;
 
-        // highlight on hover
         li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
         li.addEventListener("mouseleave", () => { clearHL(); });
 
-        // CLICK -> focus first square of this entry
-        li.addEventListener("click", (e) => {
+        li.addEventListener(clickEventName, (e) => {
           e.preventDefault();
           const cells = cellsById.get(ent.id) || [];
           if (!cells.length) return;
@@ -397,6 +497,7 @@
           addHL([ent.id]);
         });
 
+        attachHints(li, ent);
         clueById.set(ent.id, li);
         ol.appendChild(li);
       }
@@ -489,7 +590,7 @@
     if (typeof puzzleSpecification.title !== "string" || typeof puzzleSpecification.subtitle !== "string") return false;
     if (!Array.isArray(puzzleSpecification.items)) return false;
     for (const item of puzzleSpecification.items) {
-      if (typeof item.word !== "string" || typeof item.definition !== "string") return false;
+      if (typeof item.word !== "string" || typeof item.definition !== "string" || typeof item.hint !== "string") return false;
     }
     return true;
   }

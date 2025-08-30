@@ -1,99 +1,343 @@
 [
   {
-    "title": "Mini Crossword — Moon Edition",
+    "title": "Mini Crossword \u2014 Moon Edition",
     "subtitle": "Generated from lunar terms.",
     "items": [
-      {"word": "orbit", "definition": "The Moon’s path around Earth"},
-      {"word": "mare", "definition": "A lunar “sea” not made of water"},
-      {"word": "tides", "definition": "Ocean rise-and-fall pulled by the Moon"},
-      {"word": "lunar", "definition": "Relating to the Moon"},
-      {"word": "apollo", "definition": "Program that took humans to the Moon"}
+      {
+        "word": "orbit",
+        "definition": "The Moon\u2019s path around Earth",
+        "hint": "elliptical route traced by celestial neighbor"
+      },
+      {
+        "word": "mare",
+        "definition": "A lunar \u201csea\u201d not made of water",
+        "hint": "shares its name with a grown female horse"
+      },
+      {
+        "word": "tides",
+        "definition": "Ocean rise-and-fall pulled by the Moon",
+        "hint": "regular shoreline shifts driven by gravity"
+      },
+      {
+        "word": "lunar",
+        "definition": "Relating to the Moon",
+        "hint": "connected with Earth's night-time companion"
+      },
+      {
+        "word": "apollo",
+        "definition": "Program that took humans to the Moon",
+        "hint": "series of Saturn V missions named for a Greek deity"
+      }
     ]
   },
   {
-    "title": "Mini Crossword — Sun Edition",
+    "title": "Mini Crossword \u2014 Sun Edition",
     "subtitle": "Generated from solar terms.",
     "items": [
-      {"word": "flare", "definition": "Sudden solar burst"},
-      {"word": "dawn", "definition": "First light of day"},
-      {"word": "rays", "definition": "What sunlight travels as"},
-      {"word": "solar", "definition": "Relating to the Sun"},
-      {"word": "corona", "definition": "The Sun’s outer atmosphere"}
+      {
+        "word": "flare",
+        "definition": "Sudden solar burst",
+        "hint": "brief blaze erupting from star's surface"
+      },
+      {
+        "word": "dawn",
+        "definition": "First light of day",
+        "hint": "sunrise moment when night recedes"
+      },
+      {
+        "word": "rays",
+        "definition": "What sunlight travels as",
+        "hint": "straight beams streaming from our star"
+      },
+      {
+        "word": "solar",
+        "definition": "Relating to the Sun",
+        "hint": "derived from our star's name"
+      },
+      {
+        "word": "corona",
+        "definition": "The Sun\u2019s outer atmosphere",
+        "hint": "glowing halo seen during eclipses"
+      }
     ]
   },
   {
-    "title": "Mini Crossword — Greek Gods",
+    "title": "Mini Crossword \u2014 Greek Gods",
     "subtitle": "Generated from Olympian names.",
     "items": [
-      {"word": "zeus", "definition": "King of the Olympians"},
-      {"word": "hera", "definition": "Queen of the gods"},
-      {"word": "ares", "definition": "God of war"},
-      {"word": "hermes", "definition": "Messenger god with winged sandals"},
-      {"word": "athena", "definition": "Goddess of wisdom and warfare"}
+      {
+        "word": "zeus",
+        "definition": "King of the Olympians",
+        "hint": "wields thunder and rules the heavens"
+      },
+      {
+        "word": "hera",
+        "definition": "Queen of the gods",
+        "hint": "matronly deity guarding marriage vows"
+      },
+      {
+        "word": "ares",
+        "definition": "God of war",
+        "hint": "embodiment of battle chaos"
+      },
+      {
+        "word": "hermes",
+        "definition": "Messenger god with winged sandals",
+        "hint": "fleet herald sporting feathered shoes"
+      },
+      {
+        "word": "athena",
+        "definition": "Goddess of wisdom and warfare",
+        "hint": "strategist deity symbolized by an owl"
+      }
     ]
   },
   {
     "title": "Greek Gods",
     "subtitle": "Olympian and other Greek deities.",
     "items": [
-      {"word": "zeus", "definition": "King of the Olympians"},
-      {"word": "hera", "definition": "Queen of the gods"},
-      {"word": "ares", "definition": "God of war"},
-      {"word": "hermes", "definition": "Messenger god with winged sandals"},
-      {"word": "athena", "definition": "Goddess of wisdom and warfare"},
-      {"word": "poseidon", "definition": "God of the sea, earthquakes, and horses"},
-      {"word": "hades", "definition": "God of the underworld"},
-      {"word": "demeter", "definition": "Goddess of agriculture and the harvest"},
-      {"word": "apollo", "definition": "God of the sun, music, and prophecy"},
-      {"word": "artemis", "definition": "Goddess of the hunt and the moon"},
-      {"word": "hephaestus", "definition": "God of fire and metalworking"},
-      {"word": "dionysus", "definition": "God of wine, festivity, and theatre"},
-      {"word": "hestia", "definition": "Goddess of the hearth and home"},
-      {"word": "eros", "definition": "God of love and desire"},
-      {"word": "nyx", "definition": "Primordial goddess of the night"},
-      {"word": "chronos", "definition": "Personification of time"},
-      {"word": "nike", "definition": "Goddess of victory"},
-      {"word": "tyche", "definition": "Goddess of fortune and chance"},
-      {"word": "nemesis", "definition": "Goddess of retribution and justice"},
-      {"word": "thanatos", "definition": "Personification of death"}
+      {
+        "word": "zeus",
+        "definition": "King of the Olympians",
+        "hint": "wields thunder and rules the heavens"
+      },
+      {
+        "word": "hera",
+        "definition": "Queen of the gods",
+        "hint": "matronly deity guarding marriage vows"
+      },
+      {
+        "word": "ares",
+        "definition": "God of war",
+        "hint": "embodiment of battle chaos"
+      },
+      {
+        "word": "hermes",
+        "definition": "Messenger god with winged sandals",
+        "hint": "fleet herald sporting feathered shoes"
+      },
+      {
+        "word": "athena",
+        "definition": "Goddess of wisdom and warfare",
+        "hint": "strategist deity symbolized by an owl"
+      },
+      {
+        "word": "poseidon",
+        "definition": "God of the sea, earthquakes, and horses",
+        "hint": "trident bearer ruling waves and quakes"
+      },
+      {
+        "word": "hades",
+        "definition": "God of the underworld",
+        "hint": "sovereign of the realm beneath"
+      },
+      {
+        "word": "demeter",
+        "definition": "Goddess of agriculture and the harvest",
+        "hint": "grain matron ensuring crops thrive"
+      },
+      {
+        "word": "apollo",
+        "definition": "God of the sun, music, and prophecy",
+        "hint": "lyre player linked with oracles and light"
+      },
+      {
+        "word": "artemis",
+        "definition": "Goddess of the hunt and the moon",
+        "hint": "archer maiden tied to wild forests"
+      },
+      {
+        "word": "hephaestus",
+        "definition": "God of fire and metalworking",
+        "hint": "forge master shaping divine weapons"
+      },
+      {
+        "word": "dionysus",
+        "definition": "God of wine, festivity, and theatre",
+        "hint": "revelry patron crowned with grapevines"
+      },
+      {
+        "word": "hestia",
+        "definition": "Goddess of the hearth and home",
+        "hint": "keeper of household flames"
+      },
+      {
+        "word": "eros",
+        "definition": "God of love and desire",
+        "hint": "winged archer stirring affection"
+      },
+      {
+        "word": "nyx",
+        "definition": "Primordial goddess of the night",
+        "hint": "ancient personification of darkness"
+      },
+      {
+        "word": "chronos",
+        "definition": "Personification of time",
+        "hint": "ancient figure representing temporal flow"
+      },
+      {
+        "word": "nike",
+        "definition": "Goddess of victory",
+        "hint": "winged symbol of triumph"
+      },
+      {
+        "word": "tyche",
+        "definition": "Goddess of fortune and chance",
+        "hint": "luck deity often shown with a cornucopia"
+      },
+      {
+        "word": "nemesis",
+        "definition": "Goddess of retribution and justice",
+        "hint": "balancer of arrogance with punishment"
+      },
+      {
+        "word": "thanatos",
+        "definition": "Personification of death",
+        "hint": "spirit ushering mortals to the afterlife"
+      }
     ]
   },
   {
-    "title": "Mini Crossword — Common & Proper Nouns",
+    "title": "Mini Crossword \u2014 Common & Proper Nouns",
     "subtitle": "Clues tell you which kind of noun to find.",
     "items": [
-      {"word": "mountain", "definition": "In the sentence 'We climbed a tall mountain,' what is the common noun?"},
-      {"word": "river", "definition": "In the sentence 'The river flows quickly,' what is the common noun?"},
-      {"word": "teacher", "definition": "In the sentence 'The teacher gave homework,' what is the common noun?"},
-      {"word": "school", "definition": "In the sentence 'The school has a playground,' what is the common noun?"},
-      {"word": "animal", "definition": "In the sentence 'The animal was sleeping,' what is the common noun?"},
-      {"word": "music", "definition": "In the sentence 'We listened to music,' what is the common noun?"},
-      {"word": "city", "definition": "In the sentence 'The city was very busy,' what is the common noun?"},
-      {"word": "ocean", "definition": "In the sentence 'The ocean has big waves,' what is the common noun?"},
-      {"word": "everest", "definition": "In the sentence 'Mount Everest is very high,' what is the proper noun?"},
-      {"word": "pacific", "definition": "In the sentence 'The Pacific is the largest ocean,' what is the proper noun?"},
-      {"word": "nile", "definition": "In the sentence 'The Nile flows through Egypt,' what is the proper noun?"},
-      {"word": "london", "definition": "In the sentence 'London is a capital city,' what is the proper noun?"},
-      {"word": "jupiter", "definition": "In the sentence 'Jupiter is the biggest planet,' what is the proper noun?"},
-      {"word": "africa", "definition": "In the sentence 'Africa is a large continent,' what is the proper noun?"},
-      {"word": "february", "definition": "In the sentence 'February is the second month,' what is the proper noun?"},
-      {"word": "google", "definition": "In the sentence 'Google is a famous company,' what is the proper noun?"}
+      {
+        "word": "mountain",
+        "definition": "In the sentence 'We climbed a tall mountain,' what is the common noun?",
+        "hint": "towering landform with a peak"
+      },
+      {
+        "word": "river",
+        "definition": "In the sentence 'The river flows quickly,' what is the common noun?",
+        "hint": "flowing body of water moving to sea"
+      },
+      {
+        "word": "teacher",
+        "definition": "In the sentence 'The teacher gave homework,' what is the common noun?",
+        "hint": "educator leading a classroom"
+      },
+      {
+        "word": "school",
+        "definition": "In the sentence 'The school has a playground,' what is the common noun?",
+        "hint": "institution where students learn"
+      },
+      {
+        "word": "animal",
+        "definition": "In the sentence 'The animal was sleeping,' what is the common noun?",
+        "hint": "multicellular organism that moves and eats"
+      },
+      {
+        "word": "music",
+        "definition": "In the sentence 'We listened to music,' what is the common noun?",
+        "hint": "organized sound with rhythm and melody"
+      },
+      {
+        "word": "city",
+        "definition": "In the sentence 'The city was very busy,' what is the common noun?",
+        "hint": "large human settlement with buildings"
+      },
+      {
+        "word": "ocean",
+        "definition": "In the sentence 'The ocean has big waves,' what is the common noun?",
+        "hint": "vast saltwater expanse"
+      },
+      {
+        "word": "everest",
+        "definition": "In the sentence 'Mount Everest is very high,' what is the proper noun?",
+        "hint": "peak towering above all others"
+      },
+      {
+        "word": "pacific",
+        "definition": "In the sentence 'The Pacific is the largest ocean,' what is the proper noun?",
+        "hint": "vast expanse between Asia and the Americas"
+      },
+      {
+        "word": "nile",
+        "definition": "In the sentence 'The Nile flows through Egypt,' what is the proper noun?",
+        "hint": "river running from central Africa to Mediterranean"
+      },
+      {
+        "word": "london",
+        "definition": "In the sentence 'London is a capital city,' what is the proper noun?",
+        "hint": "home to Big Ben and the Thames"
+      },
+      {
+        "word": "jupiter",
+        "definition": "In the sentence 'Jupiter is the biggest planet,' what is the proper noun?",
+        "hint": "giant gas world with a red storm"
+      },
+      {
+        "word": "africa",
+        "definition": "In the sentence 'Africa is a large continent,' what is the proper noun?",
+        "hint": "landmass home to Sahara and Nile"
+      },
+      {
+        "word": "february",
+        "definition": "In the sentence 'February is the second month,' what is the proper noun?",
+        "hint": "shortest calendar period after January"
+      },
+      {
+        "word": "google",
+        "definition": "In the sentence 'Google is a famous company,' what is the proper noun?",
+        "hint": "tech giant known for its search engine"
+      }
     ]
   },
   {
-    "title": "Mini Crossword — Dinosaur Edition",
+    "title": "Mini Crossword \u2014 Dinosaur Edition",
     "subtitle": "Ten prehistoric reptiles for kids.",
     "items": [
-      {"word": "tyrannosaurus", "definition": "Huge meat-eater with tiny arms"},
-      {"word": "triceratops", "definition": "Plant eater with three horns"},
-      {"word": "stegosaurus", "definition": "Dinosaur with plates on its back"},
-      {"word": "velociraptor", "definition": "Fast hunter with sharp claws"},
-      {"word": "brachiosaurus", "definition": "Long-necked giant that ate plants"},
-      {"word": "diplodocus", "definition": "Very long dinosaur with a whip tail"},
-      {"word": "allosaurus", "definition": "Big predator before T rex"},
-      {"word": "iguanodon", "definition": "Plant eater with a thumb spike"},
-      {"word": "spinosaurus", "definition": "Dinosaur with a sail on its back"},
-      {"word": "ankylosaurus", "definition": "Armored dinosaur with a club tail"}
+      {
+        "word": "tyrannosaurus",
+        "definition": "Huge meat-eater with tiny arms",
+        "hint": "dominant predator nicknamed tyrant lizard"
+      },
+      {
+        "word": "triceratops",
+        "definition": "Plant eater with three horns",
+        "hint": "herbivore bearing a trio of facial spikes"
+      },
+      {
+        "word": "stegosaurus",
+        "definition": "Dinosaur with plates on its back",
+        "hint": "Jurassic giant sporting a row of bony shields"
+      },
+      {
+        "word": "velociraptor",
+        "definition": "Fast hunter with sharp claws",
+        "hint": "swift desert stalker featuring sickle talons"
+      },
+      {
+        "word": "brachiosaurus",
+        "definition": "Long-necked giant that ate plants",
+        "hint": "towering browser holding head skyward"
+      },
+      {
+        "word": "diplodocus",
+        "definition": "Very long dinosaur with a whip tail",
+        "hint": "extended sauropod wielding a lash-like appendage"
+      },
+      {
+        "word": "allosaurus",
+        "definition": "Big predator before T rex",
+        "hint": "large carnivore preceding Tyrannosaurus"
+      },
+      {
+        "word": "iguanodon",
+        "definition": "Plant eater with a thumb spike",
+        "hint": "herbivore distinguished by a pointed digit"
+      },
+      {
+        "word": "spinosaurus",
+        "definition": "Dinosaur with a sail on its back",
+        "hint": "aquatic hunter bearing a tall dorsal fin"
+      },
+      {
+        "word": "ankylosaurus",
+        "definition": "Armored dinosaur with a club tail",
+        "hint": "low-slung tank sporting a mace-like appendage"
+      }
     ]
   }
 ]
