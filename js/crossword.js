@@ -330,29 +330,32 @@
 
       /** clearRevealedLetter hides any previously revealed cell. */
       function clearRevealedLetter() {
-        if (!revealedCellInfo) return;
+        if (!revealedCellInfo) {
+          return;
+        }
         revealedCellInfo.cell.input.value = revealedCellInfo.previousValue || emptyString;
         revealedCellInfo.cell.input.parentElement.classList.remove(correctClassName);
         updateEntrySolvedState(entry.id);
         revealedCellInfo = null;
       }
 
+      /** resetHints hides the verbal hint and removes any revealed letter. */
+      function resetHints() {
+        clearRevealedLetter();
+        verbalSpan.style.display = hiddenStyleValue;
+      }
+
       hintButton.addEventListener(clickEventName, event => {
         event.preventDefault();
-        switch (hintStage) {
-          case hintStageInitial:
-            verbalSpan.style.display = emptyString;
-            hintStage = hintStageVerbal;
-            break;
-          case hintStageVerbal:
-            revealedCellInfo = revealLetter(entry.id);
-            hintStage = hintStageLetter;
-            break;
-          default:
-            clearRevealedLetter();
-            verbalSpan.style.display = hiddenStyleValue;
-            hintStage = hintStageInitial;
-            break;
+        if (hintStage === hintStageInitial) {
+          verbalSpan.style.display = emptyString;
+          hintStage = hintStageVerbal;
+        } else if (hintStage === hintStageVerbal) {
+          revealedCellInfo = revealLetter(entry.id);
+          hintStage = hintStageLetter;
+        } else {
+          resetHints();
+          hintStage = hintStageInitial;
         }
       });
 
