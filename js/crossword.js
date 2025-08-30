@@ -22,6 +22,18 @@
   const viewportResizeEventNames = [resizeEventName, orientationChangeEventName];
   /** solvedClueClassName identifies the CSS class for solved clues. */
   const solvedClueClassName = "clueSolved";
+  /** puzzleDataPath identifies the path to the crossword specifications. */
+  const puzzleDataPath = "assets/data/crosswords.json";
+  /** selectChangeEventName identifies the change event. */
+  const selectChangeEventName = "change";
+  /** optionTagName identifies the option element tag name. */
+  const optionTagName = "option";
+  /** initialPuzzleIndex holds the initial puzzle selection index. */
+  const initialPuzzleIndex = "0";
+  /** errorInvalidSpecificationMessage describes the invalid specification error. */
+  const errorInvalidSpecificationMessage = "Crossword specification invalid";
+  /** errorInvalidDataMessage describes the invalid data error. */
+  const errorInvalidDataMessage = "Crossword data must be an array";
 
   /** updateViewportHeightProperty sets the viewport height custom property. */
   function updateViewportHeightProperty() {
@@ -471,14 +483,44 @@
     },{passive:true});
   })();
 
-  CROSSWORD_PUZZLES.forEach((p, idx) => {
-    const opt = document.createElement("option");
-    opt.value = idx; opt.textContent = p.title;
-    document.getElementById("puzzleSelect").appendChild(opt);
-  });
-  document.getElementById("puzzleSelect").addEventListener("change", (e)=>{
-    render(CROSSWORD_PUZZLES[Number(e.target.value)]);
-  });
-  document.getElementById("puzzleSelect").value = 0;
-  render(CROSSWORD_PUZZLES[0]);
+  /** validatePuzzleSpecification ensures a puzzle specification adheres to the required schema. */
+  function validatePuzzleSpecification(puzzleSpecification) {
+    if (!puzzleSpecification || typeof puzzleSpecification !== "object") return false;
+    if (typeof puzzleSpecification.title !== "string" || typeof puzzleSpecification.subtitle !== "string") return false;
+    if (!Array.isArray(puzzleSpecification.items)) return false;
+    for (const item of puzzleSpecification.items) {
+      if (typeof item.word !== "string" || typeof item.definition !== "string") return false;
+    }
+    return true;
+  }
+
+  /** loadAndRenderPuzzles retrieves puzzle specifications, builds puzzles, and renders them. */
+  async function loadAndRenderPuzzles() {
+    const response = await fetch(puzzleDataPath);
+    const puzzleSpecifications = await response.json();
+    if (!Array.isArray(puzzleSpecifications)) throw new Error(errorInvalidDataMessage);
+    const generatedPuzzles = [];
+    let puzzleIndex = 0;
+    for (const puzzleSpecification of puzzleSpecifications) {
+      if (!validatePuzzleSpecification(puzzleSpecification)) throw new Error(errorInvalidSpecificationMessage);
+      const generatedPuzzle = generateCrossword(
+        puzzleSpecification.items,
+        { title: puzzleSpecification.title, subtitle: puzzleSpecification.subtitle }
+      );
+      validatePayload(generatedPuzzle);
+      generatedPuzzles.push(generatedPuzzle);
+      const optionElement = document.createElement(optionTagName);
+      optionElement.value = String(puzzleIndex);
+      optionElement.textContent = generatedPuzzle.title;
+      selectEl.appendChild(optionElement);
+      puzzleIndex += 1;
+    }
+    selectEl.addEventListener(selectChangeEventName, event => {
+      render(generatedPuzzles[Number(event.target.value)]);
+    });
+    selectEl.value = initialPuzzleIndex;
+    render(generatedPuzzles[0]);
+  }
+
+  loadAndRenderPuzzles().catch(error => { errorBox.textContent = error.message; });
 })();
