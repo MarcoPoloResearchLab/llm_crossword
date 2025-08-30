@@ -1,4 +1,4 @@
-# llm_crossword
+# LLM crossword
 
 A crossword puzzle builder, powered by LLM.
 
