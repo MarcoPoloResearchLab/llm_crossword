@@ -34,6 +34,30 @@
   const errorInvalidSpecificationMessage = "Crossword specification invalid";
   /** errorInvalidDataMessage describes the invalid data error. */
   const errorInvalidDataMessage = "Crossword data must be an array";
+  /** hintContainerTagName identifies the container element for hint controls. */
+  const hintContainerTagName = "div";
+  /** buttonTagName identifies the button element tag name. */
+  const buttonTagName = "button";
+  /** imageTagName identifies the image element tag name. */
+  const imageTagName = "img";
+  /** hintTextTagName identifies the verbal hint element tag name. */
+  const hintTextTagName = "div";
+  /** hintContainerClassName identifies the CSS class for hint container. */
+  const hintContainerClassName = "hintControls";
+  /** hintTextClassName identifies the CSS class for verbal hints. */
+  const hintTextClassName = "hintText";
+  /** hintImageClassName identifies the CSS class for image hints. */
+  const hintImageClassName = "hintImage";
+  /** verbalHintButtonText specifies the text for the verbal hint button. */
+  const verbalHintButtonText = "Hint";
+  /** imageHintButtonText specifies the text for the image hint button. */
+  const imageHintButtonText = "Image";
+  /** letterHintButtonText specifies the text for the letter reveal button. */
+  const letterHintButtonText = "Letter";
+  /** correctClassName identifies the CSS class for correct letters. */
+  const correctClassName = "correct";
+  /** hiddenStyleValue specifies the display style value to hide elements. */
+  const hiddenStyleValue = "none";
 
   /** updateViewportHeightProperty sets the viewport height custom property. */
   function updateViewportHeightProperty() {
@@ -262,6 +286,63 @@
       }
     }
 
+    /** revealLetter fills one unsolved cell for the entry identifier. */
+    function revealLetter(entryIdentifier) {
+      const cells = cellsById.get(entryIdentifier) || [];
+      for (const entryCell of cells) {
+        const currentValue = (entryCell.input.value || "").toUpperCase();
+        if (currentValue !== entryCell.sol) {
+          entryCell.input.value = entryCell.sol;
+          entryCell.input.parentElement.classList.add(correctClassName);
+          updateEntrySolvedState(entryIdentifier);
+          break;
+        }
+      }
+    }
+
+    /** attachHints adds hint controls to the clue element. */
+    function attachHints(clueElement, entry) {
+      const hintContainer = document.createElement(hintContainerTagName);
+      hintContainer.className = hintContainerClassName;
+
+      const verbalButton = document.createElement(buttonTagName);
+      verbalButton.textContent = verbalHintButtonText;
+      const verbalSpan = document.createElement(hintTextTagName);
+      verbalSpan.className = hintTextClassName;
+      verbalSpan.textContent = entry.hint;
+      verbalSpan.style.display = hiddenStyleValue;
+      verbalButton.addEventListener("click", event => {
+        event.preventDefault();
+        verbalSpan.style.display = "";
+      });
+
+      const imageButton = document.createElement(buttonTagName);
+      imageButton.textContent = imageHintButtonText;
+      const imageElement = document.createElement(imageTagName);
+      imageElement.className = hintImageClassName;
+      imageElement.src = entry.image;
+      imageElement.alt = entry.hint;
+      imageElement.style.display = hiddenStyleValue;
+      imageButton.addEventListener("click", event => {
+        event.preventDefault();
+        imageElement.style.display = "";
+      });
+
+      const letterButton = document.createElement(buttonTagName);
+      letterButton.textContent = letterHintButtonText;
+      letterButton.addEventListener("click", event => {
+        event.preventDefault();
+        revealLetter(entry.id);
+      });
+
+      hintContainer.appendChild(verbalButton);
+      hintContainer.appendChild(imageButton);
+      hintContainer.appendChild(letterButton);
+      clueElement.appendChild(hintContainer);
+      clueElement.appendChild(verbalSpan);
+      clueElement.appendChild(imageElement);
+    }
+
     // nav helpers
     let activeDir = "across";
     const focusCell = (r,c) => {
@@ -377,11 +458,9 @@
         li.dataset.entryId = ent.id;
         li.textContent = `${ent.num}. ${sanitizeClue(ent.clue)} (${ent.answer.length})`;
 
-        // highlight on hover
         li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
         li.addEventListener("mouseleave", () => { clearHL(); });
 
-        // CLICK -> focus first square of this entry
         li.addEventListener("click", (e) => {
           e.preventDefault();
           const cells = cellsById.get(ent.id) || [];
@@ -397,6 +476,7 @@
           addHL([ent.id]);
         });
 
+        attachHints(li, ent);
         clueById.set(ent.id, li);
         ol.appendChild(li);
       }
@@ -489,7 +569,7 @@
     if (typeof puzzleSpecification.title !== "string" || typeof puzzleSpecification.subtitle !== "string") return false;
     if (!Array.isArray(puzzleSpecification.items)) return false;
     for (const item of puzzleSpecification.items) {
-      if (typeof item.word !== "string" || typeof item.definition !== "string") return false;
+      if (typeof item.word !== "string" || typeof item.definition !== "string" || typeof item.image !== "string" || typeof item.hint !== "string") return false;
     }
     return true;
   }

@@ -280,3 +280,21 @@ button.secondary {
     background: rgba(52, 211, 153, .12);
     border-color: rgba(52, 211, 153, .5);
 }
+
+.hintControls {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.hintText {
+    margin-top: 4px;
+    font-size: 13px;
+    opacity: .9;
+}
+
+.hintImage {
+    margin-top: 4px;
+    max-width: 100%;
+    border-radius: var(--border-radius);
+}

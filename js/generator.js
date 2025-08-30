@@ -13,11 +13,13 @@ function generateCrossword(items, opts = {}) {
   };
 
   // ---------- sanitize input ----------
-  let baseWords = items.map((x, i) => ({
-    id: `W${i}`,
-    answer: String(x.word || "").toUpperCase().replace(/[^A-Z]/g, ""),
-    clue: String(x.definition || "").trim(),
-  })).filter(w => w.answer.length > 1);
+  let baseWords = items.map((item, itemIndex) => ({
+    id: `W${itemIndex}`,
+    answer: String(item.word || "").toUpperCase().replace(/[^A-Z]/g, ""),
+    clue: String(item.definition || "").trim(),
+    image: String(item.image || "").trim(),
+    hint: String(item.hint || "").trim(),
+  })).filter(word => word.answer.length > 1);
 
   if (baseWords.length === 0) {
     throw new Error("No valid words (need length ≥ 2, A–Z).");
@@ -88,7 +90,7 @@ function generateCrossword(items, opts = {}) {
         const c = dir === "across" ? col + i : col;
         set(r, c, wordObj.answer[i]);
       }
-      placed.push({ id: wordObj.id, dir, row, col, answer: wordObj.answer, clue: wordObj.clue });
+      placed.push({ id: wordObj.id, dir, row, col, answer: wordObj.answer, clue: wordObj.clue, image: wordObj.image, hint: wordObj.hint });
 
       if (anchor) {
         overlaps.push({ a: wordObj.id, aIndex: anchor.iNew, b: anchor.otherId, bIndex: anchor.iOld });
@@ -230,8 +232,15 @@ function generateCrossword(items, opts = {}) {
           return {
             title: o.title,
             subtitle: o.subtitle,
-            entries: placed.map(e => ({
-              id: e.id, dir: e.dir, row: e.row, col: e.col, answer: e.answer, clue: e.clue
+            entries: placed.map(entry => ({
+              id: entry.id,
+              dir: entry.dir,
+              row: entry.row,
+              col: entry.col,
+              answer: entry.answer,
+              clue: entry.clue,
+              image: entry.image,
+              hint: entry.hint,
             })),
             overlaps: overlaps.slice()
           };
