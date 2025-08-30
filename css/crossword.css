@@ -10,7 +10,7 @@
     --viewport-height: 100vh;
     --full-size: 100%;
     --wrap-max-width: calc(100vw - var(--wrap-offset));
-    --vertical-flex-direction: column;
+    --narrow-screen-width: 800px;
 }
 
 * {
@@ -76,7 +76,7 @@ select {
 
 .pane {
     display: flex;
-    flex-direction: var(--vertical-flex-direction);
+    flex-direction: row;
     gap: var(--pane-gap);
     height: 100%;
     min-height: 0;
@@ -175,6 +175,20 @@ select {
     align-self: stretch;
     width: var(--full-size);
     max-width: var(--full-size);
+}
+
+@media (max-width: var(--narrow-screen-width)) {
+    .pane {
+        flex-direction: column;
+    }
+
+    .gridViewport {
+        flex: 0 0 auto;
+    }
+
+    .clues {
+        flex: 1 1 auto;
+    }
 }
 
 .cluegrp h3 {
