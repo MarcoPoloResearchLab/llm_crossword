@@ -282,9 +282,9 @@ button.secondary {
 }
 
 .hintControls {
-    display: flex;
-    gap: 4px;
-    margin-top: 4px;
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0;
 }
 
 .hintText {

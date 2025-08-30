@@ -26,6 +26,8 @@
   const puzzleDataPath = "assets/data/crosswords.json";
   /** selectChangeEventName identifies the change event. */
   const selectChangeEventName = "change";
+  /** clickEventName identifies the click event. */
+  const clickEventName = "click";
   /** optionTagName identifies the option element tag name. */
   const optionTagName = "option";
   /** initialPuzzleIndex holds the initial puzzle selection index. */
@@ -35,7 +37,7 @@
   /** errorInvalidDataMessage describes the invalid data error. */
   const errorInvalidDataMessage = "Crossword data must be an array";
   /** hintContainerTagName identifies the container element for hint controls. */
-  const hintContainerTagName = "div";
+  const hintContainerTagName = "span";
   /** buttonTagName identifies the button element tag name. */
   const buttonTagName = "button";
   /** hintTextTagName identifies the verbal hint element tag name. */
@@ -44,10 +46,8 @@
   const hintContainerClassName = "hintControls";
   /** hintTextClassName identifies the CSS class for verbal hints. */
   const hintTextClassName = "hintText";
-  /** verbalHintButtonText specifies the text for the verbal hint button. */
-  const verbalHintButtonText = "Hint";
-  /** letterHintButtonText specifies the text for the letter reveal button. */
-  const letterHintButtonText = "Letter";
+  /** hintButtonText specifies the text for the toggle hint button. */
+  const hintButtonText = "H";
   /** correctClassName identifies the CSS class for correct letters. */
   const correctClassName = "correct";
   /** hiddenStyleValue specifies the display style value to hide elements. */
@@ -294,31 +294,34 @@
       }
     }
 
-    /** attachHints adds verbal and letter hint controls to the clue element. */
+    /**
+     * attachHints adds a single toggle hint control that first reveals the verbal hint
+     * and on the next activation reveals one letter.
+     */
     function attachHints(clueElement, entry) {
       const hintContainer = document.createElement(hintContainerTagName);
       hintContainer.className = hintContainerClassName;
 
-      const verbalButton = document.createElement(buttonTagName);
-      verbalButton.textContent = verbalHintButtonText;
+      const hintButton = document.createElement(buttonTagName);
+      hintButton.textContent = hintButtonText;
       const verbalSpan = document.createElement(hintTextTagName);
       verbalSpan.className = hintTextClassName;
       verbalSpan.textContent = entry.hint;
       verbalSpan.style.display = hiddenStyleValue;
-      verbalButton.addEventListener("click", event => {
+
+      let hintStage = 0;
+      hintButton.addEventListener(clickEventName, event => {
         event.preventDefault();
-        verbalSpan.style.display = "";
+        if (hintStage === 0) {
+          verbalSpan.style.display = "";
+          hintStage = 1;
+        } else {
+          revealLetter(entry.id);
+          hintButton.disabled = true;
+        }
       });
 
-      const letterButton = document.createElement(buttonTagName);
-      letterButton.textContent = letterHintButtonText;
-      letterButton.addEventListener("click", event => {
-        event.preventDefault();
-        revealLetter(entry.id);
-      });
-
-      hintContainer.appendChild(verbalButton);
-      hintContainer.appendChild(letterButton);
+      hintContainer.appendChild(hintButton);
       clueElement.appendChild(hintContainer);
       clueElement.appendChild(verbalSpan);
     }
@@ -441,7 +444,7 @@
         li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
         li.addEventListener("mouseleave", () => { clearHL(); });
 
-        li.addEventListener("click", (e) => {
+        li.addEventListener(clickEventName, (e) => {
           e.preventDefault();
           const cells = cellsById.get(ent.id) || [];
           if (!cells.length) return;
