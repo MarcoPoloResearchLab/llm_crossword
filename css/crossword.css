@@ -198,6 +198,11 @@ select {
     font-size: 16px;
 }
 
+.hintControls {
+    display: inline-block;
+    padding: 0 2px;
+}
+
 ol {
     list-style: none;
     padding-left: 0;

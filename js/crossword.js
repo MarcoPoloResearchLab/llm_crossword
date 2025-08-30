@@ -34,6 +34,14 @@
   const errorInvalidSpecificationMessage = "Crossword specification invalid";
   /** errorInvalidDataMessage describes the invalid data error. */
   const errorInvalidDataMessage = "Crossword data must be an array";
+  /** hintContainerTagName identifies the hint container element tag. */
+  const hintContainerTagName = "span";
+  /** hintTextTagName identifies the hint text element tag. */
+  const hintTextTagName = "div";
+  /** hintButtonText identifies the hint button label. */
+  const hintButtonText = "H";
+  /** hintControlsClassName identifies the CSS class applied to hint controls. */
+  const hintControlsClassName = "hintControls";
 
   /** updateViewportHeightProperty sets the viewport height custom property. */
   function updateViewportHeightProperty() {
@@ -262,6 +270,46 @@
       }
     }
 
+    /** attachHints appends hint controls enabling verbal and letter hints. */
+    function attachHints(entry, clueElement) {
+      const hintContainerElement = document.createElement(hintContainerTagName);
+      hintContainerElement.className = hintControlsClassName;
+
+      const hintButtonElement = document.createElement("button");
+      hintButtonElement.textContent = hintButtonText;
+      hintContainerElement.appendChild(hintButtonElement);
+      clueElement.appendChild(hintContainerElement);
+
+      const hintTextElement = document.createElement(hintTextTagName);
+      hintTextElement.style.display = "none";
+      clueElement.appendChild(hintTextElement);
+
+      let hintClickCount = 0;
+      hintButtonElement.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        hintClickCount += 1;
+        if (hintClickCount === 1) {
+          if (typeof entry.hint === "string") {
+            hintTextElement.textContent = entry.hint;
+            hintTextElement.style.display = "";
+          }
+        } else {
+          const entryCells = cellsById.get(entry.id) || [];
+          for (const entryCell of entryCells) {
+            if (!entryCell.input.value) {
+              entryCell.input.value = entryCell.sol;
+              entryCell.input.parentElement.classList.remove("wrong");
+              entryCell.input.parentElement.classList.add("correct");
+              updateSolvedStateForCell(entryCell);
+              break;
+            }
+          }
+          hintButtonElement.disabled = true;
+        }
+      });
+    }
+
     // nav helpers
     let activeDir = "across";
     const focusCell = (r,c) => {
@@ -372,14 +420,16 @@
     // clues (create <li>, index by entry id, add hover highlight)
 // clues (create <li>, index by entry id, add hover H/L + click-to-focus)
     function put(ol, list){
-      for (const ent of list){
-        const li = document.createElement("li");
-        li.dataset.entryId = ent.id;
-        li.textContent = `${ent.num}. ${sanitizeClue(ent.clue)} (${ent.answer.length})`;
+        for (const ent of list){
+          const li = document.createElement("li");
+          li.dataset.entryId = ent.id;
+          li.textContent = `${ent.num}. ${sanitizeClue(ent.clue)} (${ent.answer.length})`;
 
-        // highlight on hover
-        li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
-        li.addEventListener("mouseleave", () => { clearHL(); });
+          attachHints(ent, li);
+
+          // highlight on hover
+          li.addEventListener("mouseenter", () => { clearHL(); addHL([ent.id]); });
+          li.addEventListener("mouseleave", () => { clearHL(); });
 
         // CLICK -> focus first square of this entry
         li.addEventListener("click", (e) => {
