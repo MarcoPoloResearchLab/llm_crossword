@@ -178,6 +178,7 @@ select {
 @media (max-width: var(--narrow-screen-width)) {
     .pane {
         flex-direction: column;
+        overflow-y: auto;
     }
 
     .gridViewport {
