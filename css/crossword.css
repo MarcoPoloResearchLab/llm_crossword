@@ -183,10 +183,12 @@ select {
 
     .gridViewport {
         flex: 0 0 auto;
+        height: auto;
+        overflow: visible;
     }
 
     .clues {
-        flex: 1 1 auto;
+        flex: 0 0 auto;
         width: 100%;
         margin-left: 0;
         align-self: stretch;
