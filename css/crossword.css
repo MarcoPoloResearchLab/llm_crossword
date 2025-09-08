@@ -175,15 +175,17 @@ select {
     align-self: flex-start;
 }
 
-@media (max-width: var(--narrow-screen-width)) {
+@media (max-width: 800px) {
     .wrap {
         height: auto;
         overflow-y: auto;
+        overflow-x: auto;
     }
 
     .pane {
         flex-direction: column;
         overflow-y: auto;
+        overflow-x: visible;
     }
 
     .gridViewport {
