@@ -176,6 +176,11 @@ select {
 }
 
 @media (max-width: var(--narrow-screen-width)) {
+    .wrap {
+        height: auto;
+        overflow-y: auto;
+    }
+
     .pane {
         flex-direction: column;
         overflow-y: auto;
