@@ -20,6 +20,14 @@
   const orientationChangeEventName = "orientationchange";
   /** viewportResizeEventNames lists events that can change the viewport height. */
   const viewportResizeEventNames = [resizeEventName, orientationChangeEventName];
+  /** cssCellSizeProperty identifies the CSS property for grid cell size. */
+  const cssCellSizeProperty = "--cell-size";
+  /** cssGapSizeProperty identifies the CSS property for the gap between cells. */
+  const cssGapSizeProperty = "--gap-size";
+  /** defaultCellSize stores the maximum cell dimension in pixels. */
+  const defaultCellSize = 44;
+  /** pixelUnit identifies the CSS pixel unit. */
+  const pixelUnit = "px";
   /** solvedClueClassName identifies the CSS class for solved clues. */
   const solvedClueClassName = "clueSolved";
   /** puzzleDataPath identifies the path to the crossword specifications. */
@@ -63,18 +71,38 @@
   /** hintStageLetter identifies the state where a letter has been revealed. */
   const hintStageLetter = 2;
 
+  /** currentColumnCount tracks the number of columns in the grid. */
+  let currentColumnCount = 0;
+
   /** updateViewportHeightProperty sets the viewport height custom property. */
   function updateViewportHeightProperty() {
     const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    document.documentElement.style.setProperty(cssViewportHeightProperty, `${viewportHeight}px`);
+    document.documentElement.style.setProperty(cssViewportHeightProperty, `${viewportHeight}${pixelUnit}`);
   }
 
-  updateViewportHeightProperty();
+  /** updateCellSize adjusts cell size so the grid fits the viewport width. */
+  function updateCellSize() {
+    if (!currentColumnCount) return;
+    const computedStyles = getComputedStyle(document.documentElement);
+    const gapSize = parseInt(computedStyles.getPropertyValue(cssGapSizeProperty), 10) || 0;
+    const viewportWidth = gridViewport.clientWidth;
+    const maxAvailableWidth = viewportWidth - gapSize * (currentColumnCount - 1);
+    const cellSize = Math.min(defaultCellSize, Math.floor(maxAvailableWidth / currentColumnCount));
+    document.documentElement.style.setProperty(cssCellSizeProperty, `${cellSize}${pixelUnit}`);
+  }
+
+  /** handleViewportResize updates measurements when the viewport changes. */
+  function handleViewportResize() {
+    updateViewportHeightProperty();
+    updateCellSize();
+  }
+
+  handleViewportResize();
   if (window.visualViewport) {
-    window.visualViewport.addEventListener(resizeEventName, updateViewportHeightProperty);
+    window.visualViewport.addEventListener(resizeEventName, handleViewportResize);
   }
   for (const eventName of viewportResizeEventNames) {
-    window.addEventListener(eventName, updateViewportHeightProperty);
+    window.addEventListener(eventName, handleViewportResize);
   }
 
   function sanitizeClue(text) { return (text || "").replace(/^\s*\d+\.?\s*/, ""); }
@@ -229,6 +257,8 @@
     // define grid size (rows *and* cols)
     gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
     gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell-size))`;
+    currentColumnCount = cols;
+    updateCellSize();
 
     // --- Highlighting state/maps
     const clueById = new Map();      // id -> <li>
