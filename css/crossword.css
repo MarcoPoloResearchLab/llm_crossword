@@ -2,8 +2,6 @@
     --cell-size: 44px;
     --gap-size: 4px;
     --border-radius: 10px;
-    --cell: 44px;
-    --gap: 4px;
     --wrap-offset: 48px;
     --pane-gap: 18px;
     --clue-stack-track-size: 1fr;
@@ -11,6 +9,7 @@
     --full-size: 100%;
     --wrap-max-width: calc(100vw - var(--wrap-offset));
     --narrow-screen-width: 800px;
+    --phone-screen-width: 500px;
 }
 
 * {
@@ -233,7 +232,16 @@ button.secondary {
     background: #334155;
 }
 
-@media (max-width: 500px) {
+@media (max-width: var(--phone-screen-width)) {
+    :root {
+        --wrap-offset: 24px;
+        --pane-gap: 12px;
+    }
+
+    body {
+        padding: 12px;
+    }
+
     .controls {
         flex-direction: column;
     }
