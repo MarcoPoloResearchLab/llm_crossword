@@ -11,3 +11,8 @@ A crossword puzzle builder, powered by LLM.
 5. Press **Check** to verify your work. Correct letters are highlighted in green, while incorrect letters are marked in red.
 6. Press **Reveal** to show all answers. The button toggles to **Hide** so you can return to your previous entries.
 7. The status bar provides feedback after checking or revealing answers.
+
+## License
+
+This project is proprietary software. All rights reserved by Marco Polo Research Lab.  
+See the [LICENSE](./LICENSE) file for details.
