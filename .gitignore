@@ -1,1 +1,8 @@
 .idea/
+# Managed by gix gitignore workflow
+.env
+.env.*
+.DS_Store
+qodana.yaml
+tools/
+bin/
