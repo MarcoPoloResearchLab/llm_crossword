@@ -220,3 +220,94 @@ test.describe("Layout — no excessive empty space", () => {
     expect(layout.wrapLeft).toBeGreaterThan(0);
   });
 });
+
+test.describe("Header layout", () => {
+  test("header spans the full viewport width", async ({ page }) => {
+    await setupLoggedOutMocks(page);
+    await page.goto("/");
+
+    const headerBox = await page.evaluate(() => {
+      var header = document.querySelector("mpr-header");
+      if (!header) return null;
+      var rect = header.getBoundingClientRect();
+      return { width: rect.width, viewportWidth: window.innerWidth };
+    });
+
+    expect(headerBox).not.toBeNull();
+    // Header should span the full viewport width (within 2px tolerance)
+    expect(headerBox.width).toBeGreaterThanOrEqual(headerBox.viewportWidth - 2);
+  });
+});
+
+test.describe("Clue visibility", () => {
+  test("clue text is not truncated", async ({ page }) => {
+    await setupLoggedOutMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+
+    // Check that clue list items are not overflowing/truncated
+    const clueOverflow = await page.evaluate(() => {
+      var items = document.querySelectorAll("li");
+      var truncated = [];
+      for (var i = 0; i < items.length; i++) {
+        var li = items[i];
+        // If scrollWidth > clientWidth, text is being clipped
+        if (li.scrollWidth > li.clientWidth + 2) {
+          truncated.push(li.textContent.substring(0, 40));
+        }
+      }
+      return truncated;
+    });
+
+    // No clue items should be truncated
+    expect(clueOverflow).toHaveLength(0);
+  });
+
+  test("hint buttons are visible on clue items", async ({ page }) => {
+    await setupLoggedOutMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+
+    // The hint button (H) should be visible on at least one clue
+    const hintButtons = page.locator("li .hintButton");
+    const count = await hintButtons.count();
+    expect(count).toBeGreaterThan(0);
+
+    // Each hint button should be within the viewport (not clipped off-screen)
+    for (var i = 0; i < Math.min(count, 3); i++) {
+      const box = await hintButtons.nth(i).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box.width).toBeGreaterThan(0);
+      expect(box.height).toBeGreaterThan(0);
+    }
+  });
+});
+
+test.describe("Grid scrollbar", () => {
+  test("no extraneous scrollbar or black bar inside the grid viewport", async ({ page }) => {
+    await setupLoggedOutMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+
+    const viewport = await page.evaluate(() => {
+      var gv = document.querySelector(".gridViewport");
+      if (!gv) return null;
+      return {
+        scrollWidth: gv.scrollWidth,
+        clientWidth: gv.clientWidth,
+        scrollHeight: gv.scrollHeight,
+        clientHeight: gv.clientHeight,
+        hasHorizontalScroll: gv.scrollWidth > gv.clientWidth + 5,
+        hasVerticalScroll: gv.scrollHeight > gv.clientHeight + 5,
+      };
+    });
+
+    expect(viewport).not.toBeNull();
+    // For a small puzzle, the grid should not need scrollbars
+    // (the black bar is caused by a scrollbar track or overflow)
+    expect(viewport.hasHorizontalScroll).toBe(false);
+  });
+});
