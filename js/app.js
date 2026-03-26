@@ -14,7 +14,7 @@
   var topicInput      = document.getElementById("topicInput");
   var wordCountSelect = document.getElementById("wordCount");
   var generateBtn     = document.getElementById("generateBtn");
-  var creditBadge     = document.getElementById("creditBalance");
+  var creditBadge     = document.getElementById("headerCreditBadge");
   var generateStatus  = document.getElementById("generateStatus");
   var landingTryBtn   = document.getElementById("landingTryPrebuilt");
   var landingSignIn   = document.getElementById("landingSignIn");

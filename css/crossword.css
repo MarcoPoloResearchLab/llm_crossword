@@ -81,8 +81,8 @@ body {
 .wrap {
     width: fit-content;
     max-width: var(--wrap-max-width);
-    height: calc(var(--viewport-height) - var(--wrap-offset));
-    overflow: hidden;
+    max-height: calc(var(--viewport-height) - var(--wrap-offset));
+    overflow: auto;
     background: var(--cw-wrap-bg);
     border: 1px solid var(--cw-wrap-border);
     border-radius: 16px;
@@ -447,8 +447,8 @@ button.secondary {
     cursor: not-allowed;
 }
 
-/* --- Credit badge --- */
-.credit-badge {
+/* --- Credit badge (in header) --- */
+.header-credit-badge {
     font-size: 13px;
     font-weight: 600;
     padding: 4px 10px;
@@ -456,11 +456,7 @@ button.secondary {
     background: rgba(52, 211, 153, .15);
     color: #34d399;
     white-space: nowrap;
-}
-
-.credit-badge.logged-out {
-    background: var(--cw-tab-bg);
-    color: var(--cw-placeholder);
+    margin-right: 8px;
 }
 
 /* --- Generate status --- */

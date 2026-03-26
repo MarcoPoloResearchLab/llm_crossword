@@ -295,7 +295,7 @@ test.describe("App — updateBalance with available_cents", () => {
       };
     `);
     await page.goto("/");
-    await expect(page.locator("#creditBalance")).toContainText("25 credits", { timeout: 5000 });
+    await expect(page.locator("#headerCreditBadge")).toContainText("25 credits", { timeout: 5000 });
   });
 });
 

@@ -35,7 +35,8 @@ Rules:
 - All words must be distinct.
 - Words should be thematically related to the given topic.
 - Prefer common, well-known words over obscure ones.
-- Aim for a mix of word lengths (some short 3-5 letters, some medium 5-8, some longer 8-12).`
+- Aim for a mix of word lengths (some short 3-5 letters, some medium 5-8, some longer 8-12).
+- CRITICAL: Every definition must be unique and creative. Never use ordinal/positional patterns like "first X", "second X", "third X", "Nth X in the list/cycle/series". Instead describe the word by its distinctive characteristics, mythology, behavior, appearance, or cultural significance. Each clue should feel like it was written by a different person.`
 
 func (handler *httpHandler) callLLMProxy(ctx context.Context, topic string, wordCount int) ([]WordItem, error) {
 	userPrompt := fmt.Sprintf("Generate exactly %d crossword words about the topic: %q", wordCount, topic)

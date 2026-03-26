@@ -91,7 +91,7 @@ test.describe("App auth — logged in state", () => {
     await setupLoggedInMocks(page);
     await page.goto("/");
     // Wait for bootstrap to complete
-    await expect(page.locator("#creditBalance")).toContainText("credits", { timeout: 5000 });
+    await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 5000 });
   });
 });
 

@@ -26,7 +26,7 @@ test.describe("Login flow — unauthenticated state", () => {
   test("credit badge is hidden when not signed in", async ({ page }) => {
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.getByRole("tab", { name: "Generate" }).click();
-    await expect(page.locator("#creditBalance")).toBeHidden();
+    await expect(page.locator("#headerCreditBadge")).toBeHidden();
   });
 
   test("topic input is visible in generate tab", async ({ page }) => {
