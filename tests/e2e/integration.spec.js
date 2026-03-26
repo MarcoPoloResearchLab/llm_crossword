@@ -117,3 +117,89 @@ test.describe("Session persistence", () => {
     expect([401, 403]).toContain(response.status());
   });
 });
+
+// ---------------------------------------------------------------------------
+// These tests run against the REAL site with real crosswords.json (Greek Gods
+// puzzle with 17 words). They catch issues that small mock puzzles miss.
+// ---------------------------------------------------------------------------
+test.describe("Real puzzle — clue layout (class: content always readable)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    // Wait for puzzle cells to render
+    await expect(page.locator("#puzzleView .cell:not(.blk)").first()).toBeVisible({ timeout: 15000 });
+  });
+
+  test("every clue has a visible hint button", async ({ page }) => {
+    var hintButtons = page.locator("#puzzleView li .hintButton");
+    var count = await hintButtons.count();
+    // Must have hint buttons
+    expect(count).toBeGreaterThan(0);
+    // Every hint button must be visible (non-zero size, within viewport)
+    for (var i = 0; i < count; i++) {
+      var box = await hintButtons.nth(i).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box.width).toBeGreaterThan(5);
+      expect(box.height).toBeGreaterThan(5);
+    }
+  });
+
+  test("clue text is not truncated on real puzzle", async ({ page }) => {
+    var truncated = await page.evaluate(() => {
+      var pv = document.getElementById("puzzleView");
+      if (!pv) return ["puzzleView not found"];
+      var items = pv.querySelectorAll("li");
+      var result = [];
+      for (var i = 0; i < items.length; i++) {
+        var li = items[i];
+        if (li.scrollWidth > li.clientWidth + 2) {
+          result.push(li.textContent.substring(0, 50));
+        }
+      }
+      return result;
+    });
+    expect(truncated).toHaveLength(0);
+  });
+
+  test("clues are to the right of the grid, not below", async ({ page }) => {
+    var layout = await page.evaluate(() => {
+      var pv = document.getElementById("puzzleView");
+      if (!pv) return null;
+      var grid = pv.querySelector(".gridViewport");
+      var clues = pv.querySelector(".clues");
+      if (!grid || !clues) return null;
+      var gr = grid.getBoundingClientRect();
+      var cr = clues.getBoundingClientRect();
+      return { gridRight: gr.right, cluesLeft: cr.left, gridTop: gr.top, cluesTop: cr.top };
+    });
+    expect(layout).not.toBeNull();
+    // Clues left edge should be at or past grid right edge
+    expect(layout.cluesLeft).toBeGreaterThanOrEqual(layout.gridRight - 20);
+    // Clues top should be near grid top (not pushed far below)
+    expect(Math.abs(layout.cluesTop - layout.gridTop)).toBeLessThanOrEqual(50);
+  });
+
+  test("no black bar artifact at bottom of grid", async ({ page }) => {
+    var info = await page.evaluate(() => {
+      var pv = document.getElementById("puzzleView");
+      if (!pv) return null;
+      var gv = pv.querySelector(".gridViewport");
+      if (!gv) return null;
+      var grid = pv.querySelector(".grid");
+      if (!grid) return null;
+      var gvRect = gv.getBoundingClientRect();
+      var gridRect = grid.getBoundingClientRect();
+      return {
+        viewportHeight: gvRect.height,
+        gridHeight: gridRect.height,
+        overflowY: getComputedStyle(gv).overflowY,
+        // Black bar = viewport much taller than grid content
+        excessHeight: gvRect.height - gridRect.height,
+      };
+    });
+    expect(info).not.toBeNull();
+    // The viewport should not have more than 50px excess below the grid
+    // (a black bar is caused by the viewport being taller than its content)
+    expect(info.excessHeight).toBeLessThanOrEqual(50);
+  });
+});
