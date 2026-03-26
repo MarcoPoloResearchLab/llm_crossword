@@ -390,6 +390,79 @@ test.describe("Clue visibility — long clues (class: content never clipped)", (
 
     expect(hasEllipsis).toBe(false);
   });
+
+  test("clues are positioned to the right of the grid, not below", async ({ page }) => {
+    await setupLongClueMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
+
+    const layout = await page.evaluate(() => {
+      var pv = document.getElementById("puzzleView");
+      if (!pv) return null;
+      var grid = pv.querySelector(".gridViewport");
+      var clues = pv.querySelector(".clues");
+      if (!grid || !clues) return null;
+      var gridRect = grid.getBoundingClientRect();
+      var cluesRect = clues.getBoundingClientRect();
+      return {
+        gridRight: gridRect.right,
+        cluesLeft: cluesRect.left,
+        gridBottom: gridRect.bottom,
+        cluesTop: cluesRect.top,
+      };
+    });
+
+    expect(layout).not.toBeNull();
+    // Clues should start to the right of the grid (with some tolerance for gap)
+    expect(layout.cluesLeft).toBeGreaterThanOrEqual(layout.gridRight - 10);
+    // Clues should NOT be below the grid (their top should be near the grid top)
+    expect(layout.cluesTop).toBeLessThan(layout.gridBottom);
+  });
+
+  test("clues container is at least 250px wide", async ({ page }) => {
+    await setupLongClueMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
+
+    const clueWidth = await page.evaluate(() => {
+      var pv = document.getElementById("puzzleView");
+      if (!pv) return 0;
+      var clues = pv.querySelector(".clues");
+      return clues ? clues.getBoundingClientRect().width : 0;
+    });
+
+    expect(clueWidth).toBeGreaterThanOrEqual(250);
+  });
+
+  test("no scrollbar artifact (black bar) inside grid viewport", async ({ page }) => {
+    await setupLongClueMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
+
+    const scrollInfo = await page.evaluate(() => {
+      var pv = document.getElementById("puzzleView");
+      if (!pv) return null;
+      var gv = pv.querySelector(".gridViewport");
+      if (!gv) return null;
+      return {
+        scrollWidth: gv.scrollWidth,
+        clientWidth: gv.clientWidth,
+        scrollHeight: gv.scrollHeight,
+        clientHeight: gv.clientHeight,
+        overflowX: getComputedStyle(gv).overflowX,
+        overflowY: getComputedStyle(gv).overflowY,
+      };
+    });
+
+    expect(scrollInfo).not.toBeNull();
+    // The grid viewport should not have forced scrollbars that create visual artifacts
+    // (overflow:auto is fine — it only shows scrollbars when needed)
+    var hasForcedHBar = scrollInfo.overflowX === "scroll";
+    expect(hasForcedHBar).toBe(false);
+  });
 });
 
 test.describe("Generate panel visibility (class: view state correctness)", () => {

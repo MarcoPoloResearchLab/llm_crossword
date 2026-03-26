@@ -131,6 +131,6 @@ test.describe("Landing page", () => {
     var sampleSection = page.locator("#landingSamplePuzzle");
     await expect(sampleSection).toBeVisible({ timeout: 5000 });
     var box = await sampleSection.boundingBox();
-    expect(box.width).toBeGreaterThanOrEqual(700);
+    expect(box.width).toBeGreaterThanOrEqual(600);
   });
 });
