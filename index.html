@@ -12,6 +12,7 @@
 
   <!-- load order matters: generator -> renderer -> app -->
   <link as="script" href="js/generator.js" rel="preload">
+  <link as="script" href="js/crossword-widget.js" rel="preload">
   <link as="script" href="js/crossword.js" rel="preload">
 
   <!-- mpr-ui components -->
@@ -80,31 +81,8 @@
     </div>
   </div>
 
-  <!-- Sample crossword puzzle (moon-themed, always visible on landing) -->
-  <div id="landingSamplePuzzle" class="landing__sample" aria-label="Try a sample crossword">
-    <h3 class="landing__sample-title">Mini Crossword — Moon Edition</h3>
-    <p class="landing__sample-subtitle">Try solving this mini puzzle right here!</p>
-    <div class="landing__sample-layout">
-      <div class="landing__sample-grid">
-        <div id="sampleGridViewport" class="gridViewport">
-          <div class="grid" id="sampleGrid"></div>
-        </div>
-      </div>
-      <div class="landing__sample-clues clues">
-        <div class="cluegrp"><h3>Across</h3>
-          <ol id="sampleAcross"></ol>
-        </div>
-        <div class="cluegrp"><h3>Down</h3>
-          <ol id="sampleDown"></ol>
-        </div>
-      </div>
-    </div>
-    <div class="landing__sample-controls controls">
-      <button id="sampleCheck">Check</button>
-      <button class="secondary" id="sampleReveal">Reveal</button>
-      <div class="status" id="sampleStatus"></div>
-    </div>
-  </div>
+  <!-- Sample crossword puzzle (moon-themed, rendered by CrosswordWidget) -->
+  <div id="landingSamplePuzzle" class="landing__sample" aria-label="Try a sample crossword"></div>
 </section>
 
 <!-- ========== Puzzle view (hidden until a puzzle is loaded) ========== -->
@@ -200,8 +178,9 @@
 ></mpr-footer>
 
 <script src="js/config.js"></script>
-<script src="js/landing-puzzle.js"></script>
 <script src="js/generator.js"></script>
+<script src="js/crossword-widget.js"></script>
+<script src="js/landing-puzzle.js"></script>
 <script src="js/crossword.js"></script>
 <script src="js/app.js"></script>
 
