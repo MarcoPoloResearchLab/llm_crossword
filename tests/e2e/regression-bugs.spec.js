@@ -273,7 +273,7 @@ test.describe("Clue visibility", () => {
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     // The hint button (H) should be visible on at least one clue
-    const hintButtons = page.locator("li .hintButton");
+    const hintButtons = page.locator("#puzzleView li .hintButton");
     const count = await hintButtons.count();
     expect(count).toBeGreaterThan(0);
 

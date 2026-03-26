@@ -291,13 +291,17 @@
       this._selectEl = null;
     }
 
+    // Body: flex row with grid + clues (same layout as .pane)
+    var body = doc.createElement("div");
+    body.className = "pane";
+
     // Grid viewport + grid
     this._gridViewport = doc.createElement("div");
     this._gridViewport.className = "gridViewport";
     this._gridEl = doc.createElement("div");
     this._gridEl.className = "grid";
     this._gridViewport.appendChild(this._gridEl);
-    this._container.appendChild(this._gridViewport);
+    body.appendChild(this._gridViewport);
 
     // Clues
     var cluesWrap = doc.createElement("div");
@@ -321,7 +325,8 @@
 
     cluesWrap.appendChild(acrossGroup);
     cluesWrap.appendChild(downGroup);
-    this._container.appendChild(cluesWrap);
+    body.appendChild(cluesWrap);
+    this._container.appendChild(body);
 
     // Controls
     if (this._showControls) {

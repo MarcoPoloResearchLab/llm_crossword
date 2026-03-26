@@ -93,11 +93,11 @@ test.describe("Crossword grid interactions", () => {
 
   test("hint button shows hint text", async ({ page }) => {
     // Find a hint button (the "H" buttons on clues)
-    var hintButton = page.locator(".hintButton").first();
+    var hintButton = page.locator("#puzzleView .hintButton").first();
     await hintButton.click();
 
     // Hint text should be visible
-    var hintText = page.locator(".hintText").first();
+    var hintText = page.locator("#puzzleView .hintText").first();
     await expect(hintText).toBeVisible();
   });
 });

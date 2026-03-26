@@ -106,4 +106,31 @@ test.describe("Landing page", () => {
     var titleText = await sampleSection.locator("h2, h3").first().textContent();
     expect(titleText.toLowerCase()).toMatch(/moon|lunar/);
   });
+
+  test("sample puzzle has hint buttons on clues", async ({ page }) => {
+    var sampleSection = page.locator("#landingSamplePuzzle");
+    var hintButtons = sampleSection.locator(".hintButton");
+    await expect(hintButtons.first()).toBeVisible({ timeout: 5000 });
+    var count = await hintButtons.count();
+    // Should have at least one hint button per clue
+    expect(count).toBeGreaterThanOrEqual(3);
+  });
+
+  test("sample puzzle clues are beside the grid, not below", async ({ page }) => {
+    var sampleSection = page.locator("#landingSamplePuzzle");
+    await expect(sampleSection.locator(".cell").first()).toBeVisible({ timeout: 5000 });
+    // Get bounding boxes of grid and clues
+    var gridBox = await sampleSection.locator(".gridViewport").boundingBox();
+    var cluesBox = await sampleSection.locator(".clues").boundingBox();
+    // Clues should be to the right of the grid (not below)
+    // cluesBox.x should be >= gridBox.x + gridBox.width (roughly)
+    expect(cluesBox.x).toBeGreaterThanOrEqual(gridBox.x + gridBox.width - 10);
+  });
+
+  test("sample puzzle container is at least 700px wide", async ({ page }) => {
+    var sampleSection = page.locator("#landingSamplePuzzle");
+    await expect(sampleSection).toBeVisible({ timeout: 5000 });
+    var box = await sampleSection.boundingBox();
+    expect(box.width).toBeGreaterThanOrEqual(700);
+  });
 });

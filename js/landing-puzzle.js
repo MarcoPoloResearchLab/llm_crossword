@@ -24,7 +24,7 @@
   // Create a lightweight widget (no hints, no panning, no keyboard nav).
   var widget = new window.CrosswordWidget(container, {
     puzzle: payload,
-    hints: false,
+    hints: true,
     responsive: true,
     draggable: false,
     keyboard: false,

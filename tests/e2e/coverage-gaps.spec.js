@@ -433,8 +433,8 @@ test.describe("Crossword — hint cycling (verbal -> letter -> reset)", () => {
   });
 
   test("hint button cycles through all three stages", async ({ page }) => {
-    var hintButton = page.locator(".hintButton").first();
-    var hintText = page.locator(".hintText").first();
+    var hintButton = page.locator("#puzzleView .hintButton").first();
+    var hintText = page.locator("#puzzleView .hintText").first();
 
     // Stage 0 -> 1: show verbal hint
     await hintButton.click();
@@ -452,7 +452,7 @@ test.describe("Crossword — hint cycling (verbal -> letter -> reset)", () => {
   });
 
   test("hint letter reveal on second click adds correct class to a cell", async ({ page }) => {
-    var hintButton = page.locator(".hintButton").first();
+    var hintButton = page.locator("#puzzleView .hintButton").first();
     // Click once for verbal hint
     await hintButton.click();
     // Click again for letter reveal
@@ -464,7 +464,7 @@ test.describe("Crossword — hint cycling (verbal -> letter -> reset)", () => {
   });
 
   test("hint reset on third click removes correct class", async ({ page }) => {
-    var hintButton = page.locator(".hintButton").first();
+    var hintButton = page.locator("#puzzleView .hintButton").first();
     // Cycle through all three stages
     await hintButton.click(); // verbal
     await hintButton.click(); // letter
@@ -472,7 +472,7 @@ test.describe("Crossword — hint cycling (verbal -> letter -> reset)", () => {
     await page.waitForTimeout(200);
     // The revealed cell should have lost "correct" class
     // (Unless other reveals happened)
-    var hintText = page.locator(".hintText").first();
+    var hintText = page.locator("#puzzleView .hintText").first();
     await expect(hintText).toBeHidden();
   });
 });
@@ -1177,7 +1177,7 @@ test.describe("Crossword — hint reveal on already-solved entry", () => {
     // Reveal all answers to fill cells correctly
     await page.getByRole("button", { name: "Reveal" }).click();
     // Now try to use hint on a clue — the reveal step should find no unsolved cell
-    var hintButton = page.locator(".hintButton").first();
+    var hintButton = page.locator("#puzzleView .hintButton").first();
     await hintButton.click(); // verbal hint
     await hintButton.click(); // letter reveal — should return null since all are correct
     await hintButton.click(); // reset
@@ -1204,7 +1204,7 @@ test.describe("Crossword — hint reset without prior reveal", () => {
     await page.getByRole("button", { name: "Reveal" }).click();
 
     // Try hint on a solved word — clicking through all 3 stages
-    var hintButton = page.locator(".hintButton").first();
+    var hintButton = page.locator("#puzzleView .hintButton").first();
     await hintButton.click(); // verbal
     await hintButton.click(); // letter (returns null, revealedCellInfo stays null)
     await hintButton.click(); // reset (clearRevealedLetter with null revealedCellInfo — line 365-366)
@@ -1886,7 +1886,7 @@ test.describe("Crossword — revealLetter with empty cells", () => {
     await goToPuzzleWithGrid(page);
 
     // Make sure all cells are empty (default state), then use hint
-    var hintButton = page.locator(".hintButton").first();
+    var hintButton = page.locator("#puzzleView .hintButton").first();
     await hintButton.click(); // verbal
     await hintButton.click(); // letter reveal — cells should have empty/null value
     await page.waitForTimeout(200);
@@ -1895,7 +1895,7 @@ test.describe("Crossword — revealLetter with empty cells", () => {
     expect(correct).toBeGreaterThanOrEqual(1);
     // Reset
     await hintButton.click();
-    await expect(page.locator(".hintText").first()).toBeHidden();
+    await expect(page.locator("#puzzleView .hintText").first()).toBeHidden();
   });
 });
 
