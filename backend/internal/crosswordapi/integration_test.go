@@ -98,7 +98,7 @@ func TestRun_TLSLedger(t *testing.T) {
 	cfg := Config{
 		ListenAddr:        "127.0.0.1:0",
 		LedgerAddress:     "127.0.0.1:1", // won't connect
-		LedgerInsecure:    false,          // TLS path
+		LedgerInsecure:    false,         // TLS path
 		LedgerTimeout:     5 * time.Second,
 		DefaultTenantID:   "t1",
 		DefaultLedgerID:   "l1",
@@ -290,7 +290,7 @@ func newTestLogger() (*zap.Logger, error) {
 
 func newTestValidator(cfg Config) (*sessionvalidator.Validator, error) {
 	return sessionvalidator.New(sessionvalidator.Config{
-		SigningKey:  []byte(cfg.SessionSigningKey),
+		SigningKey: []byte(cfg.SessionSigningKey),
 		Issuer:     cfg.SessionIssuer,
 		CookieName: cfg.SessionCookieName,
 	})

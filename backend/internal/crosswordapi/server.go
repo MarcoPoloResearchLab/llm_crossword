@@ -90,7 +90,7 @@ func Run(ctx context.Context, cfg Config, opts ...RunOption) error {
 
 	ledgerClient := creditv1.NewCreditServiceClient(conn)
 	sessionValidator, err := sessionvalidator.New(sessionvalidator.Config{
-		SigningKey:  []byte(cfg.SessionSigningKey),
+		SigningKey: []byte(cfg.SessionSigningKey),
 		Issuer:     cfg.SessionIssuer,
 		CookieName: cfg.SessionCookieName,
 	})

@@ -24,3 +24,4 @@ coverage/
 # Tooling
 tools/
 .claude/
+backend/coverage.html

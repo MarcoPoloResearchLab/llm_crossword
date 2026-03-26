@@ -208,10 +208,10 @@ func TestCallLLMProxy_NoValidWords(t *testing.T) {
 
 func TestCallLLMProxy_FiltersInvalidWords(t *testing.T) {
 	items := []WordItem{
-		{Word: "GOOD-WORD", Definition: "Valid def", Hint: "Valid hint"},        // hyphen stripped -> GOODWORD (valid)
-		{Word: "A", Definition: "Too short", Hint: "Too short"},                 // too short
-		{Word: "VALID", Definition: "A valid word", Hint: "A valid hint"},       // valid
-		{Word: "123", Definition: "Numbers only", Hint: "Numbers"},              // no alpha left
+		{Word: "GOOD-WORD", Definition: "Valid def", Hint: "Valid hint"},  // hyphen stripped -> GOODWORD (valid)
+		{Word: "A", Definition: "Too short", Hint: "Too short"},           // too short
+		{Word: "VALID", Definition: "A valid word", Hint: "A valid hint"}, // valid
+		{Word: "123", Definition: "Numbers only", Hint: "Numbers"},        // no alpha left
 	}
 	wrapper := llmProxyResponse{
 		Request:  "test",

@@ -94,7 +94,6 @@ func TestNewRootCommand_ExecuteNoArgs(t *testing.T) {
 	}
 }
 
-
 func TestRun_MissingFlags(t *testing.T) {
 	// run() with no env vars or flags should fail because required config is missing.
 	code := run()
