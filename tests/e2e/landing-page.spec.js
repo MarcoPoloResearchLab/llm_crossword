@@ -1,6 +1,6 @@
 // @ts-check
 
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./coverage-fixture");
 
 test.describe("Landing page", () => {
   test.beforeEach(async ({ page }) => {

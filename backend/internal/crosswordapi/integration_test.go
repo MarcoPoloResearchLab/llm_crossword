@@ -2,7 +2,10 @@ package crosswordapi
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -291,4 +294,194 @@ func newTestValidator(cfg Config) (*sessionvalidator.Validator, error) {
 		Issuer:     cfg.SessionIssuer,
 		CookieName: cfg.SessionCookieName,
 	})
+}
+
+func TestRun_GRPCDialError(t *testing.T) {
+	cfg := Config{
+		ListenAddr:        ":0",
+		LedgerAddress:     "127.0.0.1:1",
+		LedgerInsecure:    true,
+		LedgerTimeout:     5 * time.Second,
+		DefaultTenantID:   "t1",
+		DefaultLedgerID:   "l1",
+		AllowedOrigins:    []string{"http://localhost"},
+		SessionSigningKey: "test-key",
+		SessionIssuer:     "tauth",
+		SessionCookieName: "app_session",
+		TAuthBaseURL:      "http://localhost:8080",
+		LLMProxyURL:       "http://localhost:9999",
+		LLMProxyKey:       "key",
+		LLMProxyTimeout:   5 * time.Second,
+	}
+
+	failDial := func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+		return nil, fmt.Errorf("forced dial error")
+	}
+
+	err := Run(context.Background(), cfg, WithGRPCDialFunc(failDial))
+	if err == nil {
+		t.Fatal("expected error for grpc dial failure")
+	}
+	if !strings.Contains(err.Error(), "connect ledger") {
+		t.Fatalf("expected 'connect ledger' error, got: %v", err)
+	}
+}
+
+func TestRun_ErrServerClosed(t *testing.T) {
+	// Exercise the ErrServerClosed branch in the select by calling server.Close()
+	// which causes ListenAndServe to return http.ErrServerClosed.
+	addr, stopLedger := startFakeLedger(t)
+	defer stopLedger()
+
+	lis, _ := net.Listen("tcp", "127.0.0.1:0")
+	httpAddr := lis.Addr().String()
+	lis.Close()
+
+	cfg := Config{
+		ListenAddr:        httpAddr,
+		LedgerAddress:     addr,
+		LedgerInsecure:    true,
+		LedgerTimeout:     5 * time.Second,
+		DefaultTenantID:   "t1",
+		DefaultLedgerID:   "l1",
+		AllowedOrigins:    []string{"http://localhost"},
+		SessionSigningKey: "test-secret-key-long-enough-for-hmac",
+		SessionIssuer:     "tauth",
+		SessionCookieName: "app_session",
+		TAuthBaseURL:      "http://localhost:8080",
+		LLMProxyURL:       "http://localhost:9999",
+		LLMProxyKey:       "key",
+		LLMProxyTimeout:   5 * time.Second,
+	}
+
+	var srv *http.Server
+	readyHook := withOnServerReady(func(s *http.Server) {
+		srv = s
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- Run(context.Background(), cfg, readyHook)
+	}()
+
+	// Wait for the server to start.
+	time.Sleep(300 * time.Millisecond)
+
+	// Close the server directly — ListenAndServe returns ErrServerClosed.
+	if srv != nil {
+		srv.Close()
+	}
+
+	select {
+	case err := <-errCh:
+		// ErrServerClosed is treated as success (returns nil).
+		if err != nil {
+			t.Fatalf("expected nil error for ErrServerClosed, got: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after server.Close()")
+	}
+}
+
+func TestRun_ShutdownError(t *testing.T) {
+	// Exercise the Shutdown error branch by having an active connection
+	// and using a very short shutdown timeout.
+	addr, stopLedger := startFakeLedger(t)
+	defer stopLedger()
+
+	lis, _ := net.Listen("tcp", "127.0.0.1:0")
+	httpAddr := lis.Addr().String()
+	lis.Close()
+
+	cfg := Config{
+		ListenAddr:        httpAddr,
+		LedgerAddress:     addr,
+		LedgerInsecure:    true,
+		LedgerTimeout:     5 * time.Second,
+		DefaultTenantID:   "t1",
+		DefaultLedgerID:   "l1",
+		AllowedOrigins:    []string{"http://localhost"},
+		SessionSigningKey: "test-secret-key-long-enough-for-hmac",
+		SessionIssuer:     "tauth",
+		SessionCookieName: "app_session",
+		TAuthBaseURL:      "http://localhost:8080",
+		LLMProxyURL:       "http://localhost:9999",
+		LLMProxyKey:       "key",
+		LLMProxyTimeout:   5 * time.Second,
+	}
+
+	var srvRef *http.Server
+	ctx, cancel := context.WithCancel(context.Background())
+	readyHook := withOnServerReady(func(s *http.Server) {
+		srvRef = s
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		// Use a nanosecond shutdown timeout so the shutdown context
+		// expires before active connections are drained.
+		errCh <- Run(ctx, cfg, readyHook, WithShutdownTimeout(time.Nanosecond))
+	}()
+
+	// Wait for the server to start.
+	time.Sleep(300 * time.Millisecond)
+
+	// Open a connection that sends a partial HTTP request (no terminating
+	// blank line), so the server is still waiting for the full request
+	// during shutdown. This makes Shutdown block on draining.
+	if srvRef != nil {
+		conn, dialErr := net.Dial("tcp", httpAddr)
+		if dialErr == nil {
+			defer conn.Close()
+			// Send headers but NOT the blank line that terminates the request.
+			conn.Write([]byte("GET /healthz HTTP/1.1\r\nHost: localhost\r\n"))
+		}
+	}
+
+	// Give the connection time to be established.
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel context — triggers the ctx.Done() branch with a tiny shutdown timeout.
+	cancel()
+
+	select {
+	case err := <-errCh:
+		// Shutdown error is logged but Run still returns nil.
+		if err != nil {
+			t.Fatalf("expected nil error, got: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancellation")
+	}
+}
+
+func TestRun_LoggerInitError(t *testing.T) {
+	cfg := Config{
+		ListenAddr:        ":0",
+		LedgerAddress:     "127.0.0.1:1",
+		LedgerInsecure:    true,
+		LedgerTimeout:     5 * time.Second,
+		DefaultTenantID:   "t1",
+		DefaultLedgerID:   "l1",
+		AllowedOrigins:    []string{"http://localhost"},
+		SessionSigningKey: "test-key",
+		SessionIssuer:     "tauth",
+		SessionCookieName: "app_session",
+		TAuthBaseURL:      "http://localhost:8080",
+		LLMProxyURL:       "http://localhost:9999",
+		LLMProxyKey:       "key",
+		LLMProxyTimeout:   5 * time.Second,
+	}
+
+	failFactory := func() (*zap.Logger, error) {
+		return nil, fmt.Errorf("logger init failed")
+	}
+
+	err := Run(context.Background(), cfg, WithLoggerFactory(failFactory))
+	if err == nil {
+		t.Fatal("expected error for logger init failure")
+	}
+	if !strings.Contains(err.Error(), "zap init") {
+		t.Fatalf("expected 'zap init' error, got: %v", err)
+	}
 }

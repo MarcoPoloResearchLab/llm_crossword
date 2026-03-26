@@ -30,12 +30,18 @@ const (
 	envPrefix           = "CROSSWORDAPI"
 )
 
-func main() {
+// run executes the root command and returns the exit code.
+func run() int {
 	rootCmd := newRootCommand()
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "crossword-api: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
+}
+
+func main() {
+	os.Exit(run())
 }
 
 func newRootCommand() *cobra.Command {

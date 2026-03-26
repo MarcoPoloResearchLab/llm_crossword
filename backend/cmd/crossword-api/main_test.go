@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/MarcoPoloResearchLab/llm-crossword/backend/internal/crosswordapi"
+	"github.com/spf13/cobra"
 )
 
 func TestNewRootCommand(t *testing.T) {
@@ -90,6 +94,82 @@ func TestNewRootCommand_ExecuteNoArgs(t *testing.T) {
 	}
 }
 
+
+func TestRun_MissingFlags(t *testing.T) {
+	// run() with no env vars or flags should fail because required config is missing.
+	code := run()
+	if code == 0 {
+		t.Fatal("expected non-zero exit code when required flags are missing")
+	}
+}
+
+func TestRun_SuccessPath(t *testing.T) {
+	// Override os.Args to pass --help so Execute() returns nil without running RunE.
+	origArgs := os.Args
+	os.Args = []string{"crossword-api", "--help"}
+	defer func() { os.Args = origArgs }()
+
+	code := run()
+	if code != 0 {
+		t.Fatalf("expected exit code 0 for --help, got %d", code)
+	}
+}
+
+func TestRun_RunE_WithEnvVars(t *testing.T) {
+	// Set ALL required env vars so PreRunE (loadConfig) succeeds,
+	// but use an unreachable ledger address so RunE fails with a connection error.
+	envVars := map[string]string{
+		"CROSSWORDAPI_LISTEN_ADDR":       ":0",
+		"CROSSWORDAPI_LEDGER_ADDR":       "127.0.0.1:1", // unreachable
+		"CROSSWORDAPI_LEDGER_INSECURE":   "true",
+		"CROSSWORDAPI_LEDGER_TIMEOUT":    "1s",
+		"CROSSWORDAPI_DEFAULT_TENANT_ID": "t1",
+		"CROSSWORDAPI_DEFAULT_LEDGER_ID": "l1",
+		"CROSSWORDAPI_ALLOWED_ORIGINS":   "http://localhost",
+		"CROSSWORDAPI_JWT_SIGNING_KEY":   "test-secret-key-long-enough-for-hmac",
+		"CROSSWORDAPI_JWT_ISSUER":        "tauth",
+		"CROSSWORDAPI_JWT_COOKIE_NAME":   "app_session",
+		"CROSSWORDAPI_TAUTH_BASE_URL":    "http://localhost:8080",
+		"CROSSWORDAPI_LLM_PROXY_URL":     "http://localhost:9999",
+		"CROSSWORDAPI_LLM_PROXY_KEY":     "secret",
+		"CROSSWORDAPI_LLM_PROXY_TIMEOUT": "1s",
+	}
+	for k, v := range envVars {
+		os.Setenv(k, v)
+	}
+	defer func() {
+		for k := range envVars {
+			os.Unsetenv(k)
+		}
+	}()
+
+	// Use newRootCommand directly with a context that has a timeout,
+	// so the connection attempt to the unreachable address times out.
+	cmd := newRootCommand()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	// Should fail with a connection error (not a config error).
+	if err == nil {
+		t.Fatal("expected error for unreachable ledger")
+	}
+	if !strings.Contains(err.Error(), "connect ledger") {
+		t.Fatalf("expected connection error, got: %v", err)
+	}
+}
+
+func TestLoadConfig_BindPFlagError(t *testing.T) {
+	// Use a bare cobra.Command with no flags registered.
+	// cmd.Flags().Lookup will return nil, causing BindPFlag to panic or error.
+	cmd := &cobra.Command{}
+	cfg := &crosswordapi.Config{}
+	err := loadConfig(cmd, cfg)
+	if err == nil {
+		t.Fatal("expected error when flags are not registered")
+	}
+}
 
 func TestLoadConfig_ValidationError(t *testing.T) {
 	envVars := map[string]string{

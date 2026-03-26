@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
-    "test:headed": "playwright test --headed"
+    "test:headed": "playwright test --headed",
+    "test:coverage": "rm -rf .nyc_output && playwright test && npx nyc report --reporter=text --reporter=lcov"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2"
+    "@playwright/test": "^1.58.2",
+    "express": "^5.1.0",
+    "istanbul-lib-instrument": "^6.0.3",
+    "nyc": "^17.1.0"
   }
 }

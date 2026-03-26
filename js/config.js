@@ -2,6 +2,8 @@
 (function () {
   "use strict";
 
+  var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
+
   var header = document.getElementById("app-header");
   if (!header) return;
 
@@ -9,7 +11,7 @@
   var tauthUrl = window.location.origin;
 
   // Fetch config.yaml to check for environment-specific overrides.
-  fetch(window.location.origin + "/config.yaml")
+  _fetch(window.location.origin + "/config.yaml")
     .then(function (resp) { return resp.text(); })
     .then(function (text) {
       var match = matchEnvironment(text, window.location.origin);

@@ -2,6 +2,8 @@
 (function () {
   "use strict";
 
+  var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
+
   // --- DOM references ---
   var landingPage     = document.getElementById("landingPage");
   var puzzleView      = document.getElementById("puzzleView");
@@ -106,7 +108,7 @@
     loggedIn = true;
     updateAuthUI();
     // Bootstrap credits.
-    fetch("/api/bootstrap", { method: "POST", credentials: "include" })
+    _fetch("/api/bootstrap", { method: "POST", credentials: "include" })
       .then(function (resp) {
         if (resp.ok) return resp.json();
         return null;
@@ -130,7 +132,7 @@
   document.addEventListener("mpr-ui:auth:unauthenticated", onLogout);
 
   // Check session on load (cookie may already be present).
-  fetch("/me", { credentials: "include" })
+  _fetch("/me", { credentials: "include" })
     .then(function (resp) {
       if (resp.ok) onLogin();
     })
@@ -152,7 +154,7 @@
     generateStatus.textContent = "Generating crossword...";
     generateStatus.classList.add("loading");
 
-    fetch("/api/generate", {
+    _fetch("/api/generate", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

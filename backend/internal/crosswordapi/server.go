@@ -23,9 +23,49 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type runOptions struct {
+	loggerFactory   func() (*zap.Logger, error)
+	grpcDialFunc    func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error)
+	shutdownTimeout time.Duration
+	onServerReady   func(srv *http.Server)
+}
+
+// RunOption configures optional behaviour of Run.
+type RunOption func(*runOptions)
+
+// WithLoggerFactory overrides the default logger construction.
+func WithLoggerFactory(f func() (*zap.Logger, error)) RunOption {
+	return func(o *runOptions) { o.loggerFactory = f }
+}
+
+// WithGRPCDialFunc overrides the default gRPC dial function.
+func WithGRPCDialFunc(f func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error)) RunOption {
+	return func(o *runOptions) { o.grpcDialFunc = f }
+}
+
+// WithShutdownTimeout overrides the graceful shutdown duration.
+func WithShutdownTimeout(d time.Duration) RunOption {
+	return func(o *runOptions) { o.shutdownTimeout = d }
+}
+
+// withOnServerReady sets a callback invoked once the HTTP server is about to listen.
+// This is only used in tests to get a reference to the server for controlled shutdown.
+func withOnServerReady(f func(srv *http.Server)) RunOption {
+	return func(o *runOptions) { o.onServerReady = f }
+}
+
 // Run boots the HTTP service using the supplied configuration.
-func Run(ctx context.Context, cfg Config) error {
-	logger, err := zap.NewProduction()
+func Run(ctx context.Context, cfg Config, opts ...RunOption) error {
+	o := runOptions{
+		loggerFactory:   func() (*zap.Logger, error) { return zap.NewProduction() },
+		grpcDialFunc:    grpc.NewClient,
+		shutdownTimeout: 5 * time.Second,
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	logger, err := o.loggerFactory()
 	if err != nil {
 		return fmt.Errorf("zap init: %w", err)
 	}
@@ -37,7 +77,7 @@ func Run(ctx context.Context, cfg Config) error {
 	} else {
 		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")))
 	}
-	conn, err := grpc.NewClient(cfg.LedgerAddress, dialOptions...)
+	conn, err := o.grpcDialFunc(cfg.LedgerAddress, dialOptions...)
 	if err != nil {
 		return fmt.Errorf("connect ledger: %w", err)
 	}
@@ -72,6 +112,10 @@ func Run(ctx context.Context, cfg Config) error {
 		Handler: router,
 	}
 
+	if o.onServerReady != nil {
+		o.onServerReady(server)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("crossword-api listening", zap.String("addr", cfg.ListenAddr))
@@ -80,7 +124,7 @@ func Run(ctx context.Context, cfg Config) error {
 
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), o.shutdownTimeout)
 		defer cancel()
 		if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
 			logger.Warn("server shutdown error", zap.Error(shutdownErr))

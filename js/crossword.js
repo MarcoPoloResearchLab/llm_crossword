@@ -2,6 +2,8 @@
 (function () {
   "use strict";
 
+  var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
+
   const gridViewport = document.getElementById("gridViewport");
   const gridEl   = document.getElementById("grid");
   const acrossOl = document.getElementById("across");
@@ -628,7 +630,7 @@
   /** loadAndRenderPuzzles retrieves puzzle specifications, builds puzzles, and renders them. */
   async function loadAndRenderPuzzles() {
     statusEl.textContent = "Loading puzzles...";
-    const response = await fetch(puzzleDataPath);
+    const response = await _fetch(puzzleDataPath);
     const puzzleSpecifications = await response.json();
     if (!Array.isArray(puzzleSpecifications)) throw new Error(errorInvalidDataMessage);
     const generatedPuzzles = [];

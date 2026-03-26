@@ -1,8 +1,5 @@
-// @ts-check
-
 const { defineConfig } = require("@playwright/test");
-
-const BASE_URL = process.env.LLM_CROSSWORD_BASE_URL || "http://localhost:8000";
+const BASE_URL = process.env.LLM_CROSSWORD_BASE_URL || "http://localhost:8111";
 
 module.exports = defineConfig({
   testDir: "tests/e2e",
@@ -15,10 +12,12 @@ module.exports = defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },
+  webServer: {
+    command: "node scripts/test-server.js",
+    port: 8111,
+    reuseExistingServer: !process.env.CI,
+  },
   projects: [
-    {
-      name: "chromium",
-      use: { browserName: "chromium" },
-    },
+    { name: "chromium", use: { browserName: "chromium" } },
   ],
 });

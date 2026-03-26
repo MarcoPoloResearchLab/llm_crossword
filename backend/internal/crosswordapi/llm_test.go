@@ -3,13 +3,29 @@ package crosswordapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// errReader is a reader that always returns an error.
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, fmt.Errorf("forced read error") }
+func (errReader) Close() error             { return nil }
+
+// roundTripFunc allows using a function as an http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestStripMarkdownFences(t *testing.T) {
 	tests := []struct {
@@ -249,6 +265,35 @@ func TestCallLLMProxy_ReadBodyError(t *testing.T) {
 	_, err := handler.callLLMProxy(context.Background(), "test", 5)
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
+	}
+}
+
+func TestCallLLMProxy_ReadBodyErrorViaTransport(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	handler := &httpHandler{
+		logger: logger,
+		cfg: Config{
+			LLMProxyURL:     "http://localhost",
+			LLMProxyKey:     "test-key",
+			LLMProxyTimeout: 5 * time.Second,
+		},
+		llmHTTPClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(errReader{}),
+					Header:     make(http.Header),
+				}, nil
+			}),
+		},
+	}
+
+	_, err := handler.callLLMProxy(context.Background(), "test", 5)
+	if err == nil {
+		t.Fatal("expected error for read body failure")
+	}
+	if !strings.Contains(err.Error(), "read llm response") {
+		t.Fatalf("expected 'read llm response' error, got: %v", err)
 	}
 }
 
