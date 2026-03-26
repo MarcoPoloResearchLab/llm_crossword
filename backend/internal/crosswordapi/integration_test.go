@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // fakeLedgerServer is a minimal gRPC server that satisfies the CreditService interface.
@@ -161,7 +162,7 @@ func TestWaitForClientReady_AlreadyReady(t *testing.T) {
 	addr, stop := startFakeLedger(t)
 	defer stop()
 
-	conn, err := grpc.NewClient(addr, grpc.WithInsecure())
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -185,7 +186,7 @@ func TestWaitForClientReady_AlreadyReady(t *testing.T) {
 
 func TestWaitForClientReady_ContextCancelled(t *testing.T) {
 	// Connect to a port where nothing is listening.
-	conn, err := grpc.NewClient("127.0.0.1:1", grpc.WithInsecure())
+	conn, err := grpc.NewClient("127.0.0.1:1", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
