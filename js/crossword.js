@@ -85,11 +85,13 @@
   /** updateCellSize adjusts cell size so the grid fits the viewport width. */
   function updateCellSize() {
     if (!currentColumnCount) return;
+    const viewportWidth = gridViewport.clientWidth;
+    // Skip recalculation if the viewport is not visible (e.g. display:none parent).
+    if (viewportWidth < 1) return;
     const computedStyles = getComputedStyle(document.documentElement);
     const gapSize = parseInt(computedStyles.getPropertyValue(cssGapSizeProperty), 10) || 0;
-    const viewportWidth = gridViewport.clientWidth;
     const maxAvailableWidth = viewportWidth - gapSize * (currentColumnCount - 1);
-    const cellSize = Math.min(defaultCellSize, Math.floor(maxAvailableWidth / currentColumnCount));
+    const cellSize = Math.max(1, Math.min(defaultCellSize, Math.floor(maxAvailableWidth / currentColumnCount)));
     document.documentElement.style.setProperty(cssCellSizeProperty, `${cellSize}${pixelUnit}`);
   }
 
@@ -105,6 +107,10 @@
   }
   for (const eventName of viewportResizeEventNames) {
     window.addEventListener(eventName, handleViewportResize);
+  }
+  // Also watch the gridViewport for size changes (e.g. when puzzle view becomes visible).
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(updateCellSize).observe(gridViewport);
   }
 
   function sanitizeClue(text) { return (text || "").replace(/^\s*\d+\.?\s*/, ""); }
@@ -660,6 +666,7 @@
   window.CrosswordApp = {
     render: render,
     loadPrebuilt: loadAndRenderPuzzles,
+    recalculate: updateCellSize,
   };
 
   loadAndRenderPuzzles().catch(error => {

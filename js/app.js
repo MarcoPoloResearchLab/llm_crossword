@@ -31,6 +31,15 @@
   function showPuzzle() {
     landingPage.style.display = "none";
     puzzleView.style.display = "";
+    // Recalculate cell sizes after the browser reflows the now-visible puzzle view.
+    // Double rAF ensures layout has completed before measuring.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (window.CrosswordApp && window.CrosswordApp.recalculate) {
+          window.CrosswordApp.recalculate();
+        }
+      });
+    });
   }
 
   // --- Mode tabs ---
