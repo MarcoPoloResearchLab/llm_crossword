@@ -79,14 +79,14 @@
     setMode("prebuilt");
   }
 
-  // Listen for mpr-ui auth events.
-  document.addEventListener("mpr-ui:auth:login", onLogin);
-  document.addEventListener("mpr-ui:auth:logout", onLogout);
+  // Listen for mpr-ui auth events (bubble up from mpr-header).
+  document.addEventListener("mpr-ui:auth:authenticated", onLogin);
+  document.addEventListener("mpr-ui:auth:unauthenticated", onLogout);
 
   // Also check session on load (cookie may already be present).
   (async function checkSession() {
     try {
-      const resp = await fetch("/api/session", { credentials: "include" });
+      const resp = await fetch("/me", { credentials: "include" });
       if (resp.ok) {
         onLogin();
       }
