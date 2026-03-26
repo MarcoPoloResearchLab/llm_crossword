@@ -19,6 +19,7 @@ playwright-report/
 
 # Coverage output
 .nyc_output/
+coverage/
 
 # Tooling
 tools/

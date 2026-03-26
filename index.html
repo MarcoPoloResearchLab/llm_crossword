@@ -15,29 +15,35 @@
   <link as="script" href="js/crossword.js" rel="preload">
 
   <!-- mpr-ui components -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@latest/mpr-ui.css"/>
   <link rel="stylesheet" href="css/crossword.css">
 
   <!-- TAuth + Google Identity Services -->
+  <script defer src="/tauth.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script defer src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <script src="./mpr-ui-config.js" defer></script>
+  <script id="mpr-ui-bundle" type="application/json" data-mpr-ui-bundle-src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@latest/mpr-ui.js"></script>
 </head>
 <body>
 <mpr-header
   id="app-header"
   brand-label="LLM Crossword"
   brand-href="/"
+  data-config-url="/config.yaml"
+  user-menu-display-mode="avatar"
   logout-url="/"
-  site-id="991677581607-r0dj8q6irjagipali0jpca7nfp8sfj9r.apps.googleusercontent.com"
-  base-url=""
-  login-path="/auth/google"
-  logout-path="/auth/logout"
-  nonce-path="/auth/nonce"
+  sign-out-label="Log out"
 >
+  <mpr-user
+    slot="aux"
+    display-mode="avatar"
+    logout-url="/"
+    logout-label="Log out"
+  ></mpr-user>
 </mpr-header>
 <script>
-  // Set base-url to current origin before mpr-ui.js (deferred) initializes.
-  // ghttp proxies /auth/* to tauth so the browser always uses same origin.
+  // Set base-url to current origin before mpr-ui initializes.
   document.getElementById('app-header').setAttribute('base-url', window.location.origin);
 </script>
 
@@ -138,7 +144,40 @@
   </div>
 </div>
 
-<mpr-footer sticky="true" size="small" theme-switcher="toggle"></mpr-footer>
+<mpr-footer
+  id="page-footer"
+  sticky="true"
+  size="small"
+  privacy-link-label="Privacy &amp; Terms"
+  privacy-link-href="#privacy"
+  privacy-modal-content="
+    <h1>Privacy Policy — LLM Crossword</h1>
+    <p><strong>Effective Date:</strong> 2025-10-11</p>
+    <p>LLM Crossword uses Google Identity Services to authenticate users. We receive your Google profile
+       information (name, email, profile image) only to sign you in. We do not sell or share your data,
+       and we only store your credits so the service functions.</p>
+    <p>To request deletion of your data, contact
+       <a href='mailto:support@mprlab.com'>support@mprlab.com</a>.</p>
+  "
+  horizontal-links='{
+    "alignment": "center",
+    "links": [
+      { "label": "GitHub", "href": "https://github.com/MarcoPoloResearchLab/llm_crossword", "target": "_blank" },
+      { "label": "Support", "href": "mailto:support@mprlab.com" }
+    ]
+  }'
+  links-collection='{
+    "style": "drop-up",
+    "text": "Built by Marco Polo Research Lab",
+    "links": [
+      { "label": "Marco Polo Research Lab", "url": "https://mprlab.com" },
+      { "label": "Gravity Notes", "url": "https://gravity.mprlab.com" },
+      { "label": "LoopAware", "url": "https://loopaware.mprlab.com" },
+      { "label": "LLM Crossword", "url": "https://llm-crossword.mprlab.com" }
+    ]
+  }'
+  theme-switcher="toggle"
+></mpr-footer>
 
 <script src="js/config.js"></script>
 <script src="js/generator.js"></script>

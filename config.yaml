@@ -2,6 +2,7 @@ environments:
   - description: "Local development"
     origins:
       - "http://localhost:8000"
+      - "http://localhost:8111"
     auth:
       tauthUrl: "http://localhost:8000"
       googleClientId: "991677581607-r0dj8q6irjagipali0jpca7nfp8sfj9r.apps.googleusercontent.com"

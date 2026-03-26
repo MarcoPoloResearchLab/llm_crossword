@@ -21,6 +21,11 @@ app.get("/js/:file", (req, res) => {
   }
 });
 
+// Stub /tauth.js (proxied to TAuth in production, not needed in tests)
+app.get("/tauth.js", (req, res) => {
+  res.type("application/javascript").send("/* tauth.js stub for tests */");
+});
+
 // Serve static files
 app.use(express.static(ROOT));
 

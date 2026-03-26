@@ -81,8 +81,7 @@ test.describe("App auth — logged in state", () => {
   test("generate button is enabled with credits when logged in", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
+    // onLogin() auto-navigates to puzzle view with generate tab active
     var genBtn = page.locator("#generateBtn");
     await expect(genBtn).toBeEnabled({ timeout: 5000 });
     await expect(genBtn).toContainText("(5 credits)");
@@ -150,11 +149,8 @@ test.describe("App auth — bootstrap failure", () => {
       };
     });
     await page.goto("/");
-    // UI should still load and function
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    // onLogin() auto-navigates to puzzle view with generate tab active
     // Generate button should still be enabled (user is logged in)
-    await page.getByRole("tab", { name: "Generate" }).click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
   });
 });
@@ -207,9 +203,7 @@ test.describe("App auth — generate success", () => {
       };
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
-    // Wait for login to complete
+    // onLogin() auto-navigates to puzzle view with generate tab active
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "moon");
     await page.locator("#generateBtn").click();
@@ -254,8 +248,7 @@ test.describe("App auth — generate insufficient credits", () => {
       };
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
+    // onLogin() auto-navigates to puzzle view with generate tab active
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "moon");
     await page.locator("#generateBtn").click();
@@ -295,8 +288,7 @@ test.describe("App auth — generate network error", () => {
       };
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
+    // onLogin() auto-navigates to puzzle view with generate tab active
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "moon");
     await page.locator("#generateBtn").click();
@@ -308,8 +300,7 @@ test.describe("App auth — empty topic", () => {
   test("shows 'Please enter a topic.' when topic is empty", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
+    // onLogin() auto-navigates to puzzle view with generate tab active
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.locator("#generateBtn").click();
     await expect(page.getByText("Please enter a topic.")).toBeVisible();
@@ -382,9 +373,7 @@ test.describe("App auth — auth events", () => {
   test("mpr-ui:auth:unauthenticated event triggers logout and returns to landing", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // Should be logged in
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
+    // onLogin() auto-navigates to puzzle view with generate tab active
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     // Dispatch unauthenticated event
     await page.evaluate(() => {

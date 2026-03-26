@@ -62,6 +62,12 @@
   });
 
   landingSignIn.addEventListener("click", function () {
+    if (loggedIn) {
+      // Already logged in — go directly to the generator.
+      showPuzzle();
+      setMode("generate");
+      return;
+    }
     // Trigger Google Sign-In by clicking the header's sign-in button.
     var headerSignIn = document.querySelector("[data-mpr-header='google-signin'] div[role='button']");
     if (headerSignIn) {
@@ -107,6 +113,9 @@
   function onLogin() {
     loggedIn = true;
     updateAuthUI();
+    // Navigate to puzzle view with generate tab.
+    showPuzzle();
+    setMode("generate");
     // Bootstrap credits.
     _fetch("/api/bootstrap", { method: "POST", credentials: "include" })
       .then(function (resp) {
