@@ -5,7 +5,8 @@
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",
-    "test:coverage": "rm -rf .nyc_output && playwright test && npx nyc report --reporter=text --reporter=lcov"
+    "test:coverage": "rm -rf .nyc_output && playwright test && npx nyc report --reporter=text --reporter=lcov",
+    "test:integration": "playwright test --config playwright.integration.config.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
