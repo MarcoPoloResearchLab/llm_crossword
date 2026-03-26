@@ -47,10 +47,10 @@ test.describe("Landing page", () => {
     await expect(page.locator("#landingPage")).toBeHidden();
   });
 
-  test("puzzle view shows Pre-built tab as active after clicking try", async ({ page }) => {
+  test("puzzle view shows puzzle selector after clicking try", async ({ page }) => {
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    var prebuiltTab = page.getByRole("tab", { name: "Pre-built" });
-    await expect(prebuiltTab).toBeVisible();
+    // No mode tabs in the new UI — puzzle selector is shown directly
+    await expect(page.locator("#prebuiltPanel")).toBeVisible();
   });
 
   test("back button returns to landing page from puzzle view", async ({ page }) => {

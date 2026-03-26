@@ -5,20 +5,18 @@
   var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
 
   // --- DOM references ---
-  var landingPage     = document.getElementById("landingPage");
-  var puzzleView      = document.getElementById("puzzleView");
-  var modePrebuiltBtn = document.getElementById("modePrebuilt");
-  var modeGenerateBtn = document.getElementById("modeGenerate");
-  var prebuiltPanel   = document.getElementById("prebuiltPanel");
-  var generatePanel   = document.getElementById("generatePanel");
-  var topicInput      = document.getElementById("topicInput");
-  var wordCountSelect = document.getElementById("wordCount");
-  var generateBtn     = document.getElementById("generateBtn");
-  var creditBadge     = document.getElementById("headerCreditBadge");
-  var generateStatus  = document.getElementById("generateStatus");
-  var landingTryBtn   = document.getElementById("landingTryPrebuilt");
-  var landingSignIn   = document.getElementById("landingSignIn");
-  var backToLanding   = document.getElementById("backToLanding");
+  var landingPage       = document.getElementById("landingPage");
+  var puzzleView        = document.getElementById("puzzleView");
+  var prebuiltPanel     = document.getElementById("prebuiltPanel");
+  var topicInput        = document.getElementById("topicInput");
+  var wordCountSelect   = document.getElementById("wordCount");
+  var generateBtn       = document.getElementById("generateBtn");
+  var creditBadge       = document.getElementById("headerCreditBadge");
+  var generateStatus    = document.getElementById("generateStatus");
+  var landingTryBtn     = document.getElementById("landingTryPrebuilt");
+  var landingSignIn     = document.getElementById("landingSignIn");
+  var landingGenForm    = document.getElementById("landingGenerateForm");
+  var backToLanding     = document.getElementById("backToLanding");
 
   var loggedIn = false;
 
@@ -28,11 +26,14 @@
     puzzleView.style.display = "none";
   }
 
-  function showPuzzle() {
+  function showPuzzle(source) {
     landingPage.style.display = "none";
     puzzleView.style.display = "";
+    // Show/hide puzzle selector based on source.
+    if (prebuiltPanel) {
+      prebuiltPanel.style.display = source === "generated" ? "none" : "";
+    }
     // Recalculate cell sizes after the browser reflows the now-visible puzzle view.
-    // Double rAF ensures layout has completed before measuring.
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         if (window.CrosswordApp && window.CrosswordApp.recalculate) {
@@ -42,39 +43,16 @@
     });
   }
 
-  // --- Mode tabs ---
-  function setMode(mode) {
-    if (mode === "generate") {
-      modeGenerateBtn.classList.add("active");
-      modeGenerateBtn.setAttribute("aria-selected", "true");
-      modePrebuiltBtn.classList.remove("active");
-      modePrebuiltBtn.setAttribute("aria-selected", "false");
-      prebuiltPanel.style.display = "none";
-      generatePanel.style.display = "";
-    } else {
-      modePrebuiltBtn.classList.add("active");
-      modePrebuiltBtn.setAttribute("aria-selected", "true");
-      modeGenerateBtn.classList.remove("active");
-      modeGenerateBtn.setAttribute("aria-selected", "false");
-      generatePanel.style.display = "none";
-      prebuiltPanel.style.display = "";
-    }
-  }
-
-  modePrebuiltBtn.addEventListener("click", function () { setMode("prebuilt"); });
-  modeGenerateBtn.addEventListener("click", function () { setMode("generate"); });
-
   // --- Landing page buttons ---
   landingTryBtn.addEventListener("click", function () {
-    showPuzzle();
-    setMode("prebuilt");
+    showPuzzle("prebuilt");
   });
 
   landingSignIn.addEventListener("click", function () {
     if (loggedIn) {
-      // Already logged in — go directly to the generator.
-      showPuzzle();
-      setMode("generate");
+      // Already logged in — scroll to the generate form.
+      if (landingGenForm) landingGenForm.scrollIntoView({ behavior: "smooth" });
+      if (topicInput) topicInput.focus();
       return;
     }
     // Trigger Google Sign-In by clicking the header's sign-in button.
@@ -82,9 +60,8 @@
     if (headerSignIn) {
       headerSignIn.click();
     } else {
-      // Fallback: switch to puzzle view, generate tab.
-      showPuzzle();
-      setMode("generate");
+      // Fallback: scroll to generate form area (will be hidden but shows intent).
+      showPuzzle("prebuilt");
     }
   });
 
@@ -101,15 +78,17 @@
       generateBtn.textContent = "Generate";
       creditBadge.textContent = "";
       creditBadge.style.display = "none";
-      generateStatus.textContent = "Log in to generate puzzles";
+      generateStatus.textContent = "";
       generateStatus.classList.remove("loading");
       landingSignIn.textContent = "Sign in to generate";
+      if (landingGenForm) landingGenForm.style.display = "none";
     } else {
       generateBtn.textContent = "Generate (5 credits)";
       creditBadge.style.display = "";
       creditBadge.classList.remove("logged-out");
       generateStatus.textContent = "";
       landingSignIn.textContent = "Go to generator";
+      if (landingGenForm) landingGenForm.style.display = "";
     }
   }
 
@@ -122,9 +101,6 @@
   function onLogin() {
     loggedIn = true;
     updateAuthUI();
-    // Navigate to puzzle view with generate tab.
-    showPuzzle();
-    setMode("generate");
     // Bootstrap credits.
     _fetch("/api/bootstrap", { method: "POST", credentials: "include" })
       .then(function (resp) {
@@ -149,9 +125,7 @@
   document.addEventListener("mpr-ui:auth:authenticated", onLogin);
   document.addEventListener("mpr-ui:auth:unauthenticated", onLogout);
 
-  // Check session on load. tauth.js also handles session restoration and fires
-  // mpr-ui:auth:authenticated, but this fallback ensures the UI updates even if
-  // tauth.js hasn't initialized yet (e.g. when the session cookie is still valid).
+  // Check session on load.
   _fetch("/me", { credentials: "include" })
     .then(function (resp) {
       if (resp.ok && !loggedIn) onLogin();
@@ -207,7 +181,8 @@
           subtitle: result.data.subtitle || "Generated from LLM.",
         });
 
-        // Render using the exposed API.
+        // Navigate to solver view and render the generated puzzle.
+        showPuzzle("generated");
         window.CrosswordApp.render(payload);
         generateStatus.textContent = "Puzzle ready! Tip: this puzzle won\u2019t be saved after reload.";
       })

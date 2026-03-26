@@ -7,62 +7,51 @@ test.describe("Login flow — unauthenticated state", () => {
     await page.goto("/");
   });
 
-  test("generate tab shows 'Log in to generate puzzles' message when not signed in", async ({ page }) => {
-    // Navigate to puzzle view and switch to generate tab.
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
-    await expect(page.getByText("Log in to generate puzzles")).toBeVisible();
+  test("generate form is hidden when not signed in", async ({ page }) => {
+    // Generate form on landing page is hidden when logged out
+    await expect(page.locator("#landingGenerateForm")).toBeHidden();
   });
 
   test("generate button shows 'Generate' without credits when not signed in", async ({ page }) => {
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
     var genBtn = page.locator("#generateBtn");
-    await expect(genBtn).toBeVisible();
     await expect(genBtn).toContainText("Generate");
     await expect(genBtn).toBeDisabled();
   });
 
   test("credit badge is hidden when not signed in", async ({ page }) => {
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
     await expect(page.locator("#headerCreditBadge")).toBeHidden();
   });
 
-  test("topic input is visible in generate tab", async ({ page }) => {
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
-    await expect(page.getByPlaceholder("Enter a topic")).toBeVisible();
+  test("topic input exists on landing page inside generate form", async ({ page }) => {
+    // The input exists but is hidden because the generate form is hidden when logged out
+    await expect(page.locator("#topicInput")).toBeAttached();
   });
 
-  test("word count selector is visible in generate tab", async ({ page }) => {
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
-    await expect(page.getByText("Words:")).toBeVisible();
+  test("word count selector exists on landing page inside generate form", async ({ page }) => {
+    // The selector exists but is hidden because the generate form is hidden when logged out
+    await expect(page.locator("#wordCount")).toBeAttached();
   });
 });
 
-test.describe("Login flow — mode switching", () => {
+test.describe("Login flow — puzzle view", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
   });
 
-  test("Pre-built tab shows puzzle selector", async ({ page }) => {
+  test("puzzle view shows puzzle selector", async ({ page }) => {
     await expect(page.getByText("Choose puzzle:")).toBeVisible();
   });
 
-  test("switching to Generate tab hides puzzle selector", async ({ page }) => {
-    await page.getByRole("tab", { name: "Generate" }).click();
-    await expect(page.getByText("Choose puzzle:")).toBeHidden();
-    await expect(page.getByPlaceholder("Enter a topic")).toBeVisible();
+  test("puzzle view does not have mode tabs", async ({ page }) => {
+    // Mode tabs have been removed from the puzzle view
+    await expect(page.locator("#modePrebuilt")).not.toBeAttached();
+    await expect(page.locator("#modeGenerate")).not.toBeAttached();
   });
 
-  test("switching back to Pre-built tab restores puzzle selector", async ({ page }) => {
-    await page.getByRole("tab", { name: "Generate" }).click();
-    await page.getByRole("tab", { name: "Pre-built" }).click();
-    await expect(page.getByText("Choose puzzle:")).toBeVisible();
-    await expect(page.getByPlaceholder("Enter a topic")).toBeHidden();
+  test("generate form is on landing page, not puzzle view", async ({ page }) => {
+    // Topic input is on the landing page (hidden), not in puzzle view
+    await expect(page.locator("#landingPage #topicInput")).toBeAttached();
   });
 });
 

@@ -137,7 +137,7 @@ test.describe("Config — YAML environment matching", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("App — landingSignIn fallback (lines 71-72)", () => {
-  test("landing sign-in falls back to puzzle view + generate tab when no header button", async ({ page }) => {
+  test("landing sign-in falls back to puzzle view when no header button", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
     await expect(page.locator("#landingPage")).toBeVisible();
@@ -147,11 +147,10 @@ test.describe("App — landingSignIn fallback (lines 71-72)", () => {
       if (btn) btn.remove();
     });
     // Click the landing Sign in button — since we removed the header button,
-    // it should fall back to showing puzzle view with generate tab.
+    // it should fall back to showPuzzle("prebuilt").
     await page.locator("#landingSignIn").click();
-    // Fallback path: showPuzzle() + setMode("generate")
+    // Fallback path: showPuzzle("prebuilt")
     await expect(page.locator("#puzzleView")).toBeVisible();
-    await expect(page.locator("#generatePanel")).toBeVisible();
   });
 });
 
@@ -183,23 +182,16 @@ test.describe("App — generate while not logged in (lines 149-150)", () => {
   test("shows 'Please log in first' when generating while logged out via event", async ({ page }) => {
     await page.addInitScript(loggedInMock(10));
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees generate form on landing page
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     // Now log out via event
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:unauthenticated"));
     });
-    // Navigate back to puzzle view manually by dispatching login then trying to generate
-    // Actually, we need to re-login, go to generate tab, then logout, then click generate
-    // Simpler: login, go to generate, put a topic, then logout, then click generate button
-    // But after logout showLanding() is called so we can't click generateBtn...
-    // Alternative: Force the button enabled and click it while loggedIn is false
+    // After logout, generate form is hidden. Force it visible and enable button
+    // to test the loggedIn guard in the generate handler.
     await page.evaluate(() => {
-      // Re-show puzzle view and generate panel
-      document.getElementById("landingPage").style.display = "none";
-      document.getElementById("puzzleView").style.display = "";
-      document.getElementById("generatePanel").style.display = "";
-      // Enable the button manually to test the loggedIn guard
+      document.getElementById("landingGenerateForm").style.display = "";
       document.getElementById("generateBtn").disabled = false;
     });
     await page.fill("#topicInput", "test topic");
@@ -1060,11 +1052,13 @@ test.describe("App — generate with title/subtitle defaults", () => {
       };
     `);
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees generate form on landing page
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "space");
     await page.locator("#generateBtn").click();
-    await expect(page.getByText("Puzzle ready!")).toBeVisible({ timeout: 10000 });
+    // After successful generation, user is navigated to puzzle view
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#generateStatus")).toContainText("Puzzle ready!", { timeout: 5000 });
   });
 });
 

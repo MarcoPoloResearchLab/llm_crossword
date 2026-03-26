@@ -540,6 +540,17 @@ body {
     flex-wrap: wrap;
 }
 
+.landing__generate {
+    margin-top: 24px;
+    padding: 16px 20px;
+    background: var(--cw-wrap-bg);
+    border: 1px solid var(--cw-wrap-border);
+    border-radius: 12px;
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .landing__btn {
     padding: 12px 28px;
     border-radius: 12px;

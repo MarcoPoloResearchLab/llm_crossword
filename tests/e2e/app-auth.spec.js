@@ -93,13 +93,12 @@ test.describe("App auth — logged in state", () => {
     await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 5000 });
   });
 
-  test("logged-in user skips landing page and sees puzzle view", async ({ page }) => {
+  test("logged-in user stays on landing page with generate form visible", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // Landing page should be hidden for authenticated users
-    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
-    // Puzzle view should be visible
-    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    // Logged-in users stay on landing page with generate form visible
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
   });
 
   test("session persists after page refresh", async ({ page }) => {
@@ -109,30 +108,30 @@ test.describe("App auth — logged in state", () => {
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     // Refresh the page (mocks persist via addInitScript)
     await page.reload();
-    // After refresh, user should still be logged in
-    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    // After refresh, user should still be logged in on the landing page
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 5000 });
   });
 });
 
 test.describe("App auth — logged out state", () => {
-  test("generate button is disabled when not logged in", async ({ page }) => {
+  test("generate form is hidden when not logged in", async ({ page }) => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
+    // Generate form is hidden on landing page when logged out
+    await expect(page.locator("#landingGenerateForm")).toBeHidden({ timeout: 5000 });
+    // Generate button should be disabled
     var genBtn = page.locator("#generateBtn");
     await expect(genBtn).toBeDisabled();
   });
 
-  test("shows 'Log in to generate puzzles' message when not signed in", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+  test("generate form appears after login", async ({ page }) => {
+    await setupLoggedInMocks(page);
     await page.goto("/");
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
-    await expect(page.getByText("Log in to generate puzzles")).toBeVisible();
+    // Generate form is visible on landing page when logged in
+    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -225,11 +224,15 @@ test.describe("App auth — generate success", () => {
       };
     });
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees generate form on landing page
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "moon");
     await page.locator("#generateBtn").click();
-    await expect(page.getByText("Puzzle ready!")).toBeVisible({ timeout: 10000 });
+    // After successful generation, user is navigated to puzzle view (solver)
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 10000 });
+    // The status message is set but may be hidden since landing page is hidden;
+    // verify the text content directly.
+    await expect(page.locator("#generateStatus")).toContainText("Puzzle ready!", { timeout: 5000 });
   });
 });
 
@@ -380,28 +383,30 @@ test.describe("App auth — auth events", () => {
       };
     });
     await page.goto("/");
-    // Initially logged out — button should be disabled
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.getByRole("tab", { name: "Generate" }).click();
+    // Initially logged out — generate form is hidden, button is disabled
+    await expect(page.locator("#landingGenerateForm")).toBeHidden({ timeout: 5000 });
     await expect(page.locator("#generateBtn")).toBeDisabled();
     // Dispatch authenticated event
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:authenticated"));
     });
-    // Now button should be enabled
+    // Now generate form should be visible and button enabled
+    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
   });
 
-  test("mpr-ui:auth:unauthenticated event triggers logout and returns to landing", async ({ page }) => {
+  test("mpr-ui:auth:unauthenticated event triggers logout and hides generate form", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees generate form on landing page
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
     // Dispatch unauthenticated event
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:unauthenticated"));
     });
-    // Should return to landing page
+    // Should stay on landing page but generate form should be hidden
     await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#landingGenerateForm")).toBeHidden({ timeout: 5000 });
   });
 });
