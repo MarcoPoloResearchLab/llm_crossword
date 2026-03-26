@@ -447,6 +447,11 @@ button.secondary {
     cursor: not-allowed;
 }
 
+/* --- Push header actions (sign-in, avatar) to the right --- */
+.mpr-header .mpr-header__actions {
+    margin-left: auto;
+}
+
 /* --- Credit badge (in header) --- */
 .header-credit-badge {
     font-size: 13px;
