@@ -81,8 +81,8 @@ body {
 .wrap {
     width: fit-content;
     max-width: var(--wrap-max-width);
-    max-height: calc(var(--viewport-height) - var(--wrap-offset));
-    overflow: auto;
+    height: calc(var(--viewport-height) - var(--wrap-offset));
+    overflow: hidden;
     background: var(--cw-wrap-bg);
     border: 1px solid var(--cw-wrap-border);
     border-radius: 16px;
