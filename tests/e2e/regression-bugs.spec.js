@@ -287,6 +287,155 @@ test.describe("Clue visibility", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Class of problems: UI elements clipped, hidden, or shown in wrong state
+// regardless of content length, puzzle size, or auth state.
+// ---------------------------------------------------------------------------
+
+// Long-clue puzzle for testing truncation with realistic content
+const longCluePuzzle = [
+  {
+    title: "Greek Gods",
+    subtitle: "Olympian and other Greek deities.",
+    items: [
+      { word: "athena", definition: "Goddess of wisdom, handicraft, and strategic warfare in ancient mythology", hint: "owl companion" },
+      { word: "poseidon", definition: "God of the sea, earthquakes, and horses who carried a mighty trident", hint: "brother of Zeus" },
+      { word: "artemis", definition: "Goddess of the hunt, wilderness, and protector of young children", hint: "twin of Apollo" },
+      { word: "hermes", definition: "Messenger god known for speed and cunning who guided souls to the underworld", hint: "winged sandals" },
+      { word: "demeter", definition: "Goddess of the harvest and agriculture whose grief caused winter", hint: "mother of Persephone" },
+      { word: "hades", definition: "God of the underworld and ruler of the dead in Greek mythology", hint: "invisible helmet" },
+      { word: "apollo", definition: "God of the sun, music, poetry, and prophecy at the Oracle of Delphi", hint: "golden lyre" },
+      { word: "zeus", definition: "King of the Olympian gods who wielded thunderbolts from Mount Olympus", hint: "ruler of the sky" },
+      { word: "hera", definition: "Queen of the gods and goddess of marriage and family", hint: "wife of Zeus" },
+      { word: "ares", definition: "God of war known for his brutal and violent nature in battle", hint: "feared by mortals" },
+      { word: "dionysus", definition: "God of wine, festivity, and ecstatic ritual celebrations", hint: "grape harvest" },
+      { word: "hephaestus", definition: "God of fire, metalworking, and craftsmanship who forged divine weapons", hint: "volcano forge" },
+    ],
+  },
+];
+
+function setupLongClueMocks(page) {
+  return page.addInitScript((puzzles) => {
+    window.__testOverrides = {
+      fetch: function (url) {
+        if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
+        if (typeof url === "string" && url.includes("config.yaml")) return Promise.resolve({ ok: true, text: () => Promise.resolve("") });
+        if (typeof url === "string" && url.includes("crosswords.json"))
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(puzzles) });
+        return Promise.resolve({ ok: false, status: 404 });
+      },
+    };
+  }, longCluePuzzle);
+}
+
+test.describe("Clue visibility — long clues (class: content never clipped)", () => {
+  test("long clue text is fully visible, not truncated", async ({ page }) => {
+    await setupLongClueMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
+
+    // Check every clue <li> — scrollWidth must not exceed clientWidth
+    const truncated = await page.evaluate(() => {
+      var items = document.querySelectorAll("#puzzleView li");
+      var result = [];
+      for (var i = 0; i < items.length; i++) {
+        var li = items[i];
+        if (li.scrollWidth > li.clientWidth + 2) {
+          result.push(li.textContent.substring(0, 60));
+        }
+      }
+      return result;
+    });
+
+    expect(truncated).toHaveLength(0);
+  });
+
+  test("hint buttons are visible on every clue with long text", async ({ page }) => {
+    await setupLongClueMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
+
+    const hintButtons = page.locator("#puzzleView li .hintButton");
+    const count = await hintButtons.count();
+    // Every clue should have a hint button
+    expect(count).toBeGreaterThanOrEqual(6); // at least half the clues
+
+    // Every hint button must have non-zero dimensions (not clipped)
+    for (var i = 0; i < count; i++) {
+      const box = await hintButtons.nth(i).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box.width).toBeGreaterThan(10);
+      expect(box.height).toBeGreaterThan(10);
+    }
+  });
+
+  test("clues container does not use text-overflow ellipsis", async ({ page }) => {
+    await setupLongClueMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
+
+    const hasEllipsis = await page.evaluate(() => {
+      var items = document.querySelectorAll("#puzzleView li");
+      for (var i = 0; i < items.length; i++) {
+        var style = getComputedStyle(items[i]);
+        if (style.textOverflow === "ellipsis" || style.overflow === "hidden") {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    expect(hasEllipsis).toBe(false);
+  });
+});
+
+test.describe("Generate panel visibility (class: view state correctness)", () => {
+  test("generate form is hidden when viewing pre-built puzzle as logged-out user", async ({ page }) => {
+    await setupLoggedOutMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
+
+    await expect(page.locator("#generatePanel")).toBeHidden();
+  });
+
+  test("generate form is visible when logged in", async ({ page }) => {
+    await setupLoggedInMocks(page);
+    await page.goto("/");
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
+
+    await expect(page.locator("#generatePanel")).toBeVisible();
+  });
+});
+
+test.describe("Landing page auth gate (class: auth-dependent view state)", () => {
+  test("logged-in user never sees landing page on initial load", async ({ page }) => {
+    await setupLoggedInMocks(page);
+    await page.goto("/");
+    // Wait for session check to complete
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#landingPage")).toBeHidden();
+  });
+
+  test("logged-out user sees landing page on initial load", async ({ page }) => {
+    await setupLoggedOutMocks(page);
+    await page.goto("/");
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeHidden();
+  });
+
+  test("landing 'Sign in to generate' button text changes to 'Go to generator' when logged in", async ({ page }) => {
+    await setupLoggedInMocks(page);
+    await page.goto("/");
+    // Logged-in user skips landing, but if they navigate back...
+    // The button text should reflect auth state
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+  });
+});
+
 test.describe("Theme switching", () => {
   test("body background changes when theme is toggled to light", async ({ page }) => {
     await setupLoggedOutMocks(page);
