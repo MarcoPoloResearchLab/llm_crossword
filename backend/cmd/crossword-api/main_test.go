@@ -1,0 +1,125 @@
+package main
+
+import (
+	"os"
+	"testing"
+
+	"github.com/MarcoPoloResearchLab/llm-crossword/backend/internal/crosswordapi"
+)
+
+func TestNewRootCommand(t *testing.T) {
+	cmd := newRootCommand()
+	if cmd.Use != "crossword-api" {
+		t.Fatalf("expected use 'crossword-api', got %q", cmd.Use)
+	}
+	if cmd.Short == "" {
+		t.Fatal("expected non-empty short description")
+	}
+	// Verify all flags are registered.
+	flags := []string{
+		flagListenAddr, flagLedgerAddr, flagLedgerInsecure, flagLedgerTimeout,
+		flagDefaultTenant, flagDefaultLedger, flagAllowedOrigins,
+		flagJWTSigningKey, flagJWTIssuer, flagJWTCookieName, flagTAuthBaseURL,
+		flagLLMProxyURL, flagLLMProxyKey, flagLLMProxyTimeout,
+	}
+	for _, f := range flags {
+		if cmd.Flags().Lookup(f) == nil {
+			t.Errorf("missing flag: %s", f)
+		}
+	}
+}
+
+func TestLoadConfig_MissingRequired(t *testing.T) {
+	cmd := newRootCommand()
+	cfg := &crosswordapi.Config{}
+	// No env vars or flags set — should fail on first required field.
+	err := loadConfig(cmd, cfg)
+	if err == nil {
+		t.Fatal("expected error for missing required fields")
+	}
+}
+
+func TestLoadConfig_AllSet(t *testing.T) {
+	envVars := map[string]string{
+		"CROSSWORDAPI_LISTEN_ADDR":       ":9090",
+		"CROSSWORDAPI_LEDGER_ADDR":       "localhost:50051",
+		"CROSSWORDAPI_LEDGER_INSECURE":   "true",
+		"CROSSWORDAPI_LEDGER_TIMEOUT":    "5s",
+		"CROSSWORDAPI_DEFAULT_TENANT_ID": "t1",
+		"CROSSWORDAPI_DEFAULT_LEDGER_ID": "l1",
+		"CROSSWORDAPI_ALLOWED_ORIGINS":   "http://localhost:8000",
+		"CROSSWORDAPI_JWT_SIGNING_KEY":   "test-key",
+		"CROSSWORDAPI_JWT_ISSUER":        "tauth",
+		"CROSSWORDAPI_JWT_COOKIE_NAME":   "app_session",
+		"CROSSWORDAPI_TAUTH_BASE_URL":    "http://localhost:8080",
+		"CROSSWORDAPI_LLM_PROXY_URL":     "http://localhost:9999",
+		"CROSSWORDAPI_LLM_PROXY_KEY":     "secret",
+		"CROSSWORDAPI_LLM_PROXY_TIMEOUT": "30s",
+	}
+	for k, v := range envVars {
+		os.Setenv(k, v)
+	}
+	defer func() {
+		for k := range envVars {
+			os.Unsetenv(k)
+		}
+	}()
+
+	cmd := newRootCommand()
+	cfg := &crosswordapi.Config{}
+	if err := loadConfig(cmd, cfg); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.ListenAddr != ":9090" {
+		t.Errorf("expected :9090, got %q", cfg.ListenAddr)
+	}
+	if !cfg.LedgerInsecure {
+		t.Error("expected LedgerInsecure true")
+	}
+	if len(cfg.AllowedOrigins) != 1 || cfg.AllowedOrigins[0] != "http://localhost:8000" {
+		t.Errorf("unexpected origins: %v", cfg.AllowedOrigins)
+	}
+}
+
+func TestNewRootCommand_ExecuteNoArgs(t *testing.T) {
+	// Execute without any env/flags — PreRunE should fail with missing required field.
+	cmd := newRootCommand()
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when no config is provided")
+	}
+}
+
+
+func TestLoadConfig_ValidationError(t *testing.T) {
+	envVars := map[string]string{
+		"CROSSWORDAPI_LISTEN_ADDR":       "   ", // whitespace only — fails Validate
+		"CROSSWORDAPI_LEDGER_ADDR":       "localhost:50051",
+		"CROSSWORDAPI_LEDGER_INSECURE":   "true",
+		"CROSSWORDAPI_LEDGER_TIMEOUT":    "5s",
+		"CROSSWORDAPI_DEFAULT_TENANT_ID": "t1",
+		"CROSSWORDAPI_DEFAULT_LEDGER_ID": "l1",
+		"CROSSWORDAPI_ALLOWED_ORIGINS":   "http://localhost",
+		"CROSSWORDAPI_JWT_SIGNING_KEY":   "key",
+		"CROSSWORDAPI_JWT_ISSUER":        "tauth",
+		"CROSSWORDAPI_JWT_COOKIE_NAME":   "sess",
+		"CROSSWORDAPI_TAUTH_BASE_URL":    "http://localhost",
+		"CROSSWORDAPI_LLM_PROXY_URL":     "http://localhost",
+		"CROSSWORDAPI_LLM_PROXY_KEY":     "key",
+	}
+	for k, v := range envVars {
+		os.Setenv(k, v)
+	}
+	defer func() {
+		for k := range envVars {
+			os.Unsetenv(k)
+		}
+	}()
+
+	cmd := newRootCommand()
+	cfg := &crosswordapi.Config{}
+	err := loadConfig(cmd, cfg)
+	if err == nil {
+		t.Fatal("expected validation error for whitespace listen addr")
+	}
+}

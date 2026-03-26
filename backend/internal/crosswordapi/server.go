@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	creditv1 "github.com/MarkoPoloResearchLab/ledger/api/credit/v1"
@@ -127,7 +126,6 @@ type httpHandler struct {
 	ledgerClient  creditv1.CreditServiceClient
 	cfg           Config
 	llmHTTPClient *http.Client
-	bootstrapped  sync.Map
 }
 
 func (handler *httpHandler) handleSession(ctx *gin.Context) {
@@ -164,9 +162,9 @@ func (handler *httpHandler) handleBootstrap(ctx *gin.Context) {
 }
 
 func (handler *httpHandler) ensureBootstrap(ctx context.Context, userID string) error {
-	if _, ok := handler.bootstrapped.Load(userID); ok {
-		return nil
-	}
+	// Idempotency is enforced by Ledger via the idempotency key.
+	// If the user was already bootstrapped, Ledger returns AlreadyExists
+	// which we treat as success.
 	_, err := handler.ledgerClient.Grant(ctx, &creditv1.GrantRequest{
 		UserId:           userID,
 		AmountCents:      BootstrapAmountCents(),
@@ -179,7 +177,6 @@ func (handler *httpHandler) ensureBootstrap(ctx context.Context, userID string) 
 	if err != nil && !isGRPCAlreadyExists(err) {
 		return err
 	}
-	handler.bootstrapped.Store(userID, struct{}{})
 	return nil
 }
 
