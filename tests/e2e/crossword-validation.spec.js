@@ -37,7 +37,7 @@ test.describe("Crossword validation — edge cases", () => {
     await setupMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
   });
 
   test("missing entries shows error", async ({ page }) => {

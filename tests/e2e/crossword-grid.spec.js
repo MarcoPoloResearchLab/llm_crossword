@@ -37,7 +37,7 @@ test.describe("Crossword grid interactions", () => {
     await setupMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
   });
 
   test("cell accepts letter input", async ({ page }) => {

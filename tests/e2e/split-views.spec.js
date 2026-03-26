@@ -127,8 +127,8 @@ test.describe("Solver view — no tabs", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#grid")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("Across")).toBeVisible();
-    await expect(page.getByText("Down")).toBeVisible();
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible();
+    await expect(page.locator("#puzzleView").getByText("Down")).toBeVisible();
   });
 
   test("solver view has Check, Reveal, and Back buttons", async ({ page }) => {

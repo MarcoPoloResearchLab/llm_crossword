@@ -60,8 +60,8 @@ test.describe("Login flow — pre-built puzzles", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     // Wait for crossword to load.
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("Down")).toBeVisible();
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Down")).toBeVisible();
   });
 
   test("pre-built puzzle shows Check and Reveal buttons", async ({ page }) => {

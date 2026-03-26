@@ -64,4 +64,46 @@ test.describe("Landing page", () => {
   test("page title is set", async ({ page }) => {
     await expect(page).toHaveTitle(/LLM Crossword/);
   });
+
+  test("shows a sample crossword puzzle below the feature cards", async ({ page }) => {
+    // A sample moon-themed crossword should be embedded on the landing page
+    var sampleGrid = page.locator("#landingSamplePuzzle");
+    await expect(sampleGrid).toBeVisible({ timeout: 5000 });
+  });
+
+  test("sample puzzle has a grid with cells", async ({ page }) => {
+    var cells = page.locator("#landingSamplePuzzle .cell");
+    // Should have multiple cells rendered
+    await expect(cells.first()).toBeVisible({ timeout: 5000 });
+    var count = await cells.count();
+    expect(count).toBeGreaterThan(10);
+  });
+
+  test("sample puzzle has Across and Down clues", async ({ page }) => {
+    var sampleSection = page.locator("#landingSamplePuzzle");
+    await expect(sampleSection.getByText("Across")).toBeVisible({ timeout: 5000 });
+    await expect(sampleSection.getByText("Down")).toBeVisible();
+  });
+
+  test("sample puzzle cells are interactive (accept input)", async ({ page }) => {
+    var firstInput = page.locator("#landingSamplePuzzle .cell:not(.blk) input").first();
+    await expect(firstInput).toBeVisible({ timeout: 5000 });
+    await firstInput.click();
+    await firstInput.fill("A");
+    await expect(firstInput).toHaveValue("A");
+  });
+
+  test("sample puzzle has Check and Reveal buttons", async ({ page }) => {
+    var sampleSection = page.locator("#landingSamplePuzzle");
+    await expect(sampleSection.getByRole("button", { name: "Check" })).toBeVisible({ timeout: 5000 });
+    await expect(sampleSection.getByRole("button", { name: "Reveal" })).toBeVisible();
+  });
+
+  test("sample puzzle has a moon-related title", async ({ page }) => {
+    var sampleSection = page.locator("#landingSamplePuzzle");
+    // Title should mention moon or lunar
+    await expect(sampleSection.locator("h2, h3").first()).toBeVisible({ timeout: 5000 });
+    var titleText = await sampleSection.locator("h2, h3").first().textContent();
+    expect(titleText.toLowerCase()).toMatch(/moon|lunar/);
+  });
 });

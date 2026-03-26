@@ -551,6 +551,55 @@ body {
     margin-right: auto;
 }
 
+/* --- Sample puzzle on landing page --- */
+.landing__sample {
+    margin-top: 48px;
+    padding: 24px;
+    background: var(--cw-wrap-bg);
+    border: 1px solid var(--cw-wrap-border);
+    border-radius: 16px;
+    backdrop-filter: blur(6px);
+}
+
+.landing__sample-title {
+    margin: 0 0 4px;
+    font-size: 20px;
+    color: #3b82f6;
+}
+
+.landing__sample-subtitle {
+    margin: 0 0 16px;
+    font-size: 13px;
+    opacity: .8;
+}
+
+.landing__sample-layout {
+    display: flex;
+    gap: var(--pane-gap);
+}
+
+.landing__sample-grid {
+    flex: 0 0 auto;
+}
+
+.landing__sample-clues {
+    flex: 1 1 auto;
+    max-height: 300px;
+}
+
+.landing__sample-controls {
+    margin-top: 12px;
+}
+
+@media (max-width: 800px) {
+    .landing__sample-layout {
+        flex-direction: column;
+    }
+    .landing__sample-clues {
+        max-height: none;
+    }
+}
+
 .landing__btn {
     padding: 12px 28px;
     border-radius: 12px;

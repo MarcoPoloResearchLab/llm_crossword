@@ -38,7 +38,7 @@ test.describe("Generator — valid input", () => {
     await page.goto("/");
     // Wait for page to load
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
 
     // Generate a crossword in page context and render it
     await page.evaluate(() => {
@@ -55,8 +55,8 @@ test.describe("Generator — valid input", () => {
 
     // Grid should be rendered with clues
     await expect(page.getByText("Test Grid")).toBeVisible();
-    await expect(page.getByText("Across")).toBeVisible();
-    await expect(page.getByText("Down")).toBeVisible();
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible();
+    await expect(page.locator("#puzzleView").getByText("Down")).toBeVisible();
   });
 });
 
@@ -65,7 +65,7 @@ test.describe("Generator — error cases", () => {
     await setupMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
 
     // Try generating with empty array
     var errorMsg = await page.evaluate(() => {
@@ -84,7 +84,7 @@ test.describe("Generator — error cases", () => {
     await setupMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
 
     var errorMsg = await page.evaluate(() => {
       try {
@@ -102,7 +102,7 @@ test.describe("Generator — error cases", () => {
     await setupMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
 
     // Mix of valid and single-char words
     await page.evaluate(() => {
@@ -126,7 +126,7 @@ test.describe("Generator — error cases", () => {
     await setupMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
 
     await page.evaluate(() => {
       var items = [

@@ -76,6 +76,6 @@ test.describe("Config — fetch failure", () => {
     await expect(page.getByText("Create crossword puzzles with AI")).toBeVisible();
     // Puzzles should still work
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
   });
 });

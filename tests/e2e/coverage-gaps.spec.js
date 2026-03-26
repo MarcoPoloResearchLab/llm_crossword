@@ -61,10 +61,16 @@ function loggedInMock(coins) {
   });
 }
 
-// Navigate to puzzle view and wait for grid to appear
+// Navigate to puzzle view and wait for it to appear
 async function goToPuzzle(page) {
   await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-  await expect(page.getByText("Across")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+}
+
+// Navigate to puzzle view and wait for grid cells to render
+async function goToPuzzleWithGrid(page) {
+  await goToPuzzle(page);
+  await expect(page.locator("#puzzleView #grid input").first()).toBeVisible({ timeout: 10000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +308,7 @@ test.describe("Crossword — keyboard navigation", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("ArrowRight moves focus to next cell in across direction", async ({ page }) => {
@@ -395,7 +401,7 @@ test.describe("Crossword — paste handler", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("pasting text fills multiple cells", async ({ page }) => {
@@ -423,7 +429,7 @@ test.describe("Crossword — hint cycling (verbal -> letter -> reset)", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("hint button cycles through all three stages", async ({ page }) => {
@@ -475,7 +481,7 @@ test.describe("Crossword — cell focus and highlight", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("focusing a cell highlights the word", async ({ page }) => {
@@ -512,7 +518,7 @@ test.describe("Crossword — check all correct", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("check shows 'All correct' when all cells are correct", async ({ page }) => {
@@ -531,7 +537,7 @@ test.describe("Crossword — reveal/hide toggle with clue solved state", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("reveal marks clues as solved, hide restores them", async ({ page }) => {
@@ -586,7 +592,7 @@ test.describe("Crossword — puzzle select change", () => {
       },
     ]);
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Reveal the first puzzle
     await page.getByRole("button", { name: "Reveal" }).click();
@@ -605,7 +611,7 @@ test.describe("Crossword — grid viewport panning (mouse)", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("mousedown + mousemove on viewport triggers panning", async ({ page }) => {
@@ -638,7 +644,7 @@ test.describe("Crossword — grid viewport panning (touch)", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("touch events trigger panning", async ({ page }) => {
@@ -676,7 +682,7 @@ test.describe("Crossword — viewport resize handler", () => {
   test("resize event triggers cell size recalculation", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
     // Trigger resize event
     await page.evaluate(() => {
       window.dispatchEvent(new Event("resize"));
@@ -688,7 +694,7 @@ test.describe("Crossword — viewport resize handler", () => {
   test("orientationchange event triggers recalculation", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
     await page.evaluate(() => {
       window.dispatchEvent(new Event("orientationchange"));
     });
@@ -700,7 +706,7 @@ test.describe("Crossword — validation edge cases", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("null payload shows error", async ({ page }) => {
@@ -847,7 +853,7 @@ test.describe("Crossword — validatePuzzleSpecification", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("invalid spec — non-object", async ({ page }) => {
@@ -953,7 +959,7 @@ test.describe("Generator — exhausted budget throws (lines 276-279)", () => {
   test("impossible crossword throws 'Failed to generate' error", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     var errorMsg = await page.evaluate(() => {
       try {
@@ -980,7 +986,7 @@ test.describe("Generator — seed swap (lines 221-223)", () => {
   test("generator can build valid crossword with shuffled seed order", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Use a random function that will cause shuffling and try different seed indices
     var result = await page.evaluate(() => {
@@ -1008,7 +1014,7 @@ test.describe("Generator — computeGridSize with empty entries", () => {
   test("computeGridSize handles entries correctly", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Render a valid payload with down entries to test computeGridSize down branch
     await page.evaluate(() => {
@@ -1069,7 +1075,7 @@ test.describe("Crossword — input filtering", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("non-letter input is filtered out", async ({ page }) => {
@@ -1102,7 +1108,7 @@ test.describe("Crossword — focus direction selection", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("focusing a cell with only down links sets activeDir to down", async ({ page }) => {
@@ -1124,7 +1130,7 @@ test.describe("Crossword — clue click sets activeDir and scrolls into view", (
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("clicking a down clue sets activeDir to down", async ({ page }) => {
@@ -1166,7 +1172,7 @@ test.describe("Crossword — hint reveal on already-solved entry", () => {
   test("hint reveal returns null when all cells are correct", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Reveal all answers to fill cells correctly
     await page.getByRole("button", { name: "Reveal" }).click();
@@ -1188,7 +1194,7 @@ test.describe("Crossword — hint reset without prior reveal", () => {
   test("cycling hints when entry is already solved does not crash", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Reveal all, then hide
     await page.getByRole("button", { name: "Reveal" }).click();
@@ -1214,7 +1220,7 @@ test.describe("Generator — shuffled function exercised (line 257+)", () => {
   test("generator retries with shuffled words when first attempt fails", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Use words that may need multiple seed tries to succeed
     var result = await page.evaluate(() => {
@@ -1247,7 +1253,7 @@ test.describe("Generator — seed at non-zero index (lines 220-224)", () => {
   test("generator tries non-zero word indices as seeds", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     var result = await page.evaluate(() => {
       try {
@@ -1277,7 +1283,7 @@ test.describe("Generator — backtrack failure unplaces seed (lines 249-263)", (
   test("seed placement undone when backtracking fails", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     var result = await page.evaluate(() => {
       try {
@@ -1311,7 +1317,7 @@ test.describe("Crossword — computeGridSize empty entries branch", () => {
   test("computeGridSize with empty entries is handled", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Exercise the computeGridSize function directly with empty array
     var result = await page.evaluate(() => {
@@ -1343,7 +1349,7 @@ test.describe("Crossword — buildModel letter conflict", () => {
   test("conflicting letter placements show Placement conflict error", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Two entries overlap at (0,0) without declaring it in overlaps.
     // validatePayload passes because overlaps is empty.
@@ -1372,7 +1378,7 @@ test.describe("Crossword — additional validation branches", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("null overlaps shows error", async ({ page }) => {
@@ -1413,7 +1419,7 @@ test.describe("Crossword — navigation edge cases", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("ArrowLeft at start of word stays put", async ({ page }) => {
@@ -1451,7 +1457,7 @@ test.describe("Crossword — visualViewport resize listener", () => {
   test("visualViewport resize triggers handler", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Trigger visualViewport resize if available
     await page.evaluate(() => {
@@ -1471,7 +1477,7 @@ test.describe("Crossword — check with mixed empty and wrong", () => {
   test("check marks empty cells without class and wrong cells as wrong", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Fill first cell with wrong letter, leave others empty
     var firstInput = page.locator("#grid input").first();
@@ -1536,7 +1542,7 @@ test.describe("Crossword — additional branch coverage", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("paste with empty text does nothing", async ({ page }) => {
@@ -1669,7 +1675,7 @@ test.describe("Generator — additional branch coverage", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("generator with empty hint and definition strings", async ({ page }) => {
@@ -1773,7 +1779,7 @@ test.describe("Crossword — render with defaults", () => {
   test("render with no title uses 'Crossword' default", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     await page.evaluate(() => {
       window.CrosswordApp.render({
@@ -1796,7 +1802,7 @@ test.describe("Crossword — keydown handler comprehensive", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
   });
 
   test("all arrow keys, Tab, Shift+Tab, Backspace on same cell", async ({ page }) => {
@@ -1877,7 +1883,7 @@ test.describe("Crossword — revealLetter with empty cells", () => {
   test("hint reveal when cells have no value uses empty string fallback", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     // Make sure all cells are empty (default state), then use hint
     var hintButton = page.locator(".hintButton").first();
@@ -1901,7 +1907,7 @@ test.describe("Crossword — touchmove without drag", () => {
   test("touchmove when not dragging does nothing", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     await page.evaluate(() => {
       var el = document.getElementById("gridViewport");
@@ -1926,7 +1932,7 @@ test.describe("Crossword — mousemove without drag", () => {
   test("mousemove when not dragging does nothing", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     var viewport = page.locator("#gridViewport");
     var box = await viewport.boundingBox();
@@ -1947,7 +1953,7 @@ test.describe("Generator — attempt budget exhaustion", () => {
   test("generator exhausts budget mid-backtrack and returns failure", async ({ page }) => {
     await page.addInitScript(loggedOutMock());
     await page.goto("/");
-    await goToPuzzle(page);
+    await goToPuzzleWithGrid(page);
 
     var result = await page.evaluate(() => {
       try {

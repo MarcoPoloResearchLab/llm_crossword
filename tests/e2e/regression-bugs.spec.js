@@ -98,7 +98,7 @@ test.describe("Grid cell dimensions", () => {
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
 
     // Wait for grid to render
-    const firstCell = page.locator(".cell").first();
+    const firstCell = page.locator("#puzzleView .cell").first();
     await expect(firstCell).toBeVisible({ timeout: 5000 });
 
     // Wait for cells to stabilize (ResizeObserver recalculates after visibility change)
@@ -115,7 +115,7 @@ test.describe("Grid cell dimensions", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
 
-    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     // All non-block cells should have the same width
     const sizes = await page.$$eval(".cell:not(.blk)", (cells) =>
@@ -145,13 +145,15 @@ test.describe("Layout — no excessive empty space", () => {
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
 
     // Wait for grid
-    const firstCell = page.locator(".cell").first();
+    const firstCell = page.locator("#puzzleView .cell").first();
     await expect(firstCell).toBeVisible({ timeout: 5000 });
 
     // Find the bottom of the last control area (hdr or panel-bar)
     // and the top of the first grid cell
     const gap = await page.evaluate(() => {
-      const panels = document.querySelectorAll(".hdr, .panel-bar, .generate-form");
+      var pv = document.getElementById("puzzleView");
+      if (!pv) return 9999;
+      const panels = pv.querySelectorAll(".hdr, .panel-bar, .generate-form");
       let controlsBottom = 0;
       panels.forEach((el) => {
         const rect = el.getBoundingClientRect();
@@ -159,7 +161,7 @@ test.describe("Layout — no excessive empty space", () => {
           controlsBottom = rect.bottom;
         }
       });
-      const firstCell = document.querySelector(".cell");
+      const firstCell = pv.querySelector(".cell");
       if (!firstCell) return 9999;
       const cellTop = firstCell.getBoundingClientRect().top;
       return cellTop - controlsBottom;
@@ -176,7 +178,7 @@ test.describe("Layout — no excessive empty space", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
 
-    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     // The .wrap element's visible height should not vastly exceed its scroll height
     const ratio = await page.evaluate(() => {
@@ -196,7 +198,7 @@ test.describe("Layout — no excessive empty space", () => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     const layout = await page.evaluate(() => {
       const wrap = document.querySelector(".wrap");
@@ -244,7 +246,7 @@ test.describe("Clue visibility", () => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     // Check that clue list items are not overflowing/truncated
     const clueOverflow = await page.evaluate(() => {
@@ -268,7 +270,7 @@ test.describe("Clue visibility", () => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     // The hint button (H) should be visible on at least one clue
     const hintButtons = page.locator("li .hintButton");
@@ -315,7 +317,7 @@ test.describe("Grid scrollbar", () => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     const viewport = await page.evaluate(() => {
       var gv = document.querySelector(".gridViewport");
