@@ -384,9 +384,8 @@
     if (viewportWidth < 1) return;
     var computedStyles = getComputedStyle(this._gridViewport);
     var gapSize = parseInt(computedStyles.getPropertyValue(cssGapSizeProperty), 10) || 0;
-    var maxAvailableWidth = viewportWidth - gapSize * (this._currentColumnCount - 1);
-    var cellSize = Math.max(1, Math.min(defaultCellSize, Math.floor(maxAvailableWidth / this._currentColumnCount)));
-    this._gridViewport.style.setProperty(cssCellSizeProperty, cellSize + pixelUnit);
+    // Cell size is fixed — the grid viewport scrolls/pans when the grid is wider.
+    this._gridViewport.style.setProperty(cssCellSizeProperty, defaultCellSize + pixelUnit);
   };
 
   /* ── Drag panning ────────────────────────────────────────────────── */

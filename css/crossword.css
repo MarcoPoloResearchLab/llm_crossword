@@ -80,16 +80,7 @@ body {
 
 .wrap {
     width: 100%;
-    max-width: min(960px, var(--wrap-max-width));
-    max-height: calc(var(--viewport-height) - var(--wrap-offset));
-    overflow-y: auto;
-    overflow-x: hidden;
-    background: var(--cw-wrap-bg);
-    border: 1px solid var(--cw-wrap-border);
-    border-radius: 16px;
     padding: var(--pane-gap);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
-    backdrop-filter: blur(6px);
     display: grid;
     grid-template-rows: auto auto auto;
     gap: var(--pane-gap);
@@ -122,24 +113,21 @@ select {
 
 
 .pane {
-    display: flex;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: 3fr 1fr;
     gap: var(--pane-gap);
     min-height: 0;
-    overflow: visible;
-    flex: 1 1 auto;
-    align-items: flex-start;
+    align-items: start;
 }
 
-/* Viewport: scrolls internally so clues stay beside it */
+/* Grid viewport: fixed cell size, scrolls/pans when grid exceeds space */
 .gridViewport {
     overflow: auto;
     background: transparent;
     border: 0;
     border-radius: 0;
-    flex: 1 1 0%;
-    min-width: 200px;
-    max-height: var(--full-size);
+    min-width: 0;
+    max-height: 80vh;
 }
 
 .gridViewport.dragging {
@@ -217,12 +205,8 @@ select {
     grid-template-columns: var(--clue-stack-track-size);
     gap: 12px 18px;
     overflow-y: auto;
-    overflow-x: visible;
-    max-height: var(--full-size);
-    flex: 1 1 280px;
-    min-width: 280px;
-    margin-left: var(--pane-gap);
-    align-self: flex-start;
+    max-height: 80vh;
+    align-self: start;
 }
 
 @media (max-width: 800px) {
@@ -233,7 +217,7 @@ select {
     }
 
     .pane {
-        flex-direction: column;
+        grid-template-columns: 1fr;
         overflow-y: auto;
         overflow-x: visible;
     }
