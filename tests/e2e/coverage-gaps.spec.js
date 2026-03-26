@@ -188,10 +188,13 @@ test.describe("App — generate while not logged in (lines 149-150)", () => {
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:unauthenticated"));
     });
-    // After logout, generate form is hidden. Force it visible and enable button
+    // After logout, user is on landing and generate form is hidden.
+    // Force puzzle view and generate panel visible, enable button
     // to test the loggedIn guard in the generate handler.
     await page.evaluate(() => {
-      document.getElementById("landingGenerateForm").style.display = "";
+      document.getElementById("landingPage").style.display = "none";
+      document.getElementById("puzzleView").style.display = "";
+      document.getElementById("generatePanel").style.display = "";
       document.getElementById("generateBtn").disabled = false;
     });
     await page.fill("#topicInput", "test topic");

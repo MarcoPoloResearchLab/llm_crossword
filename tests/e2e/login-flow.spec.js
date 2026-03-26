@@ -9,7 +9,7 @@ test.describe("Login flow — unauthenticated state", () => {
 
   test("generate form is hidden when not signed in", async ({ page }) => {
     // Generate form on landing page is hidden when logged out
-    await expect(page.locator("#landingGenerateForm")).toBeHidden();
+    await expect(page.locator("#generatePanel")).toBeHidden();
   });
 
   test("generate button shows 'Generate' without credits when not signed in", async ({ page }) => {
@@ -49,9 +49,9 @@ test.describe("Login flow — puzzle view", () => {
     await expect(page.locator("#modeGenerate")).not.toBeAttached();
   });
 
-  test("generate form is on landing page, not puzzle view", async ({ page }) => {
-    // Topic input is on the landing page (hidden), not in puzzle view
-    await expect(page.locator("#landingPage #topicInput")).toBeAttached();
+  test("generate form is in puzzle view", async ({ page }) => {
+    // Topic input is in the puzzle view (inside generatePanel)
+    await expect(page.locator("#puzzleView #topicInput")).toBeAttached();
   });
 });
 

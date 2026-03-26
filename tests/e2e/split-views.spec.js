@@ -79,19 +79,21 @@ function setupLoggedOutMocks(page) {
   });
 }
 
-test.describe("Landing page — generate form", () => {
-  test("generate form is visible on landing when logged in", async ({ page }) => {
-    await setupLoggedInMocks(page);
-    await page.goto("/");
-    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#topicInput")).toBeVisible();
-    await expect(page.locator("#generateBtn")).toBeVisible();
-  });
-
-  test("generate form is hidden on landing when logged out", async ({ page }) => {
+test.describe("Landing page — auth-based routing", () => {
+  test("logged-out user sees landing page", async ({ page }) => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
-    await expect(page.locator("#landingGenerateForm")).toBeHidden({ timeout: 3000 });
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 3000 });
+    await expect(page.locator("#puzzleView")).toBeHidden();
+  });
+
+  test("logged-in user skips landing and sees puzzle view with generate form", async ({ page }) => {
+    await setupLoggedInMocks(page);
+    await page.goto("/");
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#topicInput")).toBeVisible();
+    await expect(page.locator("#generateBtn")).toBeVisible();
   });
 
   test("generate button shows credit cost when logged in", async ({ page }) => {
@@ -139,14 +141,13 @@ test.describe("Solver view — no tabs", () => {
     await expect(page.getByRole("button", { name: "Back" })).toBeVisible();
   });
 
-  test("solver view does NOT have generate form elements", async ({ page }) => {
+  test("generate form is hidden in solver when logged out", async ({ page }) => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-    // The generate panel should NOT exist inside the solver
-    await expect(page.locator("#puzzleView #generatePanel")).toHaveCount(0);
-    await expect(page.locator("#puzzleView #topicInput")).toHaveCount(0);
+    // The generate panel exists but is hidden when not logged in
+    await expect(page.locator("#generatePanel")).toBeHidden();
   });
 });
 

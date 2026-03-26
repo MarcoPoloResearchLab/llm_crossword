@@ -8,6 +8,7 @@
   var landingPage       = document.getElementById("landingPage");
   var puzzleView        = document.getElementById("puzzleView");
   var prebuiltPanel     = document.getElementById("prebuiltPanel");
+  var generatePanel     = document.getElementById("generatePanel");
   var topicInput        = document.getElementById("topicInput");
   var wordCountSelect   = document.getElementById("wordCount");
   var generateBtn       = document.getElementById("generateBtn");
@@ -15,7 +16,6 @@
   var generateStatus    = document.getElementById("generateStatus");
   var landingTryBtn     = document.getElementById("landingTryPrebuilt");
   var landingSignIn     = document.getElementById("landingSignIn");
-  var landingGenForm    = document.getElementById("landingGenerateForm");
   var backToLanding     = document.getElementById("backToLanding");
 
   var loggedIn = false;
@@ -29,9 +29,12 @@
   function showPuzzle(source) {
     landingPage.style.display = "none";
     puzzleView.style.display = "";
-    // Show/hide puzzle selector based on source.
+    // Show/hide panels based on source.
     if (prebuiltPanel) {
       prebuiltPanel.style.display = source === "generated" ? "none" : "";
+    }
+    if (generatePanel) {
+      generatePanel.style.display = loggedIn ? "" : "none";
     }
     // Recalculate cell sizes after the browser reflows the now-visible puzzle view.
     requestAnimationFrame(function () {
@@ -50,8 +53,8 @@
 
   landingSignIn.addEventListener("click", function () {
     if (loggedIn) {
-      // Already logged in — scroll to the generate form.
-      if (landingGenForm) landingGenForm.scrollIntoView({ behavior: "smooth" });
+      // Already logged in — go to puzzle view.
+      showPuzzle("prebuilt");
       if (topicInput) topicInput.focus();
       return;
     }
@@ -60,7 +63,7 @@
     if (headerSignIn) {
       headerSignIn.click();
     } else {
-      // Fallback: scroll to generate form area (will be hidden but shows intent).
+      // Fallback: go to puzzle view.
       showPuzzle("prebuilt");
     }
   });
@@ -81,14 +84,14 @@
       generateStatus.textContent = "";
       generateStatus.classList.remove("loading");
       landingSignIn.textContent = "Sign in to generate";
-      if (landingGenForm) landingGenForm.style.display = "none";
+      if (generatePanel) generatePanel.style.display = "none";
     } else {
       generateBtn.textContent = "Generate (5 credits)";
       creditBadge.style.display = "";
       creditBadge.classList.remove("logged-out");
       generateStatus.textContent = "";
       landingSignIn.textContent = "Go to generator";
-      if (landingGenForm) landingGenForm.style.display = "";
+      if (generatePanel) generatePanel.style.display = "";
     }
   }
 
@@ -101,6 +104,8 @@
   function onLogin() {
     loggedIn = true;
     updateAuthUI();
+    // Logged-in users skip landing and go to puzzle view.
+    showPuzzle("prebuilt");
     // Bootstrap credits.
     _fetch("/api/bootstrap", { method: "POST", credentials: "include" })
       .then(function (resp) {
@@ -181,7 +186,7 @@
           subtitle: result.data.subtitle || "Generated from LLM.",
         });
 
-        // Navigate to solver view and render the generated puzzle.
+        // Switch to generated view and render.
         showPuzzle("generated");
         window.CrosswordApp.render(payload);
         generateStatus.textContent = "Puzzle ready! Tip: this puzzle won\u2019t be saved after reload.";

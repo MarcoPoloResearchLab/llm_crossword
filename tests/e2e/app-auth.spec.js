@@ -93,25 +93,24 @@ test.describe("App auth — logged in state", () => {
     await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 5000 });
   });
 
-  test("logged-in user stays on landing page with generate form visible", async ({ page }) => {
+  test("logged-in user skips landing and sees puzzle view", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // Logged-in users stay on landing page with generate form visible
-    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
+    // Logged-in users skip landing and go straight to puzzle view
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
   });
 
   test("session persists after page refresh", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // Wait for login to complete
-    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    // Wait for login to complete — should be on puzzle view
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     // Refresh the page (mocks persist via addInitScript)
     await page.reload();
-    // After refresh, user should still be logged in on the landing page
-    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    // After refresh, user should still be logged in on puzzle view
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
     await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 5000 });
   });
 });
@@ -121,7 +120,7 @@ test.describe("App auth — logged out state", () => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
     // Generate form is hidden on landing page when logged out
-    await expect(page.locator("#landingGenerateForm")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#generatePanel")).toBeHidden({ timeout: 5000 });
     // Generate button should be disabled
     var genBtn = page.locator("#generateBtn");
     await expect(genBtn).toBeDisabled();
@@ -131,7 +130,7 @@ test.describe("App auth — logged out state", () => {
     await setupLoggedInMocks(page);
     await page.goto("/");
     // Generate form is visible on landing page when logged in
-    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -384,14 +383,14 @@ test.describe("App auth — auth events", () => {
     });
     await page.goto("/");
     // Initially logged out — generate form is hidden, button is disabled
-    await expect(page.locator("#landingGenerateForm")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#generatePanel")).toBeHidden({ timeout: 5000 });
     await expect(page.locator("#generateBtn")).toBeDisabled();
     // Dispatch authenticated event
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:authenticated"));
     });
     // Now generate form should be visible and button enabled
-    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 5000 });
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
   });
 
@@ -400,13 +399,13 @@ test.describe("App auth — auth events", () => {
     await page.goto("/");
     // Logged-in user sees generate form on landing page
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
-    await expect(page.locator("#landingGenerateForm")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 5000 });
     // Dispatch unauthenticated event
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:unauthenticated"));
     });
     // Should stay on landing page but generate form should be hidden
     await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#landingGenerateForm")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#generatePanel")).toBeHidden({ timeout: 5000 });
   });
 });
