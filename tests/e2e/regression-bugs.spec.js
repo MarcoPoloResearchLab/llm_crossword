@@ -191,4 +191,32 @@ test.describe("Layout — no excessive empty space", () => {
     // We allow some variance but the wrap should not be more than 2x the content.
     expect(ratio).toBeLessThanOrEqual(1.1); // wrap should not be stretched beyond content
   });
+
+  test("puzzle view is horizontally centered and does not span full viewport width", async ({ page }) => {
+    await setupLoggedOutMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator(".cell").first().waitFor({ timeout: 5000 });
+
+    const layout = await page.evaluate(() => {
+      const wrap = document.querySelector(".wrap");
+      if (!wrap) return null;
+      const wrapRect = wrap.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      return {
+        wrapWidth: wrapRect.width,
+        wrapLeft: wrapRect.left,
+        wrapRight: viewportWidth - wrapRect.right,
+        viewportWidth: viewportWidth,
+      };
+    });
+
+    expect(layout).not.toBeNull();
+    // Wrap should not consume the full viewport width (leave some margin on each side)
+    expect(layout.wrapWidth).toBeLessThan(layout.viewportWidth * 0.95);
+    // Wrap should be roughly centered (left and right margins within 50px of each other)
+    expect(Math.abs(layout.wrapLeft - layout.wrapRight)).toBeLessThan(50);
+    // Left margin should be > 0 (not flush against the edge)
+    expect(layout.wrapLeft).toBeGreaterThan(0);
+  });
 });

@@ -80,7 +80,7 @@ body {
 
 .wrap {
     width: 100%;
-    max-width: var(--wrap-max-width);
+    max-width: min(960px, var(--wrap-max-width));
     max-height: calc(var(--viewport-height) - var(--wrap-offset));
     overflow-y: auto;
     overflow-x: hidden;
