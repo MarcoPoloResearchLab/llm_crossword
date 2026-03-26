@@ -24,16 +24,6 @@
   <script defer src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui-config.js"></script>
   <script defer src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui.js"></script>
 </head>
-
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-7TXFH9TLQB"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-7TXFH9TLQB');
-</script>
-
 <body>
 <mpr-header
   id="app-header"
@@ -51,18 +41,18 @@
 
 <div class="wrap">
   <div class="hdr">
-    <h1 id="title"></h1>
-    <div class="sub" id="subtitle"></div>
+    <h1 id="title">Crossword Puzzle</h1>
+    <div class="sub" id="subtitle">Loading...</div>
 
     <!-- Mode tabs -->
-    <div class="mode-tabs">
-      <button id="modePrebuilt" class="mode-tab active">Pre-built</button>
-      <button id="modeGenerate" class="mode-tab">Generate</button>
+    <div class="mode-tabs" role="tablist" aria-label="Puzzle mode">
+      <button id="modePrebuilt" class="mode-tab active" role="tab" aria-selected="true" aria-controls="prebuiltPanel">Pre-built</button>
+      <button id="modeGenerate" class="mode-tab" role="tab" aria-selected="false" aria-controls="generatePanel">Generate</button>
     </div>
   </div>
 
   <!-- Pre-built puzzle selector -->
-  <div id="prebuiltPanel" class="panel-bar">
+  <div id="prebuiltPanel" class="panel-bar" role="tabpanel" aria-labelledby="modePrebuilt">
     <label style="display:flex; gap:8px; align-items:center;">
       <span style="opacity:.85;font-size:13px;">Choose puzzle:</span>
       <select id="puzzleSelect"></select>
@@ -70,12 +60,12 @@
   </div>
 
   <!-- Generate panel (requires login) -->
-  <div id="generatePanel" class="panel-bar" style="display:none;">
+  <div id="generatePanel" class="panel-bar" role="tabpanel" aria-labelledby="modeGenerate" style="display:none;">
     <div class="generate-form">
       <input type="text" id="topicInput" placeholder="Enter a topic (e.g. Greek mythology)" maxlength="200"/>
       <label class="word-count-label">
         Words:
-        <select id="wordCount">
+        <select id="wordCount" title="More words = larger puzzle, longer generation time">
           <option value="5">5</option>
           <option value="8" selected>8</option>
           <option value="10">10</option>
@@ -116,5 +106,14 @@
 <script src="js/generator.js"></script>
 <script src="js/crossword.js"></script>
 <script src="js/app.js"></script>
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-7TXFH9TLQB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-7TXFH9TLQB');
+</script>
 </body>
 </html>

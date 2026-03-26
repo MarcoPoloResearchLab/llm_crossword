@@ -3,7 +3,7 @@ environments:
     origins:
       - "http://localhost:8000"
     auth:
-      tauthUrl: ""
+      tauthUrl: "http://localhost:8080"
       googleClientId: "991677581607-r0dj8q6irjagipali0jpca7nfp8sfj9r.apps.googleusercontent.com"
       tenantId: "default"
       loginPath: "/auth/google"
@@ -19,7 +19,7 @@ environments:
     origins:
       - "https://llm-crossword.mprlab.com"
     auth:
-      tauthUrl: ""
+      tauthUrl: "https://tauth.mprlab.com"
       googleClientId: "991677581607-r0dj8q6irjagipali0jpca7nfp8sfj9r.apps.googleusercontent.com"
       tenantId: "default"
       loginPath: "/auth/google"

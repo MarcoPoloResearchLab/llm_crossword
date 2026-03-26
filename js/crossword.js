@@ -627,6 +627,7 @@
 
   /** loadAndRenderPuzzles retrieves puzzle specifications, builds puzzles, and renders them. */
   async function loadAndRenderPuzzles() {
+    statusEl.textContent = "Loading puzzles...";
     const response = await fetch(puzzleDataPath);
     const puzzleSpecifications = await response.json();
     if (!Array.isArray(puzzleSpecifications)) throw new Error(errorInvalidDataMessage);
@@ -659,5 +660,8 @@
     loadPrebuilt: loadAndRenderPuzzles,
   };
 
-  loadAndRenderPuzzles().catch(error => { errorBox.textContent = error.message; });
+  loadAndRenderPuzzles().catch(error => {
+    errorBox.style.display = "block";
+    errorBox.textContent = error.message;
+  });
 })();

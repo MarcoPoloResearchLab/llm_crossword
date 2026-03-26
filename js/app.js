@@ -18,12 +18,16 @@
   function setMode(mode) {
     if (mode === "generate") {
       modeGenerateBtn.classList.add("active");
+      modeGenerateBtn.setAttribute("aria-selected", "true");
       modePrebuiltBtn.classList.remove("active");
+      modePrebuiltBtn.setAttribute("aria-selected", "false");
       prebuiltPanel.style.display = "none";
       generatePanel.style.display = "";
     } else {
       modePrebuiltBtn.classList.add("active");
+      modePrebuiltBtn.setAttribute("aria-selected", "true");
       modeGenerateBtn.classList.remove("active");
+      modeGenerateBtn.setAttribute("aria-selected", "false");
       generatePanel.style.display = "none";
       prebuiltPanel.style.display = "";
     }
@@ -36,10 +40,16 @@
   function updateAuthUI() {
     generateBtn.disabled = !loggedIn;
     if (!loggedIn) {
-      creditBadge.textContent = "Log in to generate";
-      creditBadge.classList.add("logged-out");
+      generateBtn.textContent = "Generate";
+      creditBadge.textContent = "";
+      creditBadge.style.display = "none";
+      generateStatus.textContent = "Log in to generate puzzles";
+      generateStatus.classList.remove("loading");
     } else {
+      generateBtn.textContent = "Generate (5 credits)";
+      creditBadge.style.display = "";
       creditBadge.classList.remove("logged-out");
+      generateStatus.textContent = "";
     }
   }
 
@@ -132,7 +142,7 @@
 
       // Render using the exposed API.
       window.CrosswordApp.render(payload);
-      generateStatus.textContent = "Puzzle ready!";
+      generateStatus.textContent = "Puzzle ready! Tip: this puzzle won\u2019t be saved after reload.";
     } catch (err) {
       console.error("generate error:", err);
       generateStatus.textContent = "Network error. Please try again.";
