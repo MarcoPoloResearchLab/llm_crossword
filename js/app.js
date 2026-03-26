@@ -140,10 +140,12 @@
   document.addEventListener("mpr-ui:auth:authenticated", onLogin);
   document.addEventListener("mpr-ui:auth:unauthenticated", onLogout);
 
-  // Check session on load (cookie may already be present).
+  // Check session on load. tauth.js also handles session restoration and fires
+  // mpr-ui:auth:authenticated, but this fallback ensures the UI updates even if
+  // tauth.js hasn't initialized yet (e.g. when the session cookie is still valid).
   _fetch("/me", { credentials: "include" })
     .then(function (resp) {
-      if (resp.ok) onLogin();
+      if (resp.ok && !loggedIn) onLogin();
     })
     .catch(function () { /* not logged in */ });
 

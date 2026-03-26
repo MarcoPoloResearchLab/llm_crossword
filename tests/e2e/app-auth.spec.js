@@ -16,8 +16,8 @@ const testPuzzleData = [
   },
 ];
 
-function setupLoggedInMocks(page) {
-  return page.addInitScript(() => {
+async function setupLoggedInMocks(page) {
+  await page.addInitScript(() => {
     window.__testOverrides = {
       fetch: function (url, opts) {
         if (url === "/me") return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
@@ -81,7 +81,6 @@ test.describe("App auth — logged in state", () => {
   test("generate button is enabled with credits when logged in", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
     var genBtn = page.locator("#generateBtn");
     await expect(genBtn).toBeEnabled({ timeout: 5000 });
     await expect(genBtn).toContainText("(5 credits)");

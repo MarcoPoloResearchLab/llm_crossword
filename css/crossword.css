@@ -81,8 +81,9 @@ body {
 .wrap {
     width: fit-content;
     max-width: var(--wrap-max-width);
-    height: calc(var(--viewport-height) - var(--wrap-offset));
-    overflow: hidden;
+    max-height: calc(var(--viewport-height) - var(--wrap-offset));
+    overflow-y: auto;
+    overflow-x: hidden;
     background: var(--cw-wrap-bg);
     border: 1px solid var(--cw-wrap-border);
     border-radius: 16px;
@@ -90,7 +91,7 @@ body {
     box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
     backdrop-filter: blur(6px);
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto auto auto;
     gap: var(--pane-gap);
 }
 
