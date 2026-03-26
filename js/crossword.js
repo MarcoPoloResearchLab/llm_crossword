@@ -653,5 +653,11 @@
     render(generatedPuzzles[0]);
   }
 
+  // Expose public API for external callers (e.g. app.js).
+  window.CrosswordApp = {
+    render: render,
+    loadPrebuilt: loadAndRenderPuzzles,
+  };
+
   loadAndRenderPuzzles().catch(error => { errorBox.textContent = error.message; });
 })();

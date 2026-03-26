@@ -320,3 +320,143 @@ button.secondary {
     opacity: .9;
 }
 
+/* --- Mode tabs --- */
+.mode-tabs {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.mode-tab {
+    background: rgba(255, 255, 255, .08);
+    color: #aab4dd;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+
+.mode-tab.active {
+    background: #3b82f6;
+    color: #fff;
+    border-color: #3b82f6;
+}
+
+.mode-tab:hover:not(.active) {
+    background: rgba(255, 255, 255, .12);
+}
+
+/* --- Panel bar --- */
+.panel-bar {
+    padding: 0 2px;
+}
+
+/* --- Generate form --- */
+.generate-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.generate-form input[type="text"] {
+    flex: 1 1 200px;
+    min-width: 180px;
+    background: #0f142a;
+    color: #e9edff;
+    border: 1px solid #2a2f45;
+    border-radius: var(--border-radius);
+    padding: 8px 12px;
+    font-size: 14px;
+    outline: none;
+}
+
+.generate-form input[type="text"]:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, .25);
+}
+
+.generate-form input[type="text"]::placeholder {
+    color: #6b7899;
+}
+
+.word-count-label {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 13px;
+    opacity: .85;
+}
+
+#generateBtn {
+    white-space: nowrap;
+}
+
+#generateBtn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+/* --- Credit badge --- */
+.credit-badge {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: rgba(52, 211, 153, .15);
+    color: #34d399;
+    white-space: nowrap;
+}
+
+.credit-badge.logged-out {
+    background: rgba(255, 255, 255, .06);
+    color: #6b7899;
+}
+
+/* --- Generate status --- */
+.generate-status {
+    font-size: 13px;
+    padding-top: 6px;
+    min-height: 20px;
+}
+
+.generate-status.loading {
+    color: #3b82f6;
+}
+
+.generate-status.loading::after {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-left: 8px;
+    border: 2px solid rgba(59, 130, 246, .3);
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* --- Adjust wrap for mpr-header/footer --- */
+body {
+    padding-top: 0;
+}
+
+@media (max-width: 800px) {
+    .generate-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .mode-tabs {
+        margin-left: 0;
+        margin-top: 8px;
+    }
+}
+

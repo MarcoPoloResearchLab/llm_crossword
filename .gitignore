@@ -1,6 +1,14 @@
-# Managed by ISSUES Managing Director (planning worktree)
-*
-!.gitignore
-!AGENTS.md
-!.mprl/
-!.mprl/**
+# Secrets and local config (never commit)
+.env.crosswordapi
+.env.tauth
+.env.postgres
+
+# Build artifacts
+backend/crossword-api
+
+# OS files
+.DS_Store
+
+# Tooling
+tools/
+.claude/

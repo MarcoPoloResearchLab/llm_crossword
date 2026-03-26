@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crossword-postgres
+    pull_policy: always
+    environment:
+      POSTGRES_USER: ledger
+      POSTGRES_PASSWORD: ledger
+      POSTGRES_DB: ledger
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - crossword_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  ledger:
+    build:
+      context: ./tools/ledger
+      dockerfile: Dockerfile
+    image: crossword-ledger:local
+    container_name: crossword-ledger
+    environment:
+      LEDGER_LISTEN_ADDR: ":50051"
+      LEDGER_DATABASE_URL: "sqlite:///srv/data/ledger.db"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "50051:50051"
+    volumes:
+      - crossword_ledger_data:/srv/data
+    restart: unless-stopped
+
+  tauth:
+    image: ghcr.io/tyemirov/tauth:latest
+    container_name: crossword-tauth
+    pull_policy: always
+    env_file:
+      - ./.env.tauth
+    volumes:
+      - crossword_tauth_data:/data
+      - ./tauth.config.yaml:/config.yaml:ro
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+  crossword-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: crossword-api:local
+    container_name: crossword-api
+    env_file:
+      - ./.env.crosswordapi
+    depends_on:
+      - ledger
+      - tauth
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  ghttp:
+    image: ghcr.io/tyemirov/ghttp:latest
+    container_name: crossword-ghttp
+    pull_policy: always
+    command:
+      [
+        "--directory",
+        "/data",
+        "--proxy",
+        "/api=http://crossword-api:9090",
+        "--proxy",
+        "/auth=http://tauth:8080",
+        "--proxy",
+        "/me=http://tauth:8080",
+        "--proxy",
+        "/tauth.js=http://tauth:8080",
+        "8000",
+      ]
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/data:ro
+    depends_on:
+      - crossword-api
+      - tauth
+    restart: unless-stopped
+
+volumes:
+  crossword_postgres_data:
+  crossword_tauth_data:
+  crossword_ledger_data:

@@ -1,0 +1,32 @@
+environments:
+  - description: "Local development"
+    origins:
+      - "http://localhost:8000"
+    auth:
+      tauthUrl: ""
+      googleClientId: "991677581607-r0dj8q6irjagipali0jpca7nfp8sfj9r.apps.googleusercontent.com"
+      tenantId: "default"
+      loginPath: "/auth/google"
+      logoutPath: "/auth/logout"
+      noncePath: "/auth/nonce"
+    authButton:
+      text: "signin_with"
+      size: "large"
+      theme: "outline"
+      shape: "circle"
+
+  - description: "Production"
+    origins:
+      - "https://llm-crossword.mprlab.com"
+    auth:
+      tauthUrl: ""
+      googleClientId: "991677581607-r0dj8q6irjagipali0jpca7nfp8sfj9r.apps.googleusercontent.com"
+      tenantId: "default"
+      loginPath: "/auth/google"
+      logoutPath: "/auth/logout"
+      noncePath: "/auth/nonce"
+    authButton:
+      text: "signin_with"
+      size: "large"
+      theme: "outline"
+      shape: "circle"

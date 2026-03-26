@@ -10,32 +10,82 @@
   <meta property="og:description" content="Interactive crossword puzzle generator and solver powered by large language models."/>
   <meta property="og:url" content="https://llm-crossword.mprlab.com/"/>
 
-  <!-- load order matters: generator -> renderer -->
+  <!-- load order matters: generator -> renderer -> app -->
   <link as="script" href="js/generator.js" rel="preload">
   <link as="script" href="js/crossword.js" rel="preload">
 
+  <!-- mpr-ui components -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui.css"/>
   <link rel="stylesheet" href="css/crossword.css">
+
+  <!-- TAuth + Google Identity Services -->
+  <script src="js/config.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui-config.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui.js"></script>
 </head>
-  
+
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-7TXFH9TLQB"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
-
   gtag('config', 'G-7TXFH9TLQB');
 </script>
 
 <body>
+<mpr-header
+  id="app-header"
+  brand-label="LLM Crossword"
+  brand-href="/"
+  logout-url="/"
+>
+  <mpr-user
+    slot="aux"
+    display-mode="avatar"
+    logout-url="/"
+    logout-label="Log out"
+  ></mpr-user>
+</mpr-header>
+
 <div class="wrap">
   <div class="hdr">
     <h1 id="title"></h1>
     <div class="sub" id="subtitle"></div>
-    <label style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+
+    <!-- Mode tabs -->
+    <div class="mode-tabs">
+      <button id="modePrebuilt" class="mode-tab active">Pre-built</button>
+      <button id="modeGenerate" class="mode-tab">Generate</button>
+    </div>
+  </div>
+
+  <!-- Pre-built puzzle selector -->
+  <div id="prebuiltPanel" class="panel-bar">
+    <label style="display:flex; gap:8px; align-items:center;">
       <span style="opacity:.85;font-size:13px;">Choose puzzle:</span>
       <select id="puzzleSelect"></select>
     </label>
+  </div>
+
+  <!-- Generate panel (requires login) -->
+  <div id="generatePanel" class="panel-bar" style="display:none;">
+    <div class="generate-form">
+      <input type="text" id="topicInput" placeholder="Enter a topic (e.g. Greek mythology)" maxlength="200"/>
+      <label class="word-count-label">
+        Words:
+        <select id="wordCount">
+          <option value="5">5</option>
+          <option value="8" selected>8</option>
+          <option value="10">10</option>
+          <option value="12">12</option>
+        </select>
+      </label>
+      <button id="generateBtn" disabled>Generate (5 credits)</button>
+      <span id="creditBalance" class="credit-badge"></span>
+    </div>
+    <div id="generateStatus" class="generate-status"></div>
   </div>
 
   <div class="pane">
@@ -61,7 +111,10 @@
   </div>
 </div>
 
+<mpr-footer sticky="true" size="small" theme-switcher="toggle"></mpr-footer>
+
 <script src="js/generator.js"></script>
 <script src="js/crossword.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
