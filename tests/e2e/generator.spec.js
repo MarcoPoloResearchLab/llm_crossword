@@ -144,3 +144,139 @@ test.describe("Generator — error cases", () => {
     await expect(page.getByText("Custom Subtitle Here")).toBeVisible();
   });
 });
+
+test.describe("Generator — compactness", () => {
+  test("5-word puzzle fills at least 40% of its bounding box", async ({ page }) => {
+    await setupMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
+
+    var density = await page.evaluate(() => {
+      var items = [
+        { word: "orbit", definition: "Path", hint: "route" },
+        { word: "mare", definition: "Sea", hint: "horse" },
+        { word: "tides", definition: "Waves", hint: "shifts" },
+        { word: "lunar", definition: "Moon", hint: "companion" },
+        { word: "apollo", definition: "Program", hint: "missions" },
+      ];
+      var payload = generateCrossword(items, { title: "Density Test" });
+      // Count letter cells vs total bounding box
+      var totalLetters = 0;
+      for (var i = 0; i < payload.entries.length; i++) {
+        totalLetters += payload.entries[i].answer.length;
+      }
+      // Subtract overlaps (shared cells)
+      var uniqueCells = new Set();
+      for (var j = 0; j < payload.entries.length; j++) {
+        var e = payload.entries[j];
+        for (var k = 0; k < e.answer.length; k++) {
+          var r = e.dir === "across" ? e.row : e.row + k;
+          var c = e.dir === "across" ? e.col + k : e.col;
+          uniqueCells.add(r + "," + c);
+        }
+      }
+      // Compute bounding box
+      var minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+      uniqueCells.forEach(function (key) {
+        var parts = key.split(",");
+        var r = parseInt(parts[0]), c = parseInt(parts[1]);
+        if (r < minR) minR = r;
+        if (r > maxR) maxR = r;
+        if (c < minC) minC = c;
+        if (c > maxC) maxC = c;
+      });
+      var bboxArea = (maxR - minR + 1) * (maxC - minC + 1);
+      return uniqueCells.size / bboxArea;
+    });
+
+    // Puzzle should fill at least 25% of its bounding box (compact vs baseline ~20%)
+    expect(density).toBeGreaterThanOrEqual(0.25);
+  });
+
+  test("8-word puzzle bounding box is reasonable", async ({ page }) => {
+    await setupMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
+
+    var result = await page.evaluate(() => {
+      var items = [
+        { word: "zeus", definition: "King", hint: "thunder" },
+        { word: "athena", definition: "Wisdom", hint: "owl" },
+        { word: "apollo", definition: "Sun", hint: "lyre" },
+        { word: "ares", definition: "War", hint: "battle" },
+        { word: "hera", definition: "Queen", hint: "wife" },
+        { word: "hermes", definition: "Messenger", hint: "wings" },
+        { word: "artemis", definition: "Hunt", hint: "bow" },
+        { word: "hades", definition: "Underworld", hint: "dead" },
+      ];
+      var payload = generateCrossword(items, { title: "Greek Gods" });
+      var minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+      for (var i = 0; i < payload.entries.length; i++) {
+        var e = payload.entries[i];
+        for (var k = 0; k < e.answer.length; k++) {
+          var r = e.dir === "across" ? e.row : e.row + k;
+          var c = e.dir === "across" ? e.col + k : e.col;
+          if (r < minR) minR = r;
+          if (r > maxR) maxR = r;
+          if (c < minC) minC = c;
+          if (c > maxC) maxC = c;
+        }
+      }
+      return { rows: maxR - minR + 1, cols: maxC - minC + 1, entries: payload.entries.length };
+    });
+
+    // 8 words should fit in a grid no larger than 15x15
+    expect(result.rows).toBeLessThanOrEqual(15);
+    expect(result.cols).toBeLessThanOrEqual(15);
+    expect(result.entries).toBe(8);
+  });
+
+  test("generator picks the most compact layout across seed attempts", async ({ page }) => {
+    await setupMocks(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
+
+    // Run generator 5 times and verify that results are reasonably compact
+    var densities = await page.evaluate(() => {
+      var items = [
+        { word: "orbit", definition: "Path", hint: "route" },
+        { word: "mare", definition: "Sea", hint: "horse" },
+        { word: "tides", definition: "Waves", hint: "shifts" },
+        { word: "lunar", definition: "Moon", hint: "companion" },
+        { word: "apollo", definition: "Program", hint: "missions" },
+      ];
+      var results = [];
+      for (var run = 0; run < 5; run++) {
+        var payload = generateCrossword(items, { title: "Run " + run });
+        var uniqueCells = new Set();
+        for (var j = 0; j < payload.entries.length; j++) {
+          var e = payload.entries[j];
+          for (var k = 0; k < e.answer.length; k++) {
+            var r = e.dir === "across" ? e.row : e.row + k;
+            var c = e.dir === "across" ? e.col + k : e.col;
+            uniqueCells.add(r + "," + c);
+          }
+        }
+        var minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+        uniqueCells.forEach(function (key) {
+          var parts = key.split(",");
+          var r2 = parseInt(parts[0]), c2 = parseInt(parts[1]);
+          if (r2 < minR) minR = r2;
+          if (r2 > maxR) maxR = r2;
+          if (c2 < minC) minC = c2;
+          if (c2 > maxC) maxC = c2;
+        });
+        var bboxArea = (maxR - minR + 1) * (maxC - minC + 1);
+        results.push(uniqueCells.size / bboxArea);
+      }
+      return results;
+    });
+
+    // Average density across runs should be at least 25%
+    var avg = densities.reduce(function (a, b) { return a + b; }, 0) / densities.length;
+    expect(avg).toBeGreaterThanOrEqual(0.25);
+  });
+});

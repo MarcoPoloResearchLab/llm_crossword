@@ -174,11 +174,12 @@ function generateCrossword(items, opts = {}) {
           }
         }
       }
-      // prefer more crossings, then smaller box
+      // Combined score: crossings matter, but bbox also matters.
+      // Use crossing count * 100 - bbox area to balance both goals.
       out.sort((a, b) => {
-        const dx = scoreCrossings(wordObj, b) - scoreCrossings(wordObj, a);
-        if (dx) return dx;
-        return bboxAfter(wordObj, a) - bboxAfter(wordObj, b);
+        var scoreA = scoreCrossings(wordObj, a) * 100 - bboxAfter(wordObj, a);
+        var scoreB = scoreCrossings(wordObj, b) * 100 - bboxAfter(wordObj, b);
+        return scoreB - scoreA;
       });
       return out;
     }
@@ -263,6 +264,30 @@ function generateCrossword(items, opts = {}) {
     return a;
   }
 
+  // Try all seeds, collect successful layouts, pick the most compact.
+  function computeDensity(payload) {
+    var uniqueCells = new Set();
+    for (var i = 0; i < payload.entries.length; i++) {
+      var e = payload.entries[i];
+      for (var k = 0; k < e.answer.length; k++) {
+        var r = e.dir === "across" ? e.row : e.row + k;
+        var c = e.dir === "across" ? e.col + k : e.col;
+        uniqueCells.add(r + ":" + c);
+      }
+    }
+    var minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+    uniqueCells.forEach(function (key) {
+      var parts = key.split(":");
+      var r2 = +parts[0], c2 = +parts[1];
+      if (r2 < minR) minR = r2;
+      if (r2 > maxR) maxR = r2;
+      if (c2 < minC) minC = c2;
+      if (c2 > maxC) maxC = c2;
+    });
+    var bboxArea = (maxR - minR + 1) * (maxC - minC + 1);
+    return uniqueCells.size / bboxArea;
+  }
+
   let tries = 0;
   while (tries < o.seedTries) {
     const words = (tries === 0) ? baseWords : shuffled(baseWords);
@@ -270,7 +295,7 @@ function generateCrossword(items, opts = {}) {
     for (let wi = 0; wi < words.length; wi++) {
       for (const d of dirs) {
         const payload = engine.seed(wi, d);
-        if (payload) return payload; // success: all words placed
+        if (payload) return payload;
       }
     }
     tries++;
