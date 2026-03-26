@@ -500,6 +500,120 @@ body {
     margin-bottom: 48px; /* space for sticky footer */
 }
 
+/* ========== Landing page ========== */
+.landing {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+    text-align: center;
+}
+
+.landing__hero {
+    margin-bottom: 56px;
+}
+
+.landing__title {
+    font-size: clamp(28px, 5vw, 42px);
+    font-weight: 800;
+    margin: 0 0 16px;
+    line-height: 1.2;
+}
+
+.landing__subtitle {
+    font-size: 17px;
+    max-width: 540px;
+    margin: 0 auto 32px;
+    color: var(--cw-text-muted);
+    line-height: 1.6;
+}
+
+.landing__actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.landing__btn {
+    padding: 12px 28px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 0;
+    transition: transform .1s, box-shadow .15s;
+}
+
+.landing__btn:hover {
+    transform: translateY(-1px);
+}
+
+.landing__btn--primary {
+    background: #3b82f6;
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(59, 130, 246, .35);
+}
+
+.landing__btn--primary:hover {
+    box-shadow: 0 6px 20px rgba(59, 130, 246, .45);
+}
+
+.landing__btn--secondary {
+    background: var(--cw-tab-bg);
+    color: var(--cw-text);
+    border: 1px solid var(--cw-tab-border);
+}
+
+.landing__btn--secondary:hover {
+    background: var(--cw-tab-hover);
+}
+
+.landing__features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 24px;
+    text-align: left;
+}
+
+.landing__feature {
+    padding: 24px;
+    border-radius: 16px;
+    background: var(--cw-wrap-bg);
+    border: 1px solid var(--cw-wrap-border);
+    backdrop-filter: blur(6px);
+}
+
+.landing__feature-icon {
+    font-size: 28px;
+    margin-bottom: 12px;
+}
+
+.landing__feature-title {
+    margin: 0 0 8px;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.landing__feature-desc {
+    margin: 0;
+    font-size: 14px;
+    color: var(--cw-text-muted);
+    line-height: 1.5;
+}
+
+/* ========== Auth status banner ========== */
+.auth-banner {
+    text-align: center;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--cw-text-muted);
+}
+
+.auth-banner__user {
+    font-weight: 600;
+    color: var(--cw-text);
+}
+
 @media (max-width: 800px) {
     .generate-form {
         flex-direction: column;
@@ -511,6 +625,12 @@ body {
     }
     .credit-badge {
         text-align: center;
+    }
+    .landing {
+        padding: 32px 16px 64px;
+    }
+    .landing__features {
+        grid-template-columns: 1fr;
     }
 }
 

@@ -41,7 +41,41 @@
   document.getElementById('app-header').setAttribute('base-url', window.location.origin);
 </script>
 
-<div class="wrap">
+<!-- ========== Landing page (shown when no puzzle is active) ========== -->
+<section id="landingPage" class="landing" aria-label="Welcome">
+  <div class="landing__hero">
+    <h1 class="landing__title">Create crossword puzzles with AI</h1>
+    <p class="landing__subtitle">
+      Enter any topic and let a large language model generate a unique
+      crossword puzzle for you. Try pre-built puzzles or sign in to create your own.
+    </p>
+    <div class="landing__actions">
+      <button id="landingTryPrebuilt" class="landing__btn landing__btn--primary">Try a pre-built puzzle</button>
+      <button id="landingSignIn" class="landing__btn landing__btn--secondary">Sign in to generate</button>
+    </div>
+  </div>
+
+  <div class="landing__features" aria-label="Features">
+    <div class="landing__feature">
+      <div class="landing__feature-icon" aria-hidden="true">&#x1F9E9;</div>
+      <h2 class="landing__feature-title">Any topic</h2>
+      <p class="landing__feature-desc">Greek gods, space exploration, cooking terms &mdash; name it and the AI builds the puzzle.</p>
+    </div>
+    <div class="landing__feature">
+      <div class="landing__feature-icon" aria-hidden="true">&#x26A1;</div>
+      <h2 class="landing__feature-title">Instant generation</h2>
+      <p class="landing__feature-desc">Puzzles are generated in seconds using a large language model and our crossword engine.</p>
+    </div>
+    <div class="landing__feature">
+      <div class="landing__feature-icon" aria-hidden="true">&#x1F3AE;</div>
+      <h2 class="landing__feature-title">Interactive solving</h2>
+      <p class="landing__feature-desc">Type answers directly, get hints, check your progress, and reveal solutions.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Puzzle view (hidden until a puzzle is loaded) ========== -->
+<div id="puzzleView" class="wrap" style="display:none;">
   <div class="hdr">
     <h1 id="title">Crossword Puzzle</h1>
     <div class="sub" id="subtitle">Loading...</div>
@@ -98,6 +132,7 @@
   <div class="controls">
     <button id="check">Check</button>
     <button class="secondary" id="reveal">Reveal</button>
+    <button id="backToLanding" class="secondary">Back</button>
     <div class="status" id="status"></div>
     <div class="error" id="errorBox"></div>
   </div>
