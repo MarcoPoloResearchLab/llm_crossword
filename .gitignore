@@ -5,6 +5,7 @@
 
 # Build artifacts
 backend/crossword-api
+*.out
 
 # OS files
 .DS_Store
