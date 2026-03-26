@@ -92,6 +92,29 @@ test.describe("App auth — logged in state", () => {
     // Wait for bootstrap to complete
     await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 5000 });
   });
+
+  test("logged-in user skips landing page and sees puzzle view", async ({ page }) => {
+    await setupLoggedInMocks(page);
+    await page.goto("/");
+    // Landing page should be hidden for authenticated users
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    // Puzzle view should be visible
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("session persists after page refresh", async ({ page }) => {
+    await setupLoggedInMocks(page);
+    await page.goto("/");
+    // Wait for login to complete
+    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    // Refresh the page (mocks persist via addInitScript)
+    await page.reload();
+    // After refresh, user should still be logged in
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 5000 });
+  });
 });
 
 test.describe("App auth — logged out state", () => {

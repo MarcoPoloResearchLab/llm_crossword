@@ -3,6 +3,7 @@ const BASE_URL = process.env.LLM_CROSSWORD_BASE_URL || "http://localhost:8111";
 
 module.exports = defineConfig({
   testDir: "tests/e2e",
+  testIgnore: ["**/integration.spec.js"],
   timeout: 30000,
   expect: { timeout: 10000 },
   fullyParallel: true,

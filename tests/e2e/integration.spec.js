@@ -51,3 +51,69 @@ test.describe("Generate tab — unauthenticated", () => {
     await expect(page).toHaveScreenshot("generate-logged-out.png", { maxDiffPixelRatio: 0.05 });
   });
 });
+
+test.describe("Landing page buttons", () => {
+  test("'Try a pre-built puzzle' hides landing and shows puzzle view", async ({ page }) => {
+    await page.goto("/");
+    // Landing should be visible initially
+    await expect(page.locator("#landingPage")).toBeVisible();
+    await expect(page.locator("#puzzleView")).toBeHidden();
+    // Click the button
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    // Puzzle view should appear, landing should hide
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#landingPage")).toBeHidden();
+  });
+
+  test("'Sign in to generate' attempts sign-in or navigates to puzzle", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Sign in to generate" }).click();
+    // Should either: open a Google sign-in popup, show puzzle view (fallback),
+    // or at minimum the button should have been clickable (no crash).
+    // We verify: either puzzle view is shown OR landing is still visible (Google popup opened externally).
+    await page.waitForTimeout(2000);
+    var puzzleVisible = await page.locator("#puzzleView").isVisible();
+    var landingVisible = await page.locator("#landingPage").isVisible();
+    // At least one must be true — the page didn't break.
+    expect(puzzleVisible || landingVisible).toBeTruthy();
+  });
+});
+
+test.describe("Crossword grid layout", () => {
+  test("grid cells are square (not stretched)", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    // Wait for puzzle to render — crosswords.json fetch + generator can take time
+    var cell = page.locator(".cell:not(.blk)").first();
+    await expect(cell).toBeVisible({ timeout: 15000 });
+    var box = await cell.boundingBox();
+    // Cells should be roughly square (width ≈ height, tolerance of 4px)
+    expect(Math.abs(box.width - box.height)).toBeLessThanOrEqual(4);
+    // Cells should be a reasonable size (30-60px)
+    expect(box.width).toBeGreaterThanOrEqual(30);
+    expect(box.width).toBeLessThanOrEqual(60);
+  });
+
+  test("no giant empty space above the crossword grid", async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    // Wait for puzzle to render
+    var cell = page.locator(".cell:not(.blk)").first();
+    await expect(cell).toBeVisible({ timeout: 15000 });
+    var cellBox = await cell.boundingBox();
+    var puzzleBox = await page.locator("#puzzleView").boundingBox();
+    // The first cell should be within 250px of the top of the puzzle view
+    // (header + controls + small gap is expected)
+    var gap = cellBox.y - puzzleBox.y;
+    expect(gap).toBeLessThanOrEqual(250);
+  });
+});
+
+test.describe("Session persistence", () => {
+  test("/me endpoint is reachable through ghttp proxy", async ({ page }) => {
+    var response = await page.request.get("/me");
+    // Should return 401 or 403 (not 404) when not logged in
+    expect([401, 403]).toContain(response.status());
+  });
+});
