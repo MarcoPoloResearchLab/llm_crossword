@@ -19,9 +19,7 @@
   <link rel="stylesheet" href="css/crossword.css">
 
   <!-- TAuth + Google Identity Services -->
-  <script src="js/config.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script defer src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui-config.js"></script>
   <script defer src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@2/mpr-ui.js"></script>
 </head>
 <body>
@@ -30,14 +28,18 @@
   brand-label="LLM Crossword"
   brand-href="/"
   logout-url="/"
+  site-id="991677581607-r0dj8q6irjagipali0jpca7nfp8sfj9r.apps.googleusercontent.com"
+  base-url=""
+  login-path="/auth/google"
+  logout-path="/auth/logout"
+  nonce-path="/auth/nonce"
 >
-  <mpr-user
-    slot="aux"
-    display-mode="avatar"
-    logout-url="/"
-    logout-label="Log out"
-  ></mpr-user>
 </mpr-header>
+<script>
+  // Set base-url to current origin before mpr-ui.js (deferred) initializes.
+  // ghttp proxies /auth/* to tauth so the browser always uses same origin.
+  document.getElementById('app-header').setAttribute('base-url', window.location.origin);
+</script>
 
 <div class="wrap">
   <div class="hdr">

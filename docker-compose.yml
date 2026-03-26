@@ -1,21 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: crossword-postgres
-    pull_policy: always
-    environment:
-      POSTGRES_USER: ledger
-      POSTGRES_PASSWORD: ledger
-      POSTGRES_DB: ledger
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
-    volumes:
-      - crossword_postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-
   ledger:
     build:
       context: ./tools/ledger
@@ -23,11 +6,8 @@ services:
     image: crossword-ledger:local
     container_name: crossword-ledger
     environment:
-      LEDGER_LISTEN_ADDR: ":50051"
-      LEDGER_DATABASE_URL: "sqlite:///srv/data/ledger.db"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      DATABASE_URL: "sqlite:///srv/data/ledger.db"
+      GRPC_LISTEN_ADDR: ":50051"
     ports:
       - "50051:50051"
     volumes:
@@ -90,6 +70,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  crossword_postgres_data:
   crossword_tauth_data:
   crossword_ledger_data:
