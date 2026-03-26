@@ -34,9 +34,9 @@
     --cw-tab-hover: rgba(255, 255, 255, .12);
 }
 
-/* Light theme overrides */
-[data-theme="light"],
-:root[data-theme="light"] {
+/* Light theme overrides — mpr-ui sets data-mpr-theme on <html> */
+[data-mpr-theme="light"],
+:root[data-mpr-theme="light"] {
     --cw-bg-gradient-a: #e8ecf4;
     --cw-bg-gradient-b: #f0f2f8;
     --cw-bg-gradient-c: #f5f7fb;

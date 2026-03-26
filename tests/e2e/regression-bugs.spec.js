@@ -285,6 +285,31 @@ test.describe("Clue visibility", () => {
   });
 });
 
+test.describe("Theme switching", () => {
+  test("body background changes when theme is toggled to light", async ({ page }) => {
+    await setupLoggedOutMocks(page);
+    await page.goto("/");
+
+    // Get the dark background gradient
+    const darkBg = await page.evaluate(() => {
+      return getComputedStyle(document.body).backgroundImage;
+    });
+
+    // Simulate mpr-ui setting the light theme attribute on <html>
+    await page.evaluate(() => {
+      document.documentElement.setAttribute("data-mpr-theme", "light");
+    });
+
+    // Get the light background gradient
+    const lightBg = await page.evaluate(() => {
+      return getComputedStyle(document.body).backgroundImage;
+    });
+
+    // They should be different — theme switch took effect
+    expect(darkBg).not.toEqual(lightBg);
+  });
+});
+
 test.describe("Grid scrollbar", () => {
   test("no extraneous scrollbar or black bar inside the grid viewport", async ({ page }) => {
     await setupLoggedOutMocks(page);
