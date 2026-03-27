@@ -7,6 +7,7 @@
 // 5. Clue text wraps — never truncated
 
 const { test, expect } = require("./coverage-fixture");
+const { setupLoggedOutRoutes } = require("./route-helpers");
 
 const puzzlePayload = [
   {
@@ -27,22 +28,8 @@ const puzzlePayload = [
   },
 ];
 
-function setupMocks(page) {
-  return page.addInitScript((puzzles) => {
-    window.__testOverrides = {
-      fetch: function (url) {
-        if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-        if (typeof url === "string" && url.includes("config.yaml")) return Promise.resolve({ ok: true, text: () => Promise.resolve("") });
-        if (typeof url === "string" && url.includes("crosswords.json"))
-          return Promise.resolve({ ok: true, json: () => Promise.resolve(puzzles) });
-        return Promise.resolve({ ok: false, status: 404 });
-      },
-    };
-  }, puzzlePayload);
-}
-
 async function goToPuzzle(page) {
-  await setupMocks(page);
+  await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
   await page.goto("/");
   await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
   await expect(page.locator("#puzzleView")).toBeVisible();

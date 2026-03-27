@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
+  var _fetch = window.fetch.bind(window);
 
   var header = document.getElementById("app-header");
   if (!header) return;

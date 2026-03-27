@@ -3,13 +3,14 @@
 (function () {
   "use strict";
 
-  var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
+  var _fetch = window.fetch.bind(window);
   var container = document.getElementById("landingSamplePuzzle");
   if (!container) return;
   if (typeof generateCrossword !== "function") return;
 
   var params = new URLSearchParams(window.location.search);
   var sharedToken = params.get("puzzle");
+  console.log("[landing-puzzle] sharedToken:", sharedToken, "search:", window.location.search);
 
   if (sharedToken) {
     // Shared puzzle mode: fetch from API and render in the landing sample area.
@@ -20,6 +21,7 @@
         return resp.json();
       })
       .then(function (puzzle) {
+        console.log("[landing-puzzle] got puzzle:", puzzle.title, "items:", puzzle.items.length);
         container.textContent = "";
         var payload = generateCrossword(puzzle.items, {
           title: puzzle.title || "Shared Crossword",
@@ -44,8 +46,8 @@
         if (subtitle) subtitle.textContent = "Someone shared this crossword with you. Give it a try!";
       })
       .catch(function (err) {
-        container.textContent = "Could not load shared puzzle. It may have been deleted.";
-        console.error("shared puzzle load error:", err);
+        container.textContent = "Could not load shared puzzle. It may have been deleted. (" + err.message + ")";
+        console.error("[landing-puzzle] shared puzzle load error:", err);
       });
     return;
   }
