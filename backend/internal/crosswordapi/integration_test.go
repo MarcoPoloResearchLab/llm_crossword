@@ -150,6 +150,10 @@ func TestSetupRouter_HasRoutes(t *testing.T) {
 		"POST:/api/bootstrap",
 		"GET:/api/balance",
 		"POST:/api/generate",
+		"GET:/api/puzzles",
+		"GET:/api/puzzles/:id",
+		"DELETE:/api/puzzles/:id",
+		"GET:/api/shared/:token",
 	}
 	for _, e := range expected {
 		if !paths[e] {

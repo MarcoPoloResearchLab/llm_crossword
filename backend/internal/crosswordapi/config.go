@@ -28,6 +28,7 @@ type Config struct {
 	LLMProxyURL       string
 	LLMProxyKey       string
 	LLMProxyTimeout   time.Duration
+	DatabaseDSN       string
 }
 
 // Validate ensures the configuration contains sane values.
@@ -70,6 +71,9 @@ func (cfg *Config) Validate() error {
 	}
 	if cfg.LLMProxyTimeout <= 0 {
 		cfg.LLMProxyTimeout = 30 * time.Second
+	}
+	if strings.TrimSpace(cfg.DatabaseDSN) == "" {
+		cfg.DatabaseDSN = "crosswords.db"
 	}
 	return nil
 }

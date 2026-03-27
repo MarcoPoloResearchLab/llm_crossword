@@ -28,6 +28,7 @@ type runOptions struct {
 	grpcDialFunc    func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error)
 	shutdownTimeout time.Duration
 	onServerReady   func(srv *http.Server)
+	store           Store
 }
 
 // RunOption configures optional behaviour of Run.
@@ -52,6 +53,11 @@ func WithShutdownTimeout(d time.Duration) RunOption {
 // This is only used in tests to get a reference to the server for controlled shutdown.
 func withOnServerReady(f func(srv *http.Server)) RunOption {
 	return func(o *runOptions) { o.onServerReady = f }
+}
+
+// WithStore injects a pre-configured store implementation.
+func WithStore(s Store) RunOption {
+	return func(o *runOptions) { o.store = s }
 }
 
 // Run boots the HTTP service using the supplied configuration.
@@ -98,11 +104,21 @@ func Run(ctx context.Context, cfg Config, opts ...RunOption) error {
 		return fmt.Errorf("session validator: %w", err)
 	}
 
+	store := o.store
+	if store == nil {
+		var storeErr error
+		store, storeErr = OpenDatabase(cfg.DatabaseDSN)
+		if storeErr != nil {
+			return fmt.Errorf("open database: %w", storeErr)
+		}
+	}
+
 	handler := &httpHandler{
 		logger:        logger,
 		ledgerClient:  ledgerClient,
 		cfg:           cfg,
 		llmHTTPClient: &http.Client{Timeout: cfg.LLMProxyTimeout},
+		store:         store,
 	}
 
 	router := setupRouter(cfg, handler, sessionValidator)
@@ -154,6 +170,9 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	// Public endpoint — no auth required.
+	router.GET("/api/shared/:token", handler.handleGetSharedPuzzle)
+
 	api := router.Group("/api")
 	api.Use(validator.GinMiddleware("auth_claims"))
 
@@ -161,6 +180,9 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 	api.POST("/bootstrap", handler.handleBootstrap)
 	api.GET("/balance", handler.handleBalance)
 	api.POST("/generate", handler.handleGenerate)
+	api.GET("/puzzles", handler.handleListPuzzles)
+	api.GET("/puzzles/:id", handler.handleGetPuzzle)
+	api.DELETE("/puzzles/:id", handler.handleDeletePuzzle)
 
 	return router
 }
@@ -170,6 +192,7 @@ type httpHandler struct {
 	ledgerClient  creditv1.CreditServiceClient
 	cfg           Config
 	llmHTTPClient *http.Client
+	store         Store
 }
 
 func (handler *httpHandler) handleSession(ctx *gin.Context) {
@@ -302,16 +325,39 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 		return
 	}
 
+	// Save puzzle to database.
+	title := fmt.Sprintf("Crossword — %s", topic)
+	subtitle := fmt.Sprintf("Generated from %q topic.", topic)
+	puzzle := &Puzzle{
+		UserID:   claims.GetUserID(),
+		Title:    title,
+		Subtitle: subtitle,
+		Topic:    topic,
+	}
+	for _, item := range items {
+		puzzle.Words = append(puzzle.Words, PuzzleWord{
+			Word: item.Word,
+			Clue: item.Definition,
+			Hint: item.Hint,
+		})
+	}
+	if err := handler.store.CreatePuzzle(puzzle); err != nil {
+		handler.logger.Error("save puzzle failed", zap.Error(err))
+		// Non-fatal: still return the puzzle to the user.
+	}
+
 	// Fetch updated balance.
 	balanceCtx, balanceCancel := context.WithTimeout(ctx.Request.Context(), handler.cfg.LedgerTimeout)
 	defer balanceCancel()
 	balance, _ := handler.fetchBalance(balanceCtx, claims.GetUserID())
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"items":    items,
-		"title":    fmt.Sprintf("Crossword — %s", topic),
-		"subtitle": fmt.Sprintf("Generated from %q topic.", topic),
-		"balance":  balance,
+		"items":       items,
+		"title":       title,
+		"subtitle":    subtitle,
+		"balance":     balance,
+		"id":          puzzle.ID,
+		"share_token": puzzle.ShareToken,
 	})
 }
 
@@ -393,6 +439,57 @@ func isGRPCAlreadyExists(err error) bool {
 
 func isGRPCInsufficientFunds(err error) bool {
 	return status.Code(err) == codes.FailedPrecondition
+}
+
+func (handler *httpHandler) handleListPuzzles(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+	puzzles, err := handler.store.ListPuzzlesByUser(claims.GetUserID())
+	if err != nil {
+		handler.logger.Error("list puzzles failed", zap.Error(err))
+		ctx.JSON(http.StatusInternalServerError, errorResponse("db_error", "failed to list puzzles"))
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"puzzles": puzzles})
+}
+
+func (handler *httpHandler) handleGetPuzzle(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+	puzzle, err := handler.store.GetPuzzle(ctx.Param("id"), claims.GetUserID())
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "puzzle not found"))
+		return
+	}
+	ctx.JSON(http.StatusOK, puzzle)
+}
+
+func (handler *httpHandler) handleGetSharedPuzzle(ctx *gin.Context) {
+	puzzle, err := handler.store.GetPuzzleByShareToken(ctx.Param("token"))
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "puzzle not found"))
+		return
+	}
+	ctx.JSON(http.StatusOK, puzzle)
+}
+
+func (handler *httpHandler) handleDeletePuzzle(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+	if err := handler.store.DeletePuzzle(ctx.Param("id"), claims.GetUserID()); err != nil {
+		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "puzzle not found"))
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"deleted": true})
 }
 
 func waitForClientReady(ctx context.Context, conn *grpc.ClientConn) error {

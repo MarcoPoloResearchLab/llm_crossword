@@ -18,6 +18,66 @@
   var hiddenStyleValue = "none";
   /** emptyString represents an empty string. */
   var emptyString = "";
+  /** Emoji pool for celebration confetti. */
+  var confettiEmojis = ["🎉", "⭐", "🏆", "✨", "🎊", "💫", "🌟", "🎯"];
+  /** Colors for square confetti pieces. */
+  var confettiColors = ["#6366f1", "#34d399", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"];
+
+  /**
+   * launchConfetti spawns celebratory particles inside a container element.
+   * Particles are a mix of colored squares and emoji, animated with CSS.
+   */
+  function launchConfetti(container) {
+    var rect = container.getBoundingClientRect();
+    var count = 60;
+    var overlay = document.createElement("div");
+    overlay.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:100;";
+    container.style.position = container.style.position || "relative";
+    container.appendChild(overlay);
+
+    for (var i = 0; i < count; i++) {
+      var piece = document.createElement("div");
+      var useEmoji = Math.random() < 0.35;
+      var size = useEmoji ? (14 + Math.random() * 12) : (6 + Math.random() * 8);
+      var startX = Math.random() * 100;
+      var drift = (Math.random() - 0.5) * 120;
+      var delay = Math.random() * 0.6;
+      var duration = 1.8 + Math.random() * 1.4;
+      var spin = (Math.random() - 0.5) * 1080;
+
+      if (useEmoji) {
+        piece.textContent = confettiEmojis[Math.floor(Math.random() * confettiEmojis.length)];
+        piece.style.cssText = "position:absolute;font-size:" + size + "px;left:" + startX + "%;top:-20px;" +
+          "pointer-events:none;animation:cw-confetti-fall " + duration + "s ease-out " + delay + "s forwards;";
+      } else {
+        var color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
+        piece.style.cssText = "position:absolute;width:" + size + "px;height:" + size + "px;" +
+          "background:" + color + ";border-radius:2px;left:" + startX + "%;top:-20px;" +
+          "pointer-events:none;animation:cw-confetti-fall " + duration + "s ease-out " + delay + "s forwards;";
+      }
+      piece.style.setProperty("--cw-drift", drift + "px");
+      piece.style.setProperty("--cw-spin", spin + "deg");
+      overlay.appendChild(piece);
+    }
+
+    // Remove overlay after animations complete
+    setTimeout(function () {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }, 3200);
+  }
+
+  // Inject confetti keyframes once
+  (function () {
+    var style = document.createElement("style");
+    style.textContent =
+      "@keyframes cw-confetti-fall {" +
+      "  0% { transform: translateY(0) translateX(0) rotate(0deg) scale(1); opacity: 1; }" +
+      "  80% { opacity: 1; }" +
+      "  100% { transform: translateY(calc(100vh * 0.7)) translateX(var(--cw-drift)) rotate(var(--cw-spin)) scale(0.3); opacity: 0; }" +
+      "}";
+    document.head.appendChild(style);
+  })();
+
   /** hintStageInitial identifies the initial hint state with no hint visible. */
   var hintStageInitial = 0;
   /** hintStageVerbal identifies the state where the verbal hint is displayed. */
@@ -850,8 +910,12 @@
           }
         }
         statusEl.textContent = allCorrect ? "All correct \u2014 nice!" : "Checked.";
-        if (allCorrect) statusEl.classList.add("ok");
-        else statusEl.classList.remove("ok");
+        if (allCorrect) {
+          statusEl.classList.add("ok");
+          launchConfetti(gridEl.parentElement);
+        } else {
+          statusEl.classList.remove("ok");
+        }
       };
       this._checkBtn.onclick = checkHandler;
     }

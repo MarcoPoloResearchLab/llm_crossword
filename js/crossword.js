@@ -208,6 +208,15 @@
     }
   }
 
+  /** notifyShareToken tells app.js about the share token for the active puzzle. */
+  function notifyShareToken(puzzle) {
+    var token = (puzzle && puzzle.shareToken) || null;
+    var shareBtn = document.getElementById("shareBtn");
+    if (shareBtn) shareBtn.style.display = token ? "" : "none";
+    // Update app.js currentShareToken via a custom event.
+    window.dispatchEvent(new CustomEvent("crossword:share-token", { detail: token }));
+  }
+
   /** selectPuzzle renders a puzzle and highlights its card. */
   function selectPuzzle(index, cardEl) {
     var generatePanel = document.getElementById("generatePanel");
@@ -221,6 +230,7 @@
 
     render(allPuzzles[index]);
     setActiveCard(cardEl);
+    notifyShareToken(allPuzzles[index]);
 
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {

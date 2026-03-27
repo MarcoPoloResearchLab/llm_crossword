@@ -35,11 +35,15 @@ services:
     container_name: crossword-api
     env_file:
       - ./.env.crosswordapi
+    environment:
+      CROSSWORDAPI_DATABASE_DSN: "/data/crosswords.db"
     depends_on:
       - ledger
       - tauth
     ports:
       - "9090:9090"
+    volumes:
+      - crossword_puzzle_data:/data
     restart: unless-stopped
 
   ghttp:
@@ -72,3 +76,4 @@ services:
 volumes:
   crossword_tauth_data:
   crossword_ledger_data:
+  crossword_puzzle_data:

@@ -18,8 +18,11 @@
   var backToLanding     = document.getElementById("backToLanding");
   var newCrosswordCard  = document.getElementById("newCrosswordCard");
 
+  var shareBtn         = document.getElementById("shareBtn");
+
   var loggedIn = false;
   var currentCoins = null; // null = unknown, number = confirmed balance
+  var currentShareToken = null;
 
   // --- View navigation ---
   function showLanding() {
@@ -203,6 +206,10 @@
         // Update balance.
         if (result.data.balance) updateBalance(result.data.balance);
 
+        // Store share token for the Share button.
+        currentShareToken = result.data.share_token || null;
+        if (shareBtn) shareBtn.style.display = currentShareToken ? "" : "none";
+
         // Build the grid from the LLM word list.
         var payload = generateCrossword(result.data.items, {
           title: result.data.title || "Crossword \u2014 " + topic,
@@ -214,6 +221,9 @@
         if (pane) pane.style.display = "";
         var controls = puzzleView.querySelector(".controls");
         if (controls) controls.style.display = "";
+
+        // Attach share token to the payload so the sidebar can track it.
+        payload.shareToken = currentShareToken;
 
         // Add to sidebar and render.
         if (window.CrosswordApp && window.CrosswordApp.addGeneratedPuzzle) {
@@ -233,6 +243,29 @@
         generateStatus.classList.remove("loading");
       });
   });
+
+  // Listen for share token updates from crossword.js (when sidebar puzzles are selected).
+  window.addEventListener("crossword:share-token", function (e) {
+    currentShareToken = e.detail;
+    if (shareBtn) shareBtn.style.display = currentShareToken ? "" : "none";
+  });
+
+  // --- Share button ---
+  if (shareBtn) {
+    shareBtn.addEventListener("click", function () {
+      if (!currentShareToken) return;
+      var url = window.location.origin + window.location.pathname + "?puzzle=" + currentShareToken;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          shareBtn.textContent = "Copied!";
+          setTimeout(function () { shareBtn.textContent = "Share"; }, 2000);
+        });
+      } else {
+        // Fallback: show the URL in a prompt.
+        window.prompt("Copy this link to share:", url);
+      }
+    });
+  }
 
   // Allow Enter key in topic input to trigger generation.
   topicInput.addEventListener("keydown", function (e) {

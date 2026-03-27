@@ -1,11 +1,56 @@
-/* landing-puzzle.js — renders a sample moon crossword on the landing page using CrosswordWidget */
+/* landing-puzzle.js — renders a sample crossword on the landing page.
+   If a ?puzzle=TOKEN query param is present, fetches and renders the shared puzzle instead. */
 (function () {
   "use strict";
 
+  var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
   var container = document.getElementById("landingSamplePuzzle");
   if (!container) return;
+  if (typeof generateCrossword !== "function") return;
 
-  // Hardcoded moon puzzle items (same format as crosswords.json).
+  var params = new URLSearchParams(window.location.search);
+  var sharedToken = params.get("puzzle");
+
+  if (sharedToken) {
+    // Shared puzzle mode: fetch from API and render in the landing sample area.
+    container.textContent = "Loading shared puzzle...";
+    _fetch("/api/shared/" + encodeURIComponent(sharedToken))
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("Puzzle not found");
+        return resp.json();
+      })
+      .then(function (puzzle) {
+        container.textContent = "";
+        var payload = generateCrossword(puzzle.items, {
+          title: puzzle.title || "Shared Crossword",
+          subtitle: puzzle.subtitle || "",
+        });
+
+        new window.CrosswordWidget(container, {
+          puzzle: payload,
+          hints: true,
+          responsive: true,
+          draggable: false,
+          keyboard: true,
+          showTitle: true,
+          showControls: true,
+          showSelector: false,
+        });
+
+        // Update the landing page heading to indicate this is a shared puzzle.
+        var heading = document.querySelector(".landing__title");
+        if (heading) heading.textContent = puzzle.title || "Shared Crossword";
+        var subtitle = document.querySelector(".landing__subtitle");
+        if (subtitle) subtitle.textContent = "Someone shared this crossword with you. Give it a try!";
+      })
+      .catch(function (err) {
+        container.textContent = "Could not load shared puzzle. It may have been deleted.";
+        console.error("shared puzzle load error:", err);
+      });
+    return;
+  }
+
+  // Default: hardcoded moon puzzle.
   var moonItems = [
     { word: "lunar", definition: "Relating to the Moon", hint: "Earth's companion" },
     { word: "apollo", definition: "Program that took humans to the Moon", hint: "Saturn V missions" },
@@ -14,15 +59,12 @@
     { word: "mare", definition: "A lunar 'sea' not made of water", hint: "shares name with horse" },
   ];
 
-  // Generate the crossword payload using the global generator.
-  if (typeof generateCrossword !== "function") return;
   var payload = generateCrossword(moonItems, {
     title: "Mini Crossword \u2014 Moon Edition",
     subtitle: "Try solving this mini puzzle right here!",
   });
 
-  // Create a lightweight widget (no hints, no panning, no keyboard nav).
-  var widget = new window.CrosswordWidget(container, {
+  new window.CrosswordWidget(container, {
     puzzle: payload,
     hints: true,
     responsive: true,

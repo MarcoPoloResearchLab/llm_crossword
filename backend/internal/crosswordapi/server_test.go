@@ -3,6 +3,7 @@ package crosswordapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -96,16 +97,24 @@ func testConfig() Config {
 }
 
 func testHandler(ledger *mockLedgerClient, llmServer *httptest.Server) *httpHandler {
+	return testHandlerWithStore(ledger, llmServer, nil)
+}
+
+func testHandlerWithStore(ledger *mockLedgerClient, llmServer *httptest.Server, s Store) *httpHandler {
 	logger, _ := zap.NewDevelopment()
 	cfg := testConfig()
 	if llmServer != nil {
 		cfg.LLMProxyURL = llmServer.URL
+	}
+	if s == nil {
+		s, _ = OpenDatabase(":memory:")
 	}
 	h := &httpHandler{
 		logger:        logger,
 		ledgerClient:  ledger,
 		cfg:           cfg,
 		llmHTTPClient: &http.Client{Timeout: 5 * time.Second},
+		store:         s,
 	}
 	if llmServer != nil {
 		h.llmHTTPClient = llmServer.Client()
@@ -134,6 +143,10 @@ func testRouterWithClaims(handler *httpHandler, claims *sessionvalidator.Claims)
 	router.POST("/api/bootstrap", handler.handleBootstrap)
 	router.GET("/api/balance", handler.handleBalance)
 	router.POST("/api/generate", handler.handleGenerate)
+	router.GET("/api/puzzles", handler.handleListPuzzles)
+	router.GET("/api/puzzles/:id", handler.handleGetPuzzle)
+	router.DELETE("/api/puzzles/:id", handler.handleDeletePuzzle)
+	router.GET("/api/shared/:token", handler.handleGetSharedPuzzle)
 
 	return router
 }
@@ -560,4 +573,292 @@ func mustMarshalJSON(v any) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+// --- Puzzle endpoint tests ---
+
+func TestHandleListPuzzles_NoClaims(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, nil)
+	resp := doRequest(router, "GET", "/api/puzzles", "")
+	if resp.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.Code)
+	}
+}
+
+func TestHandleListPuzzles_Empty(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "GET", "/api/puzzles", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	var body map[string][]Puzzle
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	if len(body["puzzles"]) != 0 {
+		t.Errorf("expected empty puzzles list, got %d", len(body["puzzles"]))
+	}
+}
+
+func TestHandleListPuzzles_WithPuzzles(t *testing.T) {
+	s := &mockStore{
+		listFunc: func(userID string) ([]Puzzle, error) {
+			return []Puzzle{{ID: "p1", Title: "Test", Words: []PuzzleWord{{Word: "HI", Clue: "Greeting", Hint: "hey"}}}}, nil
+		},
+	}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "GET", "/api/puzzles", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	var body map[string][]Puzzle
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	if len(body["puzzles"]) != 1 {
+		t.Errorf("expected 1 puzzle, got %d", len(body["puzzles"]))
+	}
+}
+
+func TestHandleListPuzzles_StoreError(t *testing.T) {
+	s := &mockStore{
+		listFunc: func(userID string) ([]Puzzle, error) {
+			return nil, errors.New("db failure")
+		},
+	}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "GET", "/api/puzzles", "")
+	if resp.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.Code)
+	}
+}
+
+func TestHandleGetPuzzle_NoClaims(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, nil)
+	resp := doRequest(router, "GET", "/api/puzzles/some-id", "")
+	if resp.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.Code)
+	}
+}
+
+func TestHandleGetPuzzle_Found(t *testing.T) {
+	s := &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return &Puzzle{ID: id, Title: "Found It"}, nil
+		},
+	}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "GET", "/api/puzzles/abc", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	var body Puzzle
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	if body.Title != "Found It" {
+		t.Errorf("expected title 'Found It', got %q", body.Title)
+	}
+}
+
+func TestHandleGetPuzzle_NotFound(t *testing.T) {
+	s := &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return nil, errors.New("not found")
+		},
+	}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "GET", "/api/puzzles/missing", "")
+	if resp.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.Code)
+	}
+}
+
+func TestHandleDeletePuzzle_NoClaims(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, nil)
+	resp := doRequest(router, "DELETE", "/api/puzzles/some-id", "")
+	if resp.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.Code)
+	}
+}
+
+func TestHandleDeletePuzzle_Success(t *testing.T) {
+	deleted := false
+	s := &mockStore{
+		deleteFunc: func(id, userID string) error {
+			deleted = true
+			return nil
+		},
+	}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "DELETE", "/api/puzzles/abc", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	if !deleted {
+		t.Error("expected delete to be called")
+	}
+}
+
+func TestHandleDeletePuzzle_NotFound(t *testing.T) {
+	s := &mockStore{
+		deleteFunc: func(id, userID string) error {
+			return errors.New("not found")
+		},
+	}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "DELETE", "/api/puzzles/missing", "")
+	if resp.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.Code)
+	}
+}
+
+func TestHandleGenerate_SavesPuzzle(t *testing.T) {
+	var savedPuzzle *Puzzle
+	s := &mockStore{
+		createFunc: func(puzzle *Puzzle) error {
+			puzzle.ID = "saved-id"
+			savedPuzzle = puzzle
+			return nil
+		},
+	}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"response": `[{"word":"CAT","definition":"Animal","hint":"meow"}]`,
+		})
+	}))
+	defer llmServer.Close()
+
+	ledger := &mockLedgerClient{
+		spendFunc:      func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) { return &creditv1.Empty{}, nil },
+		getBalanceFunc: func(ctx context.Context, req *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) { return &creditv1.BalanceResponse{AvailableCents: 1000}, nil },
+	}
+	handler := testHandlerWithStore(ledger, llmServer, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/generate", `{"topic":"cats","word_count":5}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if savedPuzzle == nil {
+		t.Fatal("expected puzzle to be saved")
+	}
+	if savedPuzzle.Topic != "cats" {
+		t.Errorf("expected topic 'cats', got %q", savedPuzzle.Topic)
+	}
+	if len(savedPuzzle.Words) != 1 {
+		t.Errorf("expected 1 word, got %d", len(savedPuzzle.Words))
+	}
+	var body map[string]any
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	if body["id"] != "saved-id" {
+		t.Errorf("expected id 'saved-id' in response, got %v", body["id"])
+	}
+}
+
+func TestHandleGetSharedPuzzle_Success(t *testing.T) {
+	s, _ := OpenDatabase(":memory:")
+	puzzle := &Puzzle{
+		UserID: "user-1",
+		Title:  "Shared Test",
+		Words:  []PuzzleWord{{Word: "SHARE", Clue: "Give", Hint: "distribute"}},
+	}
+	if err := s.CreatePuzzle(puzzle); err != nil {
+		t.Fatalf("CreatePuzzle: %v", err)
+	}
+
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, nil) // no auth claims
+	w := doRequest(router, "GET", "/api/shared/"+puzzle.ShareToken, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp Puzzle
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Title != "Shared Test" {
+		t.Errorf("expected title 'Shared Test', got %q", resp.Title)
+	}
+	if len(resp.Words) != 1 {
+		t.Errorf("expected 1 word, got %d", len(resp.Words))
+	}
+}
+
+func TestHandleGetSharedPuzzle_NotFound(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, nil)
+	w := doRequest(router, "GET", "/api/shared/nonexistent", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleGetSharedPuzzle_NoAuthRequired(t *testing.T) {
+	s, _ := OpenDatabase(":memory:")
+	puzzle := &Puzzle{
+		UserID: "user-1",
+		Title:  "Public",
+		Words:  []PuzzleWord{{Word: "OPEN", Clue: "Not closed", Hint: "accessible"}},
+	}
+	s.CreatePuzzle(puzzle)
+
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, nil)
+	w := doRequest(router, "GET", "/api/shared/"+puzzle.ShareToken, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 without auth, got %d", w.Code)
+	}
+}
+
+func TestHandleGenerate_IncludesShareToken(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	items := []WordItem{
+		{Word: "TEST", Definition: "A trial", Hint: "Exam"},
+	}
+	wrapper := llmProxyResponse{Response: mustMarshalJSON(items)}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(wrapper)
+	}))
+	defer llmServer.Close()
+
+	handler := testHandler(ledger, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	w := doRequest(router, "POST", "/api/generate", `{"topic":"test","word_count":8}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	token, ok := resp["share_token"].(string)
+	if !ok || token == "" {
+		t.Errorf("expected non-empty share_token in generate response, got %v", resp["share_token"])
+	}
+}
+
+func TestHandleGenerate_SaveFailureIsNonFatal(t *testing.T) {
+	s := &mockStore{
+		createFunc: func(puzzle *Puzzle) error {
+			return errors.New("db write failed")
+		},
+	}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"response": `[{"word":"DOG","definition":"Animal","hint":"bark"}]`,
+		})
+	}))
+	defer llmServer.Close()
+
+	ledger := &mockLedgerClient{
+		spendFunc:      func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) { return &creditv1.Empty{}, nil },
+		getBalanceFunc: func(ctx context.Context, req *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) { return &creditv1.BalanceResponse{}, nil },
+	}
+	handler := testHandlerWithStore(ledger, llmServer, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/generate", `{"topic":"dogs","word_count":5}`)
+	// Should still return 200 even though save failed.
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 (save failure is non-fatal), got %d: %s", resp.Code, resp.Body.String())
+	}
 }
