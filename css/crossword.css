@@ -83,7 +83,7 @@ body {
     display: grid;
     grid-template-columns: 280px 1fr;
     width: 100vw;
-    height: calc(var(--viewport-height) - 56px); /* below mpr-header */
+    height: calc(var(--viewport-height) - 56px - 40px); /* below mpr-header, above mpr-footer */
     overflow: hidden;
 }
 
@@ -424,6 +424,14 @@ button {
 
 button.secondary {
     background: var(--cw-btn-secondary);
+}
+
+@keyframes copied-flash {
+    0%   { opacity: 1; }
+    100% { opacity: 1; }
+}
+.copied-flash {
+    animation: copied-flash 2s forwards;
 }
 
 @media (max-width: var(--phone-screen-width)) {
