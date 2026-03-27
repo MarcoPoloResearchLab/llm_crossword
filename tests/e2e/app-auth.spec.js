@@ -284,10 +284,9 @@ test.describe("App auth — generate insufficient credits", () => {
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     await page.locator("#newCrosswordCard").click();
-    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
-    await page.fill("#topicInput", "moon");
-    await page.locator("#generateBtn").click();
-    await expect(page.getByText("Not enough credits")).toBeVisible({ timeout: 10000 });
+    // With only 2 credits, generate button should be disabled and message shown immediately
+    await expect(page.locator("#generateBtn")).toBeDisabled({ timeout: 5000 });
+    await expect(page.getByText("Not enough credits")).toBeVisible({ timeout: 5000 });
   });
 });
 

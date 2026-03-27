@@ -19,7 +19,7 @@
   var newCrosswordCard  = document.getElementById("newCrosswordCard");
 
   var loggedIn = false;
-  var currentCoins = 0;
+  var currentCoins = null; // null = unknown, number = confirmed balance
 
   // --- View navigation ---
   function showLanding() {
@@ -63,7 +63,7 @@
   // --- "New Crossword" card click ---
   if (newCrosswordCard) {
     newCrosswordCard.addEventListener("click", function () {
-      if (currentCoins < 5) {
+      if (currentCoins !== null && currentCoins < 5) {
         // Show the form area but with an insufficient credits message.
         showGenerateForm();
         generateBtn.disabled = true;
