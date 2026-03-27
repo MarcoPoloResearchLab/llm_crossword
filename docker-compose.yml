@@ -62,6 +62,10 @@ services:
         "/me=http://tauth:8080",
         "--proxy",
         "/tauth.js=http://tauth:8080",
+        "--response-header",
+        "/js/=Cache-Control:public,max-age=86400",
+        "--response-header",
+        "/css/=Cache-Control:public,max-age=86400",
         "8000",
       ]
     ports:

@@ -49,12 +49,6 @@ func WithShutdownTimeout(d time.Duration) RunOption {
 	return func(o *runOptions) { o.shutdownTimeout = d }
 }
 
-// withOnServerReady sets a callback invoked once the HTTP server is about to listen.
-// This is only used in tests to get a reference to the server for controlled shutdown.
-func withOnServerReady(f func(srv *http.Server)) RunOption {
-	return func(o *runOptions) { o.onServerReady = f }
-}
-
 // WithStore injects a pre-configured store implementation.
 func WithStore(s Store) RunOption {
 	return func(o *runOptions) { o.store = s }

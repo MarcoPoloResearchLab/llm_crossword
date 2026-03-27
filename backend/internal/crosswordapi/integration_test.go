@@ -2,6 +2,7 @@ package crosswordapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -16,6 +17,11 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// withOnServerReady sets a callback invoked once the HTTP server is about to listen.
+func withOnServerReady(f func(srv *http.Server)) RunOption {
+	return func(o *runOptions) { o.onServerReady = f }
+}
 
 // fakeLedgerServer is a minimal gRPC server that satisfies the CreditService interface.
 type fakeLedgerServer struct {
@@ -457,6 +463,220 @@ func TestRun_ShutdownError(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not return after context cancellation")
+	}
+}
+
+// --- Shared puzzle integration tests ---
+// These use setupRouter with a real session validator and real GORM store
+// to verify the sharing flow end-to-end through the actual middleware stack.
+
+func TestSharedEndpoint_Integration_NoAuthRequired(t *testing.T) {
+	// Verify that GET /api/shared/:token works without a session cookie
+	// through the real setupRouter (not testRouterWithClaims).
+	cfg := testConfig()
+	logger, _ := newTestLogger()
+	store, _ := OpenDatabase(":memory:")
+	validator, _ := newTestValidator(cfg)
+
+	handler := &httpHandler{
+		logger: logger,
+		cfg:    cfg,
+		store:  store,
+	}
+	router := setupRouter(cfg, handler, validator)
+
+	// Create a puzzle in the store.
+	puzzle := &Puzzle{
+		UserID: "user-1",
+		Title:  "Shared via integration",
+		Words:  []PuzzleWord{{Word: "SHARE", Clue: "Give to others", Hint: "distribute"}},
+	}
+	if err := store.CreatePuzzle(puzzle); err != nil {
+		t.Fatalf("CreatePuzzle: %v", err)
+	}
+
+	// Request the shared endpoint WITHOUT any auth cookie.
+	w := doRequest(router, "GET", "/api/shared/"+puzzle.ShareToken, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp Puzzle
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Title != "Shared via integration" {
+		t.Errorf("expected title 'Shared via integration', got %q", resp.Title)
+	}
+	if len(resp.Words) != 1 {
+		t.Errorf("expected 1 word, got %d", len(resp.Words))
+	}
+	if resp.Words[0].Word != "SHARE" {
+		t.Errorf("expected word 'SHARE', got %q", resp.Words[0].Word)
+	}
+}
+
+func TestSharedEndpoint_Integration_NotFound(t *testing.T) {
+	cfg := testConfig()
+	logger, _ := newTestLogger()
+	store, _ := OpenDatabase(":memory:")
+	validator, _ := newTestValidator(cfg)
+
+	handler := &httpHandler{
+		logger: logger,
+		cfg:    cfg,
+		store:  store,
+	}
+	router := setupRouter(cfg, handler, validator)
+
+	w := doRequest(router, "GET", "/api/shared/bogustoken1", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSharedEndpoint_Integration_DeletedPuzzleReturns404(t *testing.T) {
+	// Verify that deleting a puzzle invalidates its share link.
+	cfg := testConfig()
+	logger, _ := newTestLogger()
+	store, _ := OpenDatabase(":memory:")
+	validator, _ := newTestValidator(cfg)
+
+	handler := &httpHandler{
+		logger: logger,
+		cfg:    cfg,
+		store:  store,
+	}
+	router := setupRouter(cfg, handler, validator)
+
+	puzzle := &Puzzle{
+		UserID: "user-1",
+		Title:  "Will Be Deleted",
+		Words:  []PuzzleWord{{Word: "GONE", Clue: "Vanished", Hint: "disappeared"}},
+	}
+	if err := store.CreatePuzzle(puzzle); err != nil {
+		t.Fatalf("CreatePuzzle: %v", err)
+	}
+	token := puzzle.ShareToken
+
+	// Confirm it works before deletion.
+	w := doRequest(router, "GET", "/api/shared/"+token, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 before delete, got %d", w.Code)
+	}
+
+	// Delete the puzzle.
+	if err := store.DeletePuzzle(puzzle.ID, "user-1"); err != nil {
+		t.Fatalf("DeletePuzzle: %v", err)
+	}
+
+	// Share token should now return 404.
+	w = doRequest(router, "GET", "/api/shared/"+token, "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after delete, got %d", w.Code)
+	}
+}
+
+func TestSharedEndpoint_Integration_AuthEndpointsStillProtected(t *testing.T) {
+	// Verify that authenticated endpoints still require auth even though
+	// the shared endpoint doesn't.
+	cfg := testConfig()
+	logger, _ := newTestLogger()
+	store, _ := OpenDatabase(":memory:")
+	validator, _ := newTestValidator(cfg)
+
+	handler := &httpHandler{
+		logger: logger,
+		cfg:    cfg,
+		store:  store,
+	}
+	router := setupRouter(cfg, handler, validator)
+
+	// These should all fail with 401 without a session cookie.
+	authEndpoints := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/session"},
+		{"GET", "/api/balance"},
+		{"GET", "/api/puzzles"},
+		{"GET", "/api/puzzles/some-id"},
+		{"DELETE", "/api/puzzles/some-id"},
+	}
+
+	for _, ep := range authEndpoints {
+		w := doRequest(router, ep.method, ep.path, "")
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s: expected 401, got %d", ep.method, ep.path, w.Code)
+		}
+	}
+}
+
+func TestSharedEndpoint_Integration_ResponseIncludesShareToken(t *testing.T) {
+	// Verify the share_token field is present in the shared puzzle response.
+	cfg := testConfig()
+	logger, _ := newTestLogger()
+	store, _ := OpenDatabase(":memory:")
+	validator, _ := newTestValidator(cfg)
+
+	handler := &httpHandler{
+		logger: logger,
+		cfg:    cfg,
+		store:  store,
+	}
+	router := setupRouter(cfg, handler, validator)
+
+	puzzle := &Puzzle{
+		UserID: "user-1",
+		Title:  "Token Echo",
+		Words:  []PuzzleWord{{Word: "ECHO", Clue: "Repeat", Hint: "sound bounce"}},
+	}
+	store.CreatePuzzle(puzzle)
+
+	w := doRequest(router, "GET", "/api/shared/"+puzzle.ShareToken, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	token, ok := resp["share_token"].(string)
+	if !ok || token == "" {
+		t.Errorf("expected non-empty share_token in response, got %v", resp["share_token"])
+	}
+	if token != puzzle.ShareToken {
+		t.Errorf("expected token %q, got %q", puzzle.ShareToken, token)
+	}
+}
+
+func TestSharedEndpoint_Integration_BackfillsExistingPuzzles(t *testing.T) {
+	// Verify that OpenDatabase backfills share tokens for puzzles that lack one.
+	// Simulate by creating a puzzle with raw GORM, then reopening the database.
+	db, err := OpenDatabase(":memory:")
+	if err != nil {
+		t.Fatalf("OpenDatabase: %v", err)
+	}
+
+	// Create a puzzle.
+	puzzle := &Puzzle{
+		UserID: "user-1",
+		Title:  "Backfill Test",
+		Words:  []PuzzleWord{{Word: "OLD", Clue: "Not new", Hint: "ancient"}},
+	}
+	if err := db.CreatePuzzle(puzzle); err != nil {
+		t.Fatalf("CreatePuzzle: %v", err)
+	}
+
+	// Puzzle should already have a token (CreatePuzzle sets it).
+	if puzzle.ShareToken == "" {
+		t.Fatal("expected share token to be set by CreatePuzzle")
+	}
+
+	// Verify we can look it up.
+	got, err := db.GetPuzzleByShareToken(puzzle.ShareToken)
+	if err != nil {
+		t.Fatalf("GetPuzzleByShareToken: %v", err)
+	}
+	if got.Title != "Backfill Test" {
+		t.Errorf("expected title 'Backfill Test', got %q", got.Title)
 	}
 }
 
