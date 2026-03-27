@@ -60,10 +60,14 @@
       overlay.appendChild(piece);
     }
 
-    // Remove overlay after animations complete
-    setTimeout(function () {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-    }, 3200);
+    // Remove overlay when all confetti animations complete
+    var animationsRemaining = count;
+    overlay.addEventListener("animationend", function () {
+      animationsRemaining--;
+      if (animationsRemaining <= 0 && overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+    });
   }
 
   // Inject confetti keyframes once

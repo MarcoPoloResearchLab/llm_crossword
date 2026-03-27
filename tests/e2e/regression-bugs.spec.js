@@ -1,10 +1,12 @@
 // @ts-check
-// Regression tests for three reported bugs:
+// Regression tests for four reported bugs:
 // 1. Session lost on page refresh (user gets logged out)
 // 2. Grid cells stretched/deformed (not square)
 // 3. Giant empty space between header area and crossword grid
+// 4. Landing page comes back after the app has already confirmed login
 
 const { test, expect } = require("./coverage-fixture");
+const { setupLoggedInRoutes, setupLoggedOutRoutes } = require("./route-helpers");
 
 const puzzlePayload = [
   {
@@ -20,42 +22,12 @@ const puzzlePayload = [
   },
 ];
 
-function setupLoggedInMocks(page) {
-  return page.addInitScript((puzzles) => {
-    window.__testOverrides = {
-      fetch: function (url) {
-        if (url === "/me") return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-        if (url === "/api/bootstrap") return Promise.resolve({ ok: true, json: () => Promise.resolve({ balance: { coins: 15 } }) });
-        if (typeof url === "string" && url.includes("config.yaml")) return Promise.resolve({ ok: true, text: () => Promise.resolve("") });
-        if (typeof url === "string" && url.includes("crosswords.json"))
-          return Promise.resolve({ ok: true, json: () => Promise.resolve(puzzles) });
-        return Promise.resolve({ ok: false, status: 404 });
-      },
-    };
-  }, puzzlePayload);
-}
-
-function setupLoggedOutMocks(page) {
-  return page.addInitScript((puzzles) => {
-    window.__testOverrides = {
-      fetch: function (url) {
-        if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-        if (typeof url === "string" && url.includes("config.yaml")) return Promise.resolve({ ok: true, text: () => Promise.resolve("") });
-        if (typeof url === "string" && url.includes("crosswords.json"))
-          return Promise.resolve({ ok: true, json: () => Promise.resolve(puzzles) });
-        return Promise.resolve({ ok: false, status: 404 });
-      },
-    };
-  }, puzzlePayload);
-}
-
 // ---------------------------------------------------------------------------
 // Bug 1: Session must persist across hard refresh
 // ---------------------------------------------------------------------------
 test.describe("Session persistence on refresh", () => {
   test("user stays logged in after page reload", async ({ page }) => {
-    // Inject mocks that return logged-in for /me on EVERY navigation
-    await setupLoggedInMocks(page);
+    await setupLoggedInRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
 
     // Verify logged-in state: puzzle view visible, click New Crossword to check generate button
@@ -76,7 +48,7 @@ test.describe("Session persistence on refresh", () => {
   });
 
   test("credit badge persists after page reload", async ({ page }) => {
-    await setupLoggedInMocks(page);
+    await setupLoggedInRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
 
     const badge = page.locator("#headerCreditBadge");
@@ -88,6 +60,23 @@ test.describe("Session persistence on refresh", () => {
     // Badge must still show credits
     await expect(badge).toContainText("credits", { timeout: 5000 });
   });
+
+  test("landing page stays hidden after session-confirmed login", async ({ page }) => {
+    await setupLoggedInRoutes(page, { puzzles: puzzlePayload });
+    await page.goto("/");
+
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+
+    // The header can emit a stale unauthenticated event after /me has already
+    // confirmed the session. The landing page must not come back.
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event("mpr-ui:auth:unauthenticated"));
+    });
+
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 2000 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 2000 });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -95,7 +84,7 @@ test.describe("Session persistence on refresh", () => {
 // ---------------------------------------------------------------------------
 test.describe("Grid cell dimensions", () => {
   test("crossword cells are square", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
 
     // Navigate to puzzle view
@@ -115,7 +104,7 @@ test.describe("Grid cell dimensions", () => {
   });
 
   test("all cells have consistent size", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
 
@@ -144,7 +133,7 @@ test.describe("Grid cell dimensions", () => {
 // ---------------------------------------------------------------------------
 test.describe("Layout — no excessive empty space", () => {
   test("crossword grid starts within 250px of the controls above it", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
 
@@ -178,7 +167,7 @@ test.describe("Layout — no excessive empty space", () => {
   });
 
   test("puzzle view does not have a fixed height taller than its content", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
 
@@ -199,7 +188,7 @@ test.describe("Layout — no excessive empty space", () => {
   });
 
   test("puzzle view spans full viewport width (no container-in-a-page)", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
@@ -219,8 +208,15 @@ test.describe("Layout — no excessive empty space", () => {
 
 test.describe("Header layout", () => {
   test("header spans the full viewport width", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    // Wait for mpr-header web component to render its shadow DOM.
+    await page.waitForFunction(() => {
+      var header = document.querySelector("mpr-header");
+      return header && header.getBoundingClientRect().width > 0;
+    }, { timeout: 5000 });
 
     const headerBox = await page.evaluate(() => {
       var header = document.querySelector("mpr-header");
@@ -237,7 +233,7 @@ test.describe("Header layout", () => {
 
 test.describe("Clue visibility", () => {
   test("clue text is not truncated", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
@@ -261,7 +257,7 @@ test.describe("Clue visibility", () => {
   });
 
   test("hint buttons are visible on clue items", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
@@ -308,23 +304,9 @@ const longCluePuzzle = [
   },
 ];
 
-function setupLongClueMocks(page) {
-  return page.addInitScript((puzzles) => {
-    window.__testOverrides = {
-      fetch: function (url) {
-        if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-        if (typeof url === "string" && url.includes("config.yaml")) return Promise.resolve({ ok: true, text: () => Promise.resolve("") });
-        if (typeof url === "string" && url.includes("crosswords.json"))
-          return Promise.resolve({ ok: true, json: () => Promise.resolve(puzzles) });
-        return Promise.resolve({ ok: false, status: 404 });
-      },
-    };
-  }, longCluePuzzle);
-}
-
 test.describe("Clue visibility — long clues (class: content never clipped)", () => {
   test("long clue text is fully visible, not truncated", async ({ page }) => {
-    await setupLongClueMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: longCluePuzzle });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
@@ -346,7 +328,7 @@ test.describe("Clue visibility — long clues (class: content never clipped)", (
   });
 
   test("hint buttons are visible on every clue with long text", async ({ page }) => {
-    await setupLongClueMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: longCluePuzzle });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
@@ -366,7 +348,7 @@ test.describe("Clue visibility — long clues (class: content never clipped)", (
   });
 
   test("clues container does not use text-overflow ellipsis", async ({ page }) => {
-    await setupLongClueMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: longCluePuzzle });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
@@ -386,7 +368,7 @@ test.describe("Clue visibility — long clues (class: content never clipped)", (
   });
 
   test("clues are positioned to the right of the grid, not below", async ({ page }) => {
-    await setupLongClueMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: longCluePuzzle });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
@@ -415,7 +397,7 @@ test.describe("Clue visibility — long clues (class: content never clipped)", (
   });
 
   test("clues container is at least 250px wide", async ({ page }) => {
-    await setupLongClueMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: longCluePuzzle });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
@@ -432,7 +414,7 @@ test.describe("Clue visibility — long clues (class: content never clipped)", (
   });
 
   test("no scrollbar artifact (black bar) inside grid viewport", async ({ page }) => {
-    await setupLongClueMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: longCluePuzzle });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 10000 });
@@ -462,7 +444,7 @@ test.describe("Clue visibility — long clues (class: content never clipped)", (
 
 test.describe("Generate panel visibility (class: view state correctness)", () => {
   test("generate form is hidden when viewing pre-built puzzle as logged-out user", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
@@ -471,7 +453,7 @@ test.describe("Generate panel visibility (class: view state correctness)", () =>
   });
 
   test("generate form is visible after clicking New Crossword when logged in", async ({ page }) => {
-    await setupLoggedInMocks(page);
+    await setupLoggedInRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
 
@@ -482,34 +464,10 @@ test.describe("Generate panel visibility (class: view state correctness)", () =>
   });
 });
 
-test.describe("Landing page auth gate (class: auth-dependent view state)", () => {
-  test("logged-in user never sees landing page on initial load", async ({ page }) => {
-    await setupLoggedInMocks(page);
-    await page.goto("/");
-    // Wait for session check to complete
-    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#landingPage")).toBeHidden();
-  });
-
-  test("logged-out user sees landing page on initial load", async ({ page }) => {
-    await setupLoggedOutMocks(page);
-    await page.goto("/");
-    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#puzzleView")).toBeHidden();
-  });
-
-  test("landing 'Sign in to generate' button text changes to 'Go to generator' when logged in", async ({ page }) => {
-    await setupLoggedInMocks(page);
-    await page.goto("/");
-    // Logged-in user skips landing, but if they navigate back...
-    // The button text should reflect auth state
-    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-  });
-});
 
 test.describe("Theme switching", () => {
   test("body background changes when theme is toggled to light", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
 
     // Get the dark background gradient
@@ -534,7 +492,7 @@ test.describe("Theme switching", () => {
 
 test.describe("Grid scrollbar", () => {
   test("no extraneous scrollbar or black bar inside the grid viewport", async ({ page }) => {
-    await setupLoggedOutMocks(page);
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });

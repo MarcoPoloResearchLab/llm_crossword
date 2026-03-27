@@ -1,40 +1,11 @@
 // @ts-check
 
 const { test, expect } = require("./coverage-fixture");
-
-function setupMocks(page) {
-  return page.addInitScript(() => {
-    window.__testOverrides = {
-      fetch: function (url, opts) {
-        if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-        if (typeof url === "string" && url.includes("config.yaml")) return Promise.resolve({ ok: true, text: () => Promise.resolve("") });
-        if (typeof url === "string" && url.includes("crosswords.json"))
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve([
-                {
-                  title: "Test Puzzle",
-                  subtitle: "A test puzzle.",
-                  items: [
-                    { word: "orbit", definition: "The Moon's path around Earth", hint: "elliptical route" },
-                    { word: "mare", definition: "A lunar sea", hint: "shares name with horse" },
-                    { word: "tides", definition: "Ocean rise-and-fall", hint: "regular shoreline shifts" },
-                    { word: "lunar", definition: "Relating to the Moon", hint: "Earth's companion" },
-                    { word: "apollo", definition: "Program that took humans to the Moon", hint: "Saturn V missions" },
-                  ],
-                },
-              ]),
-          });
-        return Promise.resolve({ ok: false, status: 404 });
-      },
-    };
-  });
-}
+const { setupLoggedOutRoutes } = require("./route-helpers");
 
 test.describe("Generator — valid input", () => {
   test("valid 5-word input produces rendered grid", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     // Wait for page to load
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
@@ -62,7 +33,7 @@ test.describe("Generator — valid input", () => {
 
 test.describe("Generator — error cases", () => {
   test("empty array throws and shows error", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
@@ -81,7 +52,7 @@ test.describe("Generator — error cases", () => {
   });
 
   test("all-invalid words throws", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
@@ -99,7 +70,7 @@ test.describe("Generator — error cases", () => {
   });
 
   test("filters single-character words", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
@@ -123,7 +94,7 @@ test.describe("Generator — error cases", () => {
   });
 
   test("custom title and subtitle passed through", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
@@ -147,7 +118,7 @@ test.describe("Generator — error cases", () => {
 
 test.describe("Generator — compactness", () => {
   test("5-word puzzle fills at least 40% of its bounding box", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
@@ -195,7 +166,7 @@ test.describe("Generator — compactness", () => {
   });
 
   test("8-word puzzle bounding box is reasonable", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
@@ -234,7 +205,7 @@ test.describe("Generator — compactness", () => {
   });
 
   test("generator picks the most compact layout across seed attempts", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
@@ -283,7 +254,7 @@ test.describe("Generator — compactness", () => {
 
 test.describe("Generator — large puzzle stress test", () => {
   test("120-word puzzle generates successfully and renders", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
@@ -337,7 +308,7 @@ test.describe("Generator — large puzzle stress test", () => {
   });
 
   test("120-word puzzle clues stay beside grid when rendered", async ({ page }) => {
-    await setupMocks(page);
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });

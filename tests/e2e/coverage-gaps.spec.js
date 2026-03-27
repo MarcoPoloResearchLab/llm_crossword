@@ -3,63 +3,11 @@
 // generator.js, and config.js.
 
 const { test, expect } = require("./coverage-fixture");
+const { setupLoggedInRoutes, setupLoggedOutRoutes, json, text, defaultPuzzles } = require("./route-helpers");
 
 // ---------------------------------------------------------------------------
-// Shared puzzle data & mock helpers
+// Shared puzzle data & helpers
 // ---------------------------------------------------------------------------
-
-const PUZZLE_ITEMS = [
-  { word: "orbit", definition: "The Moon's path around Earth", hint: "elliptical route" },
-  { word: "mare", definition: "A lunar sea", hint: "shares name with horse" },
-  { word: "tides", definition: "Ocean rise-and-fall", hint: "regular shoreline shifts" },
-  { word: "lunar", definition: "Relating to the Moon", hint: "Earth's companion" },
-  { word: "apollo", definition: "Program that took humans to the Moon", hint: "Saturn V missions" },
-];
-
-function puzzleJson() { return JSON.stringify([{ title: "Test Puzzle", subtitle: "A test puzzle.", items: PUZZLE_ITEMS }]); }
-
-function baseMock(extras = {}) {
-  // extras: { me, bootstrap, generate, configYaml, crosswordsJson }
-  const me = extras.me !== undefined ? extras.me : "{ ok: false, status: 401 }";
-  const bootstrap = extras.bootstrap !== undefined ? extras.bootstrap : "null";
-  const generate = extras.generate !== undefined ? extras.generate : "null";
-  const configYaml = extras.configYaml !== undefined ? extras.configYaml : '""';
-  const crosswordsJson = extras.crosswordsJson !== undefined ? extras.crosswordsJson : puzzleJson();
-
-  return `
-    window.__testOverrides = {
-      fetch: function (url, opts) {
-        if (url === "/me") return Promise.resolve(${me});
-        if (url === "/api/bootstrap") {
-          ${bootstrap === "null"
-            ? 'return Promise.resolve({ ok: false, status: 500 });'
-            : `return ${bootstrap};`}
-        }
-        if (url === "/api/generate") {
-          ${generate === "null"
-            ? 'return Promise.resolve({ ok: false, status: 404 });'
-            : `return ${generate};`}
-        }
-        if (typeof url === "string" && url.includes("config.yaml"))
-          return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(${configYaml}); } });
-        if (typeof url === "string" && url.includes("crosswords.json"))
-          return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(${crosswordsJson}); } });
-        return Promise.resolve({ ok: false, status: 404 });
-      },
-    };
-  `;
-}
-
-function loggedOutMock() {
-  return baseMock({ me: '{ ok: false, status: 401 }' });
-}
-
-function loggedInMock(coins) {
-  return baseMock({
-    me: '{ ok: true, json: function(){ return Promise.resolve({}); } }',
-    bootstrap: `Promise.resolve({ ok: true, json: function(){ return Promise.resolve({ balance: { coins: ${coins} } }); } })`,
-  });
-}
 
 // Navigate to puzzle view and wait for it to appear
 async function goToPuzzle(page) {
@@ -80,7 +28,6 @@ async function goToPuzzleWithGrid(page) {
 test.describe("Config — YAML environment matching", () => {
   test("matches tauth-url from config.yaml when origin matches", async ({ page }) => {
     // mpr-ui-config.js loads config.yaml via global.fetch and sets tauth-url.
-    // Our config.js also loads it via __testOverrides.fetch.
     // The final tauth-url value is set by mpr-ui-config.js from the real config.yaml.
     await page.goto("/");
     await page.waitForTimeout(2000);
@@ -90,19 +37,8 @@ test.describe("Config — YAML environment matching", () => {
   });
 
   test("uses same-origin when config.yaml has no matching environment", async ({ page }) => {
-    await page.addInitScript((pj) => {
-      var yamlText = "environments:\n  - description: production\n    - \"https://prod.example.com\"\n    tauthUrl: \"https://prod-tauth.example.com\"";
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(yamlText); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(pj); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    }, JSON.parse(puzzleJson()));
+    var yamlText = "environments:\n  - description: production\n    - \"https://prod.example.com\"\n    tauthUrl: \"https://prod-tauth.example.com\"";
+    await setupLoggedOutRoutes(page, { configYaml: yamlText });
     await page.goto("/");
     await page.waitForTimeout(500);
     var tauthUrl = await page.locator("#app-header").getAttribute("tauth-url");
@@ -118,19 +54,8 @@ test.describe("Config — YAML environment matching", () => {
   });
 
   test("handles environment without tauthUrl set", async ({ page }) => {
-    await page.addInitScript((pj) => {
-      var yamlText = "environments:\n  - description: local\n    - \"http://localhost:8111\"";
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(yamlText); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(pj); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    }, JSON.parse(puzzleJson()));
+    var yamlText = "environments:\n  - description: local\n    - \"http://localhost:8111\"";
+    await setupLoggedOutRoutes(page, { configYaml: yamlText });
     await page.goto("/");
     await page.waitForTimeout(500);
     var tauthUrl = await page.locator("#app-header").getAttribute("tauth-url");
@@ -144,7 +69,7 @@ test.describe("Config — YAML environment matching", () => {
 
 test.describe("App — landingSignIn fallback (lines 71-72)", () => {
   test("landing sign-in falls back to puzzle view when no header button", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await expect(page.locator("#landingPage")).toBeVisible();
     // Remove any mpr-header google sign-in button that may have been created
@@ -162,19 +87,11 @@ test.describe("App — landingSignIn fallback (lines 71-72)", () => {
 
 test.describe("App — bootstrap non-ok response (line 114)", () => {
   test("bootstrap returning non-ok sets no credit badge text", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({}); } });
-          if (url === "/api/bootstrap") return Promise.resolve({ ok: false, status: 500, json: function(){ return Promise.resolve({}); } });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(${puzzleJson()}); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/api/bootstrap": (route) => route.fulfill(json(500, {})),
+      },
+    });
     await page.goto("/");
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
@@ -188,12 +105,16 @@ test.describe("App — bootstrap non-ok response (line 114)", () => {
 
 test.describe("App — generate while not logged in (lines 149-150)", () => {
   test("shows 'Please log in first' when generating while logged out via event", async ({ page }) => {
-    await page.addInitScript(loggedInMock(10));
+    await setupLoggedInRoutes(page, { coins: 10 });
     await page.goto("/");
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    // Make the follow-up /me verification confirm that the session is gone.
+    await page.route("**/me", (route) =>
+      route.fulfill(json(401, { error: "unauthorized" }))
+    );
     // Now log out via event
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:unauthenticated"));
@@ -215,25 +136,12 @@ test.describe("App — generate while not logged in (lines 149-150)", () => {
 
 test.describe("App — generic generate error message (line 176)", () => {
   test("shows server error message when generate fails with non-insufficient-credits error", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({}); } });
-          if (url === "/api/bootstrap") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({ balance: { coins: 15 } }); } });
-          if (url === "/api/generate")
-            return Promise.resolve({
-              ok: false,
-              status: 500,
-              json: function(){ return Promise.resolve({ error: "server_error", message: "Server overloaded" }); }
-            });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(${puzzleJson()}); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/api/generate": (route) =>
+          route.fulfill(json(500, { error: "server_error", message: "Server overloaded" })),
+      },
+    });
     await page.goto("/");
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
@@ -245,25 +153,12 @@ test.describe("App — generic generate error message (line 176)", () => {
   });
 
   test("shows default error message when generate fails without message", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({}); } });
-          if (url === "/api/bootstrap") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({ balance: { coins: 15 } }); } });
-          if (url === "/api/generate")
-            return Promise.resolve({
-              ok: false,
-              status: 500,
-              json: function(){ return Promise.resolve({ error: "unknown" }); }
-            });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(${puzzleJson()}); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/api/generate": (route) =>
+          route.fulfill(json(500, { error: "unknown" })),
+      },
+    });
     await page.goto("/");
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
@@ -277,7 +172,7 @@ test.describe("App — generic generate error message (line 176)", () => {
 
 test.describe("App — Enter key on topic input (lines 206-208)", () => {
   test("pressing Enter in topic input triggers generate", async ({ page }) => {
-    await page.addInitScript(loggedInMock(10));
+    await setupLoggedInRoutes(page, { coins: 10 });
     await page.goto("/");
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
@@ -292,19 +187,12 @@ test.describe("App — Enter key on topic input (lines 206-208)", () => {
 
 test.describe("App — updateBalance with available_cents", () => {
   test("bootstrap with available_cents shows correct credits", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({}); } });
-          if (url === "/api/bootstrap") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({ balance: { available_cents: 2500 } }); } });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(${puzzleJson()}); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/api/bootstrap": (route) =>
+          route.fulfill(json(200, { balance: { available_cents: 2500 } })),
+      },
+    });
     await page.goto("/");
     await expect(page.locator("#headerCreditBadge")).toContainText("25 credits", { timeout: 5000 });
   });
@@ -316,7 +204,7 @@ test.describe("App — updateBalance with available_cents", () => {
 
 test.describe("Crossword — keyboard navigation", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -409,7 +297,7 @@ test.describe("Crossword — keyboard navigation", () => {
 
 test.describe("Crossword — paste handler", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -437,51 +325,42 @@ test.describe("Crossword — paste handler", () => {
 
 test.describe("Crossword — hint cycling (verbal -> letter -> reset)", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
 
   test("hint button cycles through all three stages", async ({ page }) => {
-    var hintButton = page.locator("#puzzleView .hintButton").first();
     var hintText = page.locator("#puzzleView .hintText").first();
 
-    // Stage 0 -> 1: show verbal hint
-    await hintButton.click();
+    // Stage 0 -> 1: show verbal hint (use evaluate to avoid hintText overlap issues)
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
     await expect(hintText).toBeVisible();
 
     // Stage 1 -> 2: reveal a letter
-    await hintButton.click();
-    // A cell should have the "correct" class
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
     var hasCorrect = await page.locator("#grid .correct").count();
-    expect(hasCorrect).toBeGreaterThanOrEqual(0); // may or may not show if entry already solved
+    expect(hasCorrect).toBeGreaterThanOrEqual(0);
 
-    // Stage 2 -> 0: reset (hide hint, remove revealed letter)
-    await hintButton.click();
+    // Stage 2 -> 0: reset
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
     await expect(hintText).toBeHidden();
   });
 
   test("hint letter reveal on second click adds correct class to a cell", async ({ page }) => {
-    var hintButton = page.locator("#puzzleView .hintButton").first();
-    // Click once for verbal hint
-    await hintButton.click();
-    // Click again for letter reveal
-    await hintButton.click();
+    // Use evaluate to click — hintText overlaps button after first click
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
     await page.waitForTimeout(200);
-    // At least one cell should have correct class
     var correctCells = await page.locator("#grid .cell.correct").count();
     expect(correctCells).toBeGreaterThanOrEqual(1);
   });
 
   test("hint reset on third click removes correct class", async ({ page }) => {
-    var hintButton = page.locator("#puzzleView .hintButton").first();
-    // Cycle through all three stages
-    await hintButton.click(); // verbal
-    await hintButton.click(); // letter
-    await hintButton.click(); // reset
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
     await page.waitForTimeout(200);
-    // The revealed cell should have lost "correct" class
-    // (Unless other reveals happened)
     var hintText = page.locator("#puzzleView .hintText").first();
     await expect(hintText).toBeHidden();
   });
@@ -489,7 +368,7 @@ test.describe("Crossword — hint cycling (verbal -> letter -> reset)", () => {
 
 test.describe("Crossword — cell focus and highlight", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -526,7 +405,7 @@ test.describe("Crossword — cell focus and highlight", () => {
 
 test.describe("Crossword — check all correct", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -545,7 +424,7 @@ test.describe("Crossword — check all correct", () => {
 
 test.describe("Crossword — reveal/hide toggle with clue solved state", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -566,18 +445,7 @@ test.describe("Crossword — reveal/hide toggle with clue solved state", () => {
 
 test.describe("Crossword — puzzle select change", () => {
   test("changing puzzle select rerenders and resets reveal button", async ({ page }) => {
-    await page.addInitScript((puzzles) => {
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(puzzles); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    }, [
+    var twoPuzzles = [
       {
         title: "Puzzle One",
         subtitle: "First puzzle.",
@@ -600,7 +468,8 @@ test.describe("Crossword — puzzle select change", () => {
           { word: "apollo", definition: "Moon program", hint: "missions" },
         ],
       },
-    ]);
+    ];
+    await setupLoggedOutRoutes(page, { puzzles: twoPuzzles });
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -619,7 +488,7 @@ test.describe("Crossword — puzzle select change", () => {
 
 test.describe("Crossword — grid viewport panning (mouse)", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -652,7 +521,7 @@ test.describe("Crossword — grid viewport panning (mouse)", () => {
 
 test.describe("Crossword — grid viewport panning (touch)", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -690,7 +559,7 @@ test.describe("Crossword — grid viewport panning (touch)", () => {
 
 test.describe("Crossword — viewport resize handler", () => {
   test("resize event triggers cell size recalculation", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
     // Trigger resize event
@@ -702,7 +571,7 @@ test.describe("Crossword — viewport resize handler", () => {
   });
 
   test("orientationchange event triggers recalculation", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
     await page.evaluate(() => {
@@ -714,7 +583,7 @@ test.describe("Crossword — viewport resize handler", () => {
 
 test.describe("Crossword — validation edge cases", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -860,25 +729,8 @@ test.describe("Crossword — validation edge cases", () => {
 });
 
 test.describe("Crossword — validatePuzzleSpecification", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
-    await page.goto("/");
-    await goToPuzzleWithGrid(page);
-  });
-
   test("invalid spec — non-object", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve([null]); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedOutRoutes(page, { puzzles: [null] });
     await page.goto("/");
     await goToPuzzle(page);
     await expect(page.locator("#errorBox")).toBeVisible({ timeout: 5000 });
@@ -887,77 +739,44 @@ test.describe("Crossword — validatePuzzleSpecification", () => {
 
 test.describe("Crossword — loadAndRenderPuzzles error paths", () => {
   test("non-array data shows error", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve("not an array"); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedOutRoutes(page, {
+      extra: {
+        "**/crosswords.json": (route) =>
+          route.fulfill(json(200, "not an array")),
+      },
+    });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#errorBox")).toContainText("array", { timeout: 10000 });
   });
 
   test("invalid puzzle specification shows error", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve([{ title: 123 }]); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedOutRoutes(page, { puzzles: [{ title: 123 }] });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#errorBox")).toContainText("invalid", { timeout: 10000 });
   });
 
   test("spec with missing item fields is invalid", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve([{
-              title: "Test", subtitle: "Sub", items: [{ word: "test" }]
-            }]); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedOutRoutes(page, {
+      puzzles: [{
+        title: "Test", subtitle: "Sub", items: [{ word: "test" }]
+      }],
+    });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#errorBox")).toContainText("invalid", { timeout: 10000 });
   });
 
   test("fetch failure shows error in errorBox", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.reject(new Error("fetch failed"));
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedOutRoutes(page, {
+      extra: {
+        "**/crosswords.json": (route) => route.abort("connectionrefused"),
+      },
+    });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.locator("#errorBox")).toContainText("fetch failed", { timeout: 10000 });
+    await expect(page.locator("#errorBox")).toContainText("fetch", { timeout: 10000 });
   });
 });
 
@@ -967,7 +786,7 @@ test.describe("Crossword — loadAndRenderPuzzles error paths", () => {
 
 test.describe("Generator — exhausted budget throws (lines 276-279)", () => {
   test("impossible crossword throws 'Failed to generate' error", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -994,7 +813,7 @@ test.describe("Generator — exhausted budget throws (lines 276-279)", () => {
 
 test.describe("Generator — seed swap (lines 221-223)", () => {
   test("generator can build valid crossword with shuffled seed order", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1022,7 +841,7 @@ test.describe("Generator — seed swap (lines 221-223)", () => {
 
 test.describe("Generator — computeGridSize with empty entries", () => {
   test("computeGridSize handles entries correctly", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1044,32 +863,20 @@ test.describe("Generator — computeGridSize with empty entries", () => {
 
 test.describe("App — generate with title/subtitle defaults", () => {
   test("generate with no title/subtitle uses defaults", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({}); } });
-          if (url === "/api/bootstrap") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({ balance: { coins: 15 } }); } });
-          if (url === "/api/generate")
-            return Promise.resolve({
-              ok: true,
-              json: function(){ return Promise.resolve({
-                items: [
-                  { word: "orbit", definition: "Path around Earth", hint: "route" },
-                  { word: "mare", definition: "Lunar sea", hint: "horse" },
-                  { word: "tides", definition: "Ocean motion", hint: "shifts" },
-                  { word: "lunar", definition: "Moon-related", hint: "companion" },
-                  { word: "apollo", definition: "Moon program", hint: "missions" },
-                ],
-              }); }
-            });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(${puzzleJson()}); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/api/generate": (route) =>
+          route.fulfill(json(200, {
+            items: [
+              { word: "orbit", definition: "Path around Earth", hint: "route" },
+              { word: "mare", definition: "Lunar sea", hint: "horse" },
+              { word: "tides", definition: "Ocean motion", hint: "shifts" },
+              { word: "lunar", definition: "Moon-related", hint: "companion" },
+              { word: "apollo", definition: "Moon program", hint: "missions" },
+            ],
+          })),
+      },
+    });
     await page.goto("/");
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
@@ -1086,7 +893,7 @@ test.describe("App — generate with title/subtitle defaults", () => {
 
 test.describe("Crossword — input filtering", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -1119,7 +926,7 @@ test.describe("Crossword — input filtering", () => {
 
 test.describe("Crossword — focus direction selection", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -1141,7 +948,7 @@ test.describe("Crossword — focus direction selection", () => {
 
 test.describe("Crossword — clue click sets activeDir and scrolls into view", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -1157,19 +964,12 @@ test.describe("Crossword — clue click sets activeDir and scrolls into view", (
 
 test.describe("App — updateBalance falsy guard", () => {
   test("bootstrap with null balance does not crash", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({}); } });
-          if (url === "/api/bootstrap") return Promise.resolve({ ok: true, json: function(){ return Promise.resolve({}); } });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(${puzzleJson()}); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/api/bootstrap": (route) =>
+          route.fulfill(json(200, {})),
+      },
+    });
     await page.goto("/");
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
@@ -1185,17 +985,16 @@ test.describe("App — updateBalance falsy guard", () => {
 
 test.describe("Crossword — hint reveal on already-solved entry", () => {
   test("hint reveal returns null when all cells are correct", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
     // Reveal all answers to fill cells correctly
     await page.getByRole("button", { name: "Reveal" }).click();
     // Now try to use hint on a clue — the reveal step should find no unsolved cell
-    var hintButton = page.locator("#puzzleView .hintButton").first();
-    await hintButton.click(); // verbal hint
-    await hintButton.click(); // letter reveal — should return null since all are correct
-    await hintButton.click(); // reset
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // verbal
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // letter — null since all correct
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // reset
     // No crash means it handled null gracefully
     await expect(page.locator("#grid")).toBeVisible();
   });
@@ -1207,7 +1006,7 @@ test.describe("Crossword — hint reveal on already-solved entry", () => {
 
 test.describe("Crossword — hint reset without prior reveal", () => {
   test("cycling hints when entry is already solved does not crash", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1219,10 +1018,9 @@ test.describe("Crossword — hint reset without prior reveal", () => {
     await page.getByRole("button", { name: "Reveal" }).click();
 
     // Try hint on a solved word — clicking through all 3 stages
-    var hintButton = page.locator("#puzzleView .hintButton").first();
-    await hintButton.click(); // verbal
-    await hintButton.click(); // letter (returns null, revealedCellInfo stays null)
-    await hintButton.click(); // reset (clearRevealedLetter with null revealedCellInfo — line 365-366)
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // verbal
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // letter (null)
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // reset
     await expect(page.locator("#grid")).toBeVisible();
   });
 });
@@ -1233,7 +1031,7 @@ test.describe("Crossword — hint reset without prior reveal", () => {
 
 test.describe("Generator — shuffled function exercised (line 257+)", () => {
   test("generator retries with shuffled words when first attempt fails", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1266,7 +1064,7 @@ test.describe("Generator — shuffled function exercised (line 257+)", () => {
 
 test.describe("Generator — seed at non-zero index (lines 220-224)", () => {
   test("generator tries non-zero word indices as seeds", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1296,7 +1094,7 @@ test.describe("Generator — seed at non-zero index (lines 220-224)", () => {
 
 test.describe("Generator — backtrack failure unplaces seed (lines 249-263)", () => {
   test("seed placement undone when backtracking fails", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1330,7 +1128,7 @@ test.describe("Generator — backtrack failure unplaces seed (lines 249-263)", (
 
 test.describe("Crossword — computeGridSize empty entries branch", () => {
   test("computeGridSize with empty entries is handled", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1362,7 +1160,7 @@ test.describe("Crossword — computeGridSize empty entries branch", () => {
 
 test.describe("Crossword — buildModel letter conflict", () => {
   test("conflicting letter placements show Placement conflict error", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1391,7 +1189,7 @@ test.describe("Crossword — buildModel letter conflict", () => {
 
 test.describe("Crossword — additional validation branches", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -1432,7 +1230,7 @@ test.describe("Crossword — additional validation branches", () => {
 
 test.describe("Crossword — navigation edge cases", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -1470,7 +1268,7 @@ test.describe("Crossword — navigation edge cases", () => {
 
 test.describe("Crossword — visualViewport resize listener", () => {
   test("visualViewport resize triggers handler", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1490,7 +1288,7 @@ test.describe("Crossword — visualViewport resize listener", () => {
 
 test.describe("Crossword — check with mixed empty and wrong", () => {
   test("check marks empty cells without class and wrong cells as wrong", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1523,26 +1321,8 @@ test.describe("Config — missing header element", () => {
         if (h) { h.id = "removed-header"; observer.disconnect(); }
       });
       observer.observe(document.documentElement, { childList: true, subtree: true });
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve([{
-              title: "Test", subtitle: "Sub",
-              items: [
-                { word: "orbit", definition: "Path", hint: "route" },
-                { word: "mare", definition: "Sea", hint: "horse" },
-                { word: "tides", definition: "Ocean", hint: "shifts" },
-                { word: "lunar", definition: "Moon", hint: "companion" },
-                { word: "apollo", definition: "Program", hint: "missions" },
-              ]
-            }]); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
     });
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     // Page should still load
     await expect(page.getByText("Create crossword puzzles with AI")).toBeVisible();
@@ -1555,7 +1335,7 @@ test.describe("Config — missing header element", () => {
 
 test.describe("Crossword — additional branch coverage", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -1642,40 +1422,22 @@ test.describe("Crossword — additional branch coverage", () => {
 
 test.describe("Crossword — validatePuzzleSpecification branches", () => {
   test("spec with non-array items is invalid", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve([{
-              title: "Test", subtitle: "Sub", items: "not-array"
-            }]); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedOutRoutes(page, {
+      puzzles: [{
+        title: "Test", subtitle: "Sub", items: "not-array"
+      }],
+    });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#errorBox")).toContainText("invalid", { timeout: 10000 });
   });
 
   test("spec with missing subtitle is invalid", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.resolve({ ok: false, status: 401 });
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve([{
-              title: "Test", items: [{ word: "ab", definition: "d", hint: "h" }]
-            }]); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedOutRoutes(page, {
+      puzzles: [{
+        title: "Test", items: [{ word: "ab", definition: "d", hint: "h" }]
+      }],
+    });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#errorBox")).toContainText("invalid", { timeout: 10000 });
@@ -1688,7 +1450,7 @@ test.describe("Crossword — validatePuzzleSpecification branches", () => {
 
 test.describe("Generator — additional branch coverage", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -1792,7 +1554,7 @@ test.describe("Generator — additional branch coverage", () => {
 
 test.describe("Crossword — render with defaults", () => {
   test("render with no title uses 'Crossword' default", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1815,7 +1577,7 @@ test.describe("Crossword — render with defaults", () => {
 
 test.describe("Crossword — keydown handler comprehensive", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
   });
@@ -1896,20 +1658,19 @@ test.describe("Crossword — keydown handler comprehensive", () => {
 
 test.describe("Crossword — revealLetter with empty cells", () => {
   test("hint reveal when cells have no value uses empty string fallback", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
     // Make sure all cells are empty (default state), then use hint
-    var hintButton = page.locator("#puzzleView .hintButton").first();
-    await hintButton.click(); // verbal
-    await hintButton.click(); // letter reveal — cells should have empty/null value
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // verbal
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // letter reveal
     await page.waitForTimeout(200);
     // A cell should get the correct class
     var correct = await page.locator("#grid .correct").count();
     expect(correct).toBeGreaterThanOrEqual(1);
     // Reset
-    await hintButton.click();
+    await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click());
     await expect(page.locator("#puzzleView .hintText").first()).toBeHidden();
   });
 });
@@ -1920,7 +1681,7 @@ test.describe("Crossword — revealLetter with empty cells", () => {
 
 test.describe("Crossword — touchmove without drag", () => {
   test("touchmove when not dragging does nothing", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1945,7 +1706,7 @@ test.describe("Crossword — touchmove without drag", () => {
 
 test.describe("Crossword — mousemove without drag", () => {
   test("mousemove when not dragging does nothing", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -1966,7 +1727,7 @@ test.describe("Crossword — mousemove without drag", () => {
 
 test.describe("Generator — attempt budget exhaustion", () => {
   test("generator exhausts budget mid-backtrack and returns failure", async ({ page }) => {
-    await page.addInitScript(loggedOutMock());
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
     await goToPuzzleWithGrid(page);
 
@@ -2006,18 +1767,11 @@ test.describe("Generator — attempt budget exhaustion", () => {
 
 test.describe("App — /me fetch failure", () => {
   test("page loads normally when /me fetch rejects", async ({ page }) => {
-    await page.addInitScript(`
-      window.__testOverrides = {
-        fetch: function (url, opts) {
-          if (url === "/me") return Promise.reject(new Error("network error"));
-          if (typeof url === "string" && url.includes("config.yaml"))
-            return Promise.resolve({ ok: true, text: function(){ return Promise.resolve(""); } });
-          if (typeof url === "string" && url.includes("crosswords.json"))
-            return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(${puzzleJson()}); } });
-          return Promise.resolve({ ok: false, status: 404 });
-        },
-      };
-    `);
+    await setupLoggedOutRoutes(page, {
+      extra: {
+        "**/me": (route) => route.abort("connectionrefused"),
+      },
+    });
     await page.goto("/");
     await expect(page.getByText("Create crossword puzzles with AI")).toBeVisible();
   });

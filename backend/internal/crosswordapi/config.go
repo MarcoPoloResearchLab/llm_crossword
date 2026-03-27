@@ -29,6 +29,7 @@ type Config struct {
 	LLMProxyKey       string
 	LLMProxyTimeout   time.Duration
 	DatabaseDSN       string
+	AdminEmails       []string
 }
 
 // Validate ensures the configuration contains sane values.
@@ -92,6 +93,36 @@ func ParseAllowedOrigins(raw string) []string {
 		}
 	}
 	return normalized
+}
+
+// ParseAdminEmails splits comma-delimited emails into a normalized slice.
+func ParseAdminEmails(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	parts := strings.Split(raw, ",")
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.ToLower(strings.TrimSpace(part))
+		if trimmed != "" {
+			normalized = append(normalized, trimmed)
+		}
+	}
+	return normalized
+}
+
+// IsAdmin returns true if the given email is in the admin list.
+func (cfg *Config) IsAdmin(email string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(email))
+	if trimmed == "" {
+		return false
+	}
+	for _, admin := range cfg.AdminEmails {
+		if admin == trimmed {
+			return true
+		}
+	}
+	return false
 }
 
 // BootstrapAmountCents returns the default bootstrap amount in cents.
