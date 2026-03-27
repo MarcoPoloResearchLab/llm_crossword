@@ -121,3 +121,61 @@ func TestCoinValueCents(t *testing.T) {
 		t.Fatalf("CoinValueCents() = %d, want %d", got, want)
 	}
 }
+
+func TestParseAdminEmails(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"", []string{}},
+		{"   ", []string{}},
+		{"admin@example.com", []string{"admin@example.com"}},
+		{"Admin@Example.COM", []string{"admin@example.com"}},
+		{"a@b.com,c@d.com", []string{"a@b.com", "c@d.com"}},
+		{" a@b.com , C@D.com , ", []string{"a@b.com", "c@d.com"}},
+		{"a@b.com,,c@d.com", []string{"a@b.com", "c@d.com"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := ParseAdminEmails(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Fatalf("expected %d emails, got %d: %v", len(tt.expected), len(result), result)
+			}
+			for i, v := range result {
+				if v != tt.expected[i] {
+					t.Errorf("email[%d] = %q, want %q", i, v, tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestIsAdmin(t *testing.T) {
+	cfg := Config{AdminEmails: []string{"admin@example.com", "boss@corp.io"}}
+
+	tests := []struct {
+		email string
+		want  bool
+	}{
+		{"admin@example.com", true},
+		{"Admin@Example.COM", true},
+		{"boss@corp.io", true},
+		{"user@example.com", false},
+		{"", false},
+		{"  ", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.email, func(t *testing.T) {
+			if got := cfg.IsAdmin(tt.email); got != tt.want {
+				t.Errorf("IsAdmin(%q) = %v, want %v", tt.email, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsAdmin_EmptyList(t *testing.T) {
+	cfg := Config{}
+	if cfg.IsAdmin("anyone@example.com") {
+		t.Error("expected false when admin list is empty")
+	}
+}

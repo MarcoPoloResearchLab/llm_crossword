@@ -24,6 +24,16 @@ type llmProxyResponse struct {
 	Response string `json:"response"`
 }
 
+// llmProxyError distinguishes upstream errors by HTTP status code.
+type llmProxyError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *llmProxyError) Error() string {
+	return fmt.Sprintf("llm proxy returned %d: %s", e.StatusCode, truncate(e.Body, 200))
+}
+
 var alphaOnly = regexp.MustCompile(`[^A-Za-z]`)
 
 const systemPrompt = `You are a crossword puzzle word generator. Return ONLY a valid JSON array, no markdown fences, no commentary.
@@ -66,7 +76,7 @@ func (handler *httpHandler) callLLMProxy(ctx context.Context, topic string, word
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("llm proxy returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, &llmProxyError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	var wrapper llmProxyResponse

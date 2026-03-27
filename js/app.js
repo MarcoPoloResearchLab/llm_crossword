@@ -2,7 +2,8 @@
 (function () {
   "use strict";
 
-  var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
+  var nativeFetch = window.fetch.bind(window);
+  var _fetch = window.authFetch || nativeFetch;
 
   // --- DOM references ---
   var landingPage       = document.getElementById("landingPage");
@@ -21,8 +22,10 @@
   var shareBtn         = document.getElementById("shareBtn");
 
   var loggedIn = false;
+  var authStateVersion = 0;
   var currentCoins = null; // null = unknown, number = confirmed balance
   var currentShareToken = null;
+  var pendingSessionVerification = null;
 
   // --- View navigation ---
   function showLanding() {
@@ -128,8 +131,31 @@
     creditBadge.textContent = coins + " credits";
   }
 
+  function verifySessionStillValid() {
+    if (pendingSessionVerification) return pendingSessionVerification;
+
+    pendingSessionVerification = nativeFetch("/me", {
+      cache: "no-store",
+      credentials: "include",
+    })
+      .then(function (resp) {
+        if (resp.ok) return true;
+        if (resp.status === 401 || resp.status === 403) return false;
+        return true;
+      })
+      .catch(function () {
+        return true;
+      })
+      .finally(function () {
+        pendingSessionVerification = null;
+      });
+
+    return pendingSessionVerification;
+  }
+
   function onLogin() {
     loggedIn = true;
+    authStateVersion += 1;
     updateAuthUI();
     showPuzzle();
     // Bootstrap credits.
@@ -148,13 +174,28 @@
 
   function onLogout() {
     loggedIn = false;
+    authStateVersion += 1;
     updateAuthUI();
     showLanding();
   }
 
   // Listen for mpr-ui auth events (bubble up from mpr-header).
-  document.addEventListener("mpr-ui:auth:authenticated", onLogin);
-  document.addEventListener("mpr-ui:auth:unauthenticated", onLogout);
+  // Guard against spurious initial "unauthenticated" events the component fires
+  // before it has verified auth — only act when the state actually changes.
+  document.addEventListener("mpr-ui:auth:authenticated", function () {
+    if (!loggedIn) onLogin();
+  });
+  document.addEventListener("mpr-ui:auth:unauthenticated", function () {
+    var eventAuthStateVersion = 0;
+
+    if (!loggedIn) return;
+
+    eventAuthStateVersion = authStateVersion;
+    verifySessionStillValid().then(function (sessionStillValid) {
+      if (!loggedIn || authStateVersion !== eventAuthStateVersion) return;
+      if (!sessionStillValid) onLogout();
+    });
+  });
 
   // Check session on load.
   _fetch("/me", { credentials: "include" })
@@ -197,8 +238,19 @@
         if (!result.ok) {
           if (result.data.error === "insufficient_credits") {
             generateStatus.textContent = "Not enough credits. You need 5 credits per puzzle.";
+          } else if (result.data.error === "llm_timeout") {
+            generateStatus.textContent = "The AI model timed out. Your credits have been refunded — please try again.";
+          } else if (result.data.error === "llm_error") {
+            generateStatus.textContent = "Generation failed. Your credits have been refunded — please try again.";
           } else {
             generateStatus.textContent = result.data.message || "Generation failed. Please try again.";
+          }
+          // Refresh balance after a refund so the badge reflects the returned credits.
+          if (result.data.error === "llm_timeout" || result.data.error === "llm_error") {
+            _fetch("/api/balance", { credentials: "include" })
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (d) { if (d && d.balance) updateBalance(d.balance); })
+              .catch(function () {});
           }
           return;
         }
@@ -258,7 +310,12 @@
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(url).then(function () {
           shareBtn.textContent = "Copied!";
-          setTimeout(function () { shareBtn.textContent = "Share"; }, 2000);
+          shareBtn.classList.add("copied-flash");
+          shareBtn.addEventListener("animationend", function onEnd() {
+            shareBtn.removeEventListener("animationend", onEnd);
+            shareBtn.classList.remove("copied-flash");
+            shareBtn.textContent = "Share";
+          });
         });
       } else {
         // Fallback: show the URL in a prompt.
