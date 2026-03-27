@@ -49,12 +49,6 @@ func WithShutdownTimeout(d time.Duration) RunOption {
 	return func(o *runOptions) { o.shutdownTimeout = d }
 }
 
-// withOnServerReady sets a callback invoked once the HTTP server is about to listen.
-// This is only used in tests to get a reference to the server for controlled shutdown.
-func withOnServerReady(f func(srv *http.Server)) RunOption {
-	return func(o *runOptions) { o.onServerReady = f }
-}
-
 // WithStore injects a pre-configured store implementation.
 func WithStore(s Store) RunOption {
 	return func(o *runOptions) { o.store = s }
@@ -184,6 +178,12 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 	api.GET("/puzzles/:id", handler.handleGetPuzzle)
 	api.DELETE("/puzzles/:id", handler.handleDeletePuzzle)
 
+	admin := api.Group("/admin")
+	admin.Use(handler.requireAdmin)
+	admin.GET("/users", handler.handleAdminListUsers)
+	admin.GET("/balance", handler.handleAdminBalance)
+	admin.POST("/grant", handler.handleAdminGrant)
+
 	return router
 }
 
@@ -208,6 +208,7 @@ func (handler *httpHandler) handleSession(ctx *gin.Context) {
 		"avatar_url": claims.GetUserAvatarURL(),
 		"roles":      claims.GetUserRoles(),
 		"expires":    claims.GetExpiresAt().Unix(),
+		"is_admin":   handler.cfg.IsAdmin(claims.GetUserEmail()),
 	})
 }
 
@@ -531,6 +532,116 @@ func (handler *httpHandler) handleDeletePuzzle(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"deleted": true})
+}
+
+func (handler *httpHandler) handleAdminListUsers(ctx *gin.Context) {
+	userIDs, err := handler.store.ListDistinctUserIDs()
+	if err != nil {
+		handler.logger.Error("admin list users failed", zap.Error(err))
+		ctx.JSON(http.StatusInternalServerError, errorResponse("db_error", "failed to list users"))
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"users": userIDs})
+}
+
+func (handler *httpHandler) handleAdminBalance(ctx *gin.Context) {
+	userID := strings.TrimSpace(ctx.Query("user_id"))
+	if userID == "" {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_user_id", "user_id query parameter is required"))
+		return
+	}
+	balance, err := handler.fetchBalance(ctx.Request.Context(), userID)
+	if err != nil {
+		handler.logger.Error("admin balance fetch failed", zap.Error(err))
+		ctx.JSON(http.StatusBadGateway, errorResponse("ledger_error", "balance unavailable"))
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"balance": balance})
+}
+
+func (handler *httpHandler) requireAdmin(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.AbortWithStatusJSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+	// Allow access if the user's email is in the admin allowlist OR if TAuth
+	// assigned them an "admin" role via session claims.
+	if !handler.cfg.IsAdmin(claims.GetUserEmail()) && !hasRole(claims, "admin") {
+		ctx.AbortWithStatusJSON(http.StatusForbidden, errorResponse("forbidden", "admin access required"))
+		return
+	}
+	ctx.Next()
+}
+
+// hasRole checks whether the claims contain a specific role.
+func hasRole(claims *sessionvalidator.Claims, role string) bool {
+	for _, r := range claims.GetUserRoles() {
+		if strings.EqualFold(r, role) {
+			return true
+		}
+	}
+	return false
+}
+
+type adminGrantRequest struct {
+	UserID      string `json:"user_id"`
+	AmountCoins int64  `json:"amount_coins"`
+}
+
+func (handler *httpHandler) handleAdminGrant(ctx *gin.Context) {
+	claims := getClaims(ctx)
+
+	var req adminGrantRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_payload", "expected JSON body with user_id and amount_coins"))
+		return
+	}
+	if strings.TrimSpace(req.UserID) == "" {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_user_id", "user_id is required"))
+		return
+	}
+	if req.AmountCoins <= 0 {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_amount", "amount_coins must be positive"))
+		return
+	}
+
+	amountCents := req.AmountCoins * CoinValueCents()
+	requestCtx, cancel := context.WithTimeout(ctx.Request.Context(), handler.cfg.LedgerTimeout)
+	defer cancel()
+
+	_, err := handler.ledgerClient.Grant(requestCtx, &creditv1.GrantRequest{
+		UserId:         req.UserID,
+		AmountCents:    amountCents,
+		IdempotencyKey: fmt.Sprintf("admin-grant:%s:%s", claims.GetUserID(), uuid.NewString()),
+		MetadataJson: marshalMetadata(map[string]string{
+			"action":   "admin_grant",
+			"admin_id": claims.GetUserID(),
+		}),
+		ExpiresAtUnixUtc: 0,
+		LedgerId:         handler.cfg.DefaultLedgerID,
+		TenantId:         handler.cfg.DefaultTenantID,
+	})
+	if err != nil {
+		handler.logger.Error("admin grant failed", zap.Error(err))
+		ctx.JSON(http.StatusBadGateway, errorResponse("ledger_error", "grant failed"))
+		return
+	}
+
+	handler.logger.Info("admin grant",
+		zap.String("admin", claims.GetUserEmail()),
+		zap.String("target_user", req.UserID),
+		zap.Int64("coins", req.AmountCoins),
+	)
+
+	// Return updated balance for the target user.
+	balance, balanceErr := handler.fetchBalance(ctx.Request.Context(), req.UserID)
+	if balanceErr != nil {
+		handler.logger.Error("balance fetch after admin grant failed", zap.Error(balanceErr))
+		ctx.JSON(http.StatusOK, gin.H{"granted": true})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"granted": true, "balance": balance})
 }
 
 func waitForClientReady(ctx context.Context, conn *grpc.ClientConn) error {

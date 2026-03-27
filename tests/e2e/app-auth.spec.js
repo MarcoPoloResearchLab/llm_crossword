@@ -168,3 +168,142 @@ test.describe("App auth — landing Sign in button fallback", () => {
   });
 });
 
+test.describe("Settings drawer — avatar dropdown", () => {
+  var adminConfigYaml =
+    'administrators:\n  - "admin@example.com"\n\nenvironments: []\n';
+
+  test("logged-in user sees Settings and Log out in avatar dropdown", async ({
+    page,
+  }) => {
+    await setupLoggedInRoutes(page, {
+      session: { email: "admin@example.com", name: "Admin" },
+      configYaml: adminConfigYaml,
+    });
+    await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    // Wait for admin.js to set menu-items on mpr-user after /api/session responds.
+    await page.waitForFunction(
+      () => {
+        var el = document.getElementById("userMenu");
+        return el && el.getAttribute("menu-items");
+      },
+      { timeout: 5000 }
+    );
+
+    // Click avatar trigger to open dropdown.
+    await page.click('[data-mpr-user="trigger"]');
+
+    // Both menu items should be visible.
+    await expect(
+      page.locator('[data-mpr-user="menu-item"]', { hasText: "Settings" })
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-mpr-user="logout"]', { hasText: "Log out" })
+    ).toBeVisible();
+  });
+
+  test("clicking Settings opens the settings drawer", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      session: { email: "admin@example.com", name: "Admin" },
+      configYaml: adminConfigYaml,
+    });
+    await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    await page.waitForFunction(
+      () => {
+        var el = document.getElementById("userMenu");
+        return el && el.getAttribute("menu-items");
+      },
+      { timeout: 5000 }
+    );
+
+    // Open dropdown and click Settings.
+    await page.click('[data-mpr-user="trigger"]');
+    await page.click('[data-mpr-user-action="settings"]');
+
+    // Drawer should be open (has open attribute).
+    await expect(page.locator("#settingsDrawer")).toHaveAttribute("open", "", {
+      timeout: 5000,
+    });
+  });
+
+  test("settings drawer shows Account tab with user info", async ({
+    page,
+  }) => {
+    await setupLoggedInRoutes(page, {
+      session: {
+        email: "admin@example.com",
+        name: "Admin User",
+        picture: "https://example.com/avatar.png",
+      },
+      configYaml: adminConfigYaml,
+    });
+    await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    await page.waitForFunction(
+      () => {
+        var el = document.getElementById("userMenu");
+        return el && el.getAttribute("menu-items");
+      },
+      { timeout: 5000 }
+    );
+
+    await page.click('[data-mpr-user="trigger"]');
+    await page.click('[data-mpr-user-action="settings"]');
+
+    // Account tab should show user info.
+    await expect(page.locator("#settingsName")).toHaveText("Admin User");
+    await expect(page.locator("#settingsEmail")).toHaveText(
+      "admin@example.com"
+    );
+  });
+
+  test("admin user sees Admin tab in settings drawer", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      session: { email: "admin@example.com", name: "Admin" },
+      configYaml: adminConfigYaml,
+    });
+    await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    await page.waitForFunction(
+      () => {
+        var el = document.getElementById("userMenu");
+        return el && el.getAttribute("menu-items");
+      },
+      { timeout: 5000 }
+    );
+
+    await page.click('[data-mpr-user="trigger"]');
+    await page.click('[data-mpr-user-action="settings"]');
+
+    // Admin tab should be visible for admin users.
+    await expect(page.locator("#settingsTabAdmin")).toBeVisible();
+  });
+
+  test("non-admin user does not see Admin tab", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      session: { email: "regular@example.com", name: "Regular User" },
+      configYaml: adminConfigYaml,
+    });
+    await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    await page.waitForFunction(
+      () => {
+        var el = document.getElementById("userMenu");
+        return el && el.getAttribute("menu-items");
+      },
+      { timeout: 5000 }
+    );
+
+    await page.click('[data-mpr-user="trigger"]');
+    await page.click('[data-mpr-user-action="settings"]');
+
+    // Admin tab should be hidden for non-admin users.
+    await expect(page.locator("#settingsTabAdmin")).toBeHidden();
+  });
+});

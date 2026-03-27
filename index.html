@@ -38,6 +38,7 @@
 >
   <span id="headerCreditBadge" slot="aux" class="header-credit-badge" style="display:none;"></span>
   <mpr-user
+    id="userMenu"
     slot="aux"
     display-mode="avatar"
     logout-url="/"
@@ -148,6 +149,83 @@
   </div>
 </div>
 
+<!-- ========== Settings drawer (mpr-detail-drawer) ========== -->
+<mpr-detail-drawer id="settingsDrawer" heading="Settings" subheading="Account &amp; Admin">
+
+  <div slot="body">
+    <!-- Tab nav -->
+    <div class="settings-tabs">
+      <button id="settingsTabAccount" class="settings-tabs__btn settings-tabs__btn--active" data-tab="account">Account</button>
+      <button id="settingsTabAdmin" class="settings-tabs__btn" data-tab="admin" style="display:none;">Admin</button>
+    </div>
+
+    <!-- ===== Account section ===== -->
+    <div id="settingsAccountTab" class="settings-section">
+      <div class="settings-account-card">
+        <div class="settings-account-card__row">
+          <img id="settingsAvatar" class="settings-account-card__avatar" src="" alt="" />
+          <div class="settings-account-card__info">
+            <div id="settingsName" class="settings-account-card__name">—</div>
+            <div id="settingsEmail" class="settings-account-card__email">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Admin section ===== -->
+    <div id="settingsAdminTab" class="settings-section" style="display:none;">
+      <div class="admin-panel__body">
+        <!-- User list -->
+        <div class="admin-panel__users">
+          <div class="admin-panel__section-header">
+            <h3 class="admin-panel__section-title">Users</h3>
+            <button id="adminRefreshUsers" class="admin-panel__btn-sm secondary">Refresh</button>
+          </div>
+          <input type="search" id="adminUserSearch" class="admin-panel__search" placeholder="Filter users..." />
+          <div id="adminUserList" class="admin-panel__user-list"></div>
+          <div id="adminUsersStatus" class="admin-panel__status"></div>
+        </div>
+
+        <!-- Selected user details -->
+        <div class="admin-panel__details">
+          <div id="adminNoSelection" class="admin-panel__placeholder">Select a user to view balance and grant credits.</div>
+
+          <div id="adminUserDetails" style="display:none;">
+            <div class="admin-panel__user-header">
+              <span id="adminSelectedUser" class="admin-panel__selected-label"></span>
+              <button id="adminRefreshUser" class="admin-panel__btn-sm secondary">Refresh</button>
+            </div>
+
+            <!-- Balance -->
+            <div class="admin-panel__balance-card">
+              <div class="admin-panel__balance-row">
+                <span class="admin-panel__balance-label">Available</span>
+                <span id="adminBalanceCoins" class="admin-panel__balance-value">-</span>
+              </div>
+              <div class="admin-panel__balance-row">
+                <span class="admin-panel__balance-label">Total (cents)</span>
+                <span id="adminBalanceTotal" class="admin-panel__balance-value">-</span>
+              </div>
+              <div id="adminBalanceStatus" class="admin-panel__status"></div>
+            </div>
+
+            <!-- Grant form -->
+            <h3 class="admin-panel__section-title">Grant credits</h3>
+            <form id="adminGrantForm" class="admin-panel__grant-form">
+              <label class="admin-panel__label">
+                Credits
+                <input type="number" id="adminGrantCoins" min="1" step="1" required class="admin-panel__input" />
+              </label>
+              <button type="submit" id="adminGrantBtn">Grant</button>
+            </form>
+            <div id="adminGrantStatus" class="admin-panel__status"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</mpr-detail-drawer>
+
 <mpr-footer
   id="page-footer"
   sticky="true"
@@ -183,12 +261,14 @@
   theme-switcher="toggle"
 ></mpr-footer>
 
+<script src="js/auth-fetch.js"></script>
 <script src="js/config.js"></script>
 <script src="js/generator.js"></script>
 <script src="js/crossword-widget.js"></script>
 <script src="js/landing-puzzle.js"></script>
 <script src="js/crossword.js"></script>
 <script src="js/app.js"></script>
+<script src="js/admin.js"></script>
 
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-7TXFH9TLQB"></script>
