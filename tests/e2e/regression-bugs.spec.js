@@ -58,7 +58,9 @@ test.describe("Session persistence on refresh", () => {
     await setupLoggedInMocks(page);
     await page.goto("/");
 
-    // Verify logged-in state: generate button should be enabled
+    // Verify logged-in state: puzzle view visible, click New Crossword to check generate button
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     const genBtn = page.locator("#generateBtn");
     await expect(genBtn).toBeEnabled({ timeout: 5000 });
     await expect(genBtn).toContainText("(5 credits)");
@@ -67,6 +69,8 @@ test.describe("Session persistence on refresh", () => {
     await page.reload();
 
     // After reload, user must STILL be logged in
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(genBtn).toBeEnabled({ timeout: 5000 });
     await expect(genBtn).toContainText("(5 credits)");
   });
@@ -180,11 +184,11 @@ test.describe("Layout — no excessive empty space", () => {
 
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
-    // The .wrap element's visible height should not vastly exceed its scroll height
+    // The puzzle main area's visible height should not vastly exceed its scroll height
     const ratio = await page.evaluate(() => {
-      const wrap = document.querySelector(".wrap");
-      if (!wrap) return 999;
-      return wrap.clientHeight / wrap.scrollHeight;
+      const main = document.querySelector(".puzzle-main") || document.querySelector(".wrap");
+      if (!main) return 999;
+      return main.clientHeight / main.scrollHeight;
     });
 
     // If ratio > 1 or close to 1, it means no excessive stretching.
@@ -423,7 +427,8 @@ test.describe("Clue visibility — long clues (class: content never clipped)", (
       return clues ? clues.getBoundingClientRect().width : 0;
     });
 
-    expect(clueWidth).toBeGreaterThanOrEqual(250);
+    // With the sidebar taking 280px, clues get ~25% of the remaining main area
+    expect(clueWidth).toBeGreaterThanOrEqual(200);
   });
 
   test("no scrollbar artifact (black bar) inside grid viewport", async ({ page }) => {
@@ -465,11 +470,14 @@ test.describe("Generate panel visibility (class: view state correctness)", () =>
     await expect(page.locator("#generatePanel")).toBeHidden();
   });
 
-  test("generate form is visible when logged in", async ({ page }) => {
+  test("generate form is visible after clicking New Crossword when logged in", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
 
+    // Generate panel is hidden until New Crossword card is clicked
+    await expect(page.locator("#generatePanel")).toBeHidden();
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generatePanel")).toBeVisible();
   });
 });

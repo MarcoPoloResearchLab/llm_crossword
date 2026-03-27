@@ -86,59 +86,64 @@
 </section>
 
 <!-- ========== Puzzle view (hidden until a puzzle is loaded) ========== -->
-<div id="puzzleView" class="wrap" style="display:none;">
-  <div class="hdr">
-    <h1 id="title">Crossword Puzzle</h1>
-    <div class="sub" id="subtitle">Loading...</div>
-  </div>
+<div id="puzzleView" class="puzzle-layout" style="display:none;">
 
-  <!-- Pre-built puzzle selector (hidden for generated puzzles) -->
-  <div id="prebuiltPanel" class="panel-bar">
-    <label style="display:flex; gap:8px; align-items:center;">
-      <span style="opacity:.85;font-size:13px;">Choose puzzle:</span>
-      <select id="puzzleSelect"></select>
-    </label>
-  </div>
-
-  <!-- Generate form (visible when logged in) -->
-  <div id="generatePanel" class="panel-bar" style="display:none;">
-    <div class="generate-form">
-      <input type="text" id="topicInput" placeholder="Enter a topic (e.g. Greek mythology)" maxlength="200"/>
-      <label class="word-count-label">
-        Words:
-        <select id="wordCount" title="More words = larger puzzle, longer generation time">
-          <option value="5">5</option>
-          <option value="8" selected>8</option>
-          <option value="10">10</option>
-          <option value="12">12</option>
-        </select>
-      </label>
-      <button id="generateBtn" disabled>Generate (5 credits)</button>
+  <!-- Left sidebar with puzzle cards -->
+  <aside id="puzzleSidebar" class="puzzle-sidebar">
+    <div id="newCrosswordCard" class="puzzle-card puzzle-card--new">
+      <div class="puzzle-card__icon">+</div>
+      <div class="puzzle-card__title">New Crossword</div>
     </div>
-    <div id="generateStatus" class="generate-status"></div>
-  </div>
+    <div id="puzzleCardList"></div>
+  </aside>
 
-  <div class="pane">
-    <!-- Scrollable + draggable viewport -->
-    <div id="gridViewport" class="gridViewport">
-      <div class="grid" id="grid"></div>
+  <!-- Right main area -->
+  <div id="puzzleMain" class="puzzle-main">
+    <div class="hdr">
+      <h1 id="title">Crossword Puzzle</h1>
+      <div class="sub" id="subtitle">Loading...</div>
     </div>
-    <div class="clues">
-      <div class="cluegrp"><h3>Across</h3>
-        <ol id="across"></ol>
+
+    <!-- Generate form (shown when "New Crossword" card is selected) -->
+    <div id="generatePanel" class="panel-bar" style="display:none;">
+      <div class="generate-form">
+        <input type="text" id="topicInput" placeholder="Enter a topic (e.g. Greek mythology)" maxlength="200"/>
+        <label class="word-count-label">
+          Words:
+          <select id="wordCount" title="More words = larger puzzle, longer generation time">
+            <option value="5">5</option>
+            <option value="8" selected>8</option>
+            <option value="10">10</option>
+            <option value="12">12</option>
+          </select>
+        </label>
+        <button id="generateBtn" disabled>Generate (5 credits)</button>
       </div>
-      <div class="cluegrp"><h3>Down</h3>
-        <ol id="down"></ol>
+      <div id="generateStatus" class="generate-status"></div>
+    </div>
+
+    <div class="pane">
+      <!-- Scrollable + draggable viewport -->
+      <div id="gridViewport" class="gridViewport">
+        <div class="grid" id="grid"></div>
+      </div>
+      <div class="clues">
+        <div class="cluegrp"><h3>Across</h3>
+          <ol id="across"></ol>
+        </div>
+        <div class="cluegrp"><h3>Down</h3>
+          <ol id="down"></ol>
+        </div>
       </div>
     </div>
-  </div>
 
-  <div class="controls">
-    <button id="check">Check</button>
-    <button class="secondary" id="reveal">Reveal</button>
-    <button id="backToLanding" class="secondary">Back</button>
-    <div class="status" id="status"></div>
-    <div class="error" id="errorBox"></div>
+    <div class="controls">
+      <button id="check">Check</button>
+      <button class="secondary" id="reveal">Reveal</button>
+      <button id="backToLanding" class="secondary">Back</button>
+      <div class="status" id="status"></div>
+      <div class="error" id="errorBox"></div>
+    </div>
   </div>
 </div>
 

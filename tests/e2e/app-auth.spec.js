@@ -81,6 +81,8 @@ test.describe("App auth — logged in state", () => {
   test("generate button is enabled with credits when logged in", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     var genBtn = page.locator("#generateBtn");
     await expect(genBtn).toBeEnabled({ timeout: 5000 });
     await expect(genBtn).toContainText("(5 credits)");
@@ -126,10 +128,14 @@ test.describe("App auth — logged out state", () => {
     await expect(genBtn).toBeDisabled();
   });
 
-  test("generate form appears after login", async ({ page }) => {
+  test("generate form appears after clicking New Crossword", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // Generate form is visible on landing page when logged in
+    // Logged-in user sees puzzle view with sidebar
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    // Generate panel is hidden until New Crossword card is clicked
+    await expect(page.locator("#generatePanel")).toBeHidden();
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 5000 });
   });
 });
@@ -169,8 +175,10 @@ test.describe("App auth — bootstrap failure", () => {
       };
     });
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
-    // Generate button should still be enabled (user is logged in)
+    // onLogin() auto-navigates to puzzle view
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    // Generate button should still be enabled after clicking New Crossword
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
   });
 });
@@ -223,15 +231,16 @@ test.describe("App auth — generate success", () => {
       };
     });
     await page.goto("/");
-    // Logged-in user sees generate form on landing page
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "moon");
     await page.locator("#generateBtn").click();
-    // After successful generation, user is navigated to puzzle view (solver)
+    // After successful generation, puzzle is rendered and generate panel is hidden
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 10000 });
-    // The status message is set but may be hidden since landing page is hidden;
-    // verify the text content directly.
-    await expect(page.locator("#generateStatus")).toContainText("Puzzle ready!", { timeout: 5000 });
+    await expect(page.locator("#title")).toContainText("Test Generated", { timeout: 5000 });
+    await expect(page.locator("#generatePanel")).toBeHidden();
   });
 });
 
@@ -272,7 +281,9 @@ test.describe("App auth — generate insufficient credits", () => {
       };
     });
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "moon");
     await page.locator("#generateBtn").click();
@@ -312,7 +323,9 @@ test.describe("App auth — generate network error", () => {
       };
     });
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "moon");
     await page.locator("#generateBtn").click();
@@ -324,7 +337,9 @@ test.describe("App auth — empty topic", () => {
   test("shows 'Please enter a topic.' when topic is empty", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.locator("#generateBtn").click();
     await expect(page.getByText("Please enter a topic.")).toBeVisible();
@@ -382,29 +397,30 @@ test.describe("App auth — auth events", () => {
       };
     });
     await page.goto("/");
-    // Initially logged out — generate form is hidden, button is disabled
-    await expect(page.locator("#generatePanel")).toBeHidden({ timeout: 5000 });
+    // Initially logged out — landing page visible, puzzle view hidden
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
     await expect(page.locator("#generateBtn")).toBeDisabled();
     // Dispatch authenticated event
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:authenticated"));
     });
-    // Now generate form should be visible and button enabled
+    // Now puzzle view should be visible; click New Crossword to see generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 5000 });
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
   });
 
-  test("mpr-ui:auth:unauthenticated event triggers logout and hides generate form", async ({ page }) => {
+  test("mpr-ui:auth:unauthenticated event triggers logout and shows landing page", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
-    // Logged-in user sees generate form on landing page
-    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
-    await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 5000 });
+    // Logged-in user sees puzzle view
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     // Dispatch unauthenticated event
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:unauthenticated"));
     });
-    // Should stay on landing page but generate form should be hidden
+    // Should go back to landing page
     await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
     await expect(page.locator("#generatePanel")).toBeHidden({ timeout: 5000 });
   });

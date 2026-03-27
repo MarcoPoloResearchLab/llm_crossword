@@ -176,7 +176,9 @@ test.describe("App — bootstrap non-ok response (line 114)", () => {
       };
     `);
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     // Generate button should be enabled (logged in) but no credit count shown
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     // Credit badge should be visible (logged in state) but without credit count
@@ -188,7 +190,9 @@ test.describe("App — generate while not logged in (lines 149-150)", () => {
   test("shows 'Please log in first' when generating while logged out via event", async ({ page }) => {
     await page.addInitScript(loggedInMock(10));
     await page.goto("/");
-    // Logged-in user sees generate form on landing page
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     // Now log out via event
     await page.evaluate(() => {
@@ -231,7 +235,9 @@ test.describe("App — generic generate error message (line 176)", () => {
       };
     `);
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "planets");
     await page.locator("#generateBtn").click();
@@ -259,7 +265,9 @@ test.describe("App — generic generate error message (line 176)", () => {
       };
     `);
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "planets");
     await page.locator("#generateBtn").click();
@@ -271,7 +279,9 @@ test.describe("App — Enter key on topic input (lines 206-208)", () => {
   test("pressing Enter in topic input triggers generate", async ({ page }) => {
     await page.addInitScript(loggedInMock(10));
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     // Leave topic empty and press Enter — should show "Please enter a topic."
     await page.locator("#topicInput").focus();
@@ -598,8 +608,8 @@ test.describe("Crossword — puzzle select change", () => {
     await page.getByRole("button", { name: "Reveal" }).click();
     await expect(page.getByRole("button", { name: "Hide" })).toBeVisible();
 
-    // Change to second puzzle
-    await page.locator("#puzzleSelect").selectOption("1");
+    // Change to second puzzle by clicking the second card in the sidebar
+    await page.locator("#puzzleCardList .puzzle-card").nth(1).click();
     await expect(page.locator("#title")).toContainText("Puzzle Two", { timeout: 5000 });
 
     // Reveal button should say "Reveal" again (reset by selectChange listener)
@@ -1061,13 +1071,16 @@ test.describe("App — generate with title/subtitle defaults", () => {
       };
     `);
     await page.goto("/");
-    // Logged-in user sees generate form on landing page
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     await page.fill("#topicInput", "space");
     await page.locator("#generateBtn").click();
-    // After successful generation, user is navigated to puzzle view
+    // After successful generation, puzzle is rendered with default title and generate panel is hidden
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 10000 });
-    await expect(page.locator("#generateStatus")).toContainText("Puzzle ready!", { timeout: 5000 });
+    await expect(page.locator("#title")).toContainText("space", { timeout: 5000 });
+    await expect(page.locator("#generatePanel")).toBeHidden();
   });
 });
 
@@ -1158,7 +1171,9 @@ test.describe("App — updateBalance falsy guard", () => {
       };
     `);
     await page.goto("/");
-    // onLogin() auto-navigates to puzzle view with generate tab active
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     // Should not crash — no balance in bootstrap response
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
   });

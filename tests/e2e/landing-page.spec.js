@@ -47,10 +47,11 @@ test.describe("Landing page", () => {
     await expect(page.locator("#landingPage")).toBeHidden();
   });
 
-  test("puzzle view shows puzzle selector after clicking try", async ({ page }) => {
+  test("puzzle view shows puzzle cards in sidebar after clicking try", async ({ page }) => {
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    // No mode tabs in the new UI — puzzle selector is shown directly
-    await expect(page.locator("#prebuiltPanel")).toBeVisible();
+    // Sidebar with puzzle cards is shown
+    await expect(page.locator("#puzzleSidebar")).toBeVisible();
+    await expect(page.locator("#puzzleCardList .puzzle-card").first()).toBeVisible();
   });
 
   test("back button returns to landing page from puzzle view", async ({ page }) => {

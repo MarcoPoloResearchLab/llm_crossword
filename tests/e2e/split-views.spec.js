@@ -87,11 +87,14 @@ test.describe("Landing page — auth-based routing", () => {
     await expect(page.locator("#puzzleView")).toBeHidden();
   });
 
-  test("logged-in user skips landing and sees puzzle view with generate form", async ({ page }) => {
+  test("logged-in user skips landing and sees puzzle view with sidebar", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
     await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    // Generate form is only shown after clicking New Crossword card
+    await expect(page.locator("#puzzleSidebar")).toBeVisible();
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#topicInput")).toBeVisible();
     await expect(page.locator("#generateBtn")).toBeVisible();
   });
@@ -99,6 +102,8 @@ test.describe("Landing page — auth-based routing", () => {
   test("generate button shows credit cost when logged in", async ({ page }) => {
     await setupLoggedInMocks(page);
     await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toContainText("5 credits", { timeout: 5000 });
   });
 });
@@ -114,12 +119,12 @@ test.describe("Solver view — no tabs", () => {
     await expect(page.locator("[role='tab']")).toHaveCount(0);
   });
 
-  test("solver view shows puzzle selector for pre-built puzzles", async ({ page }) => {
+  test("solver view shows puzzle cards in sidebar for pre-built puzzles", async ({ page }) => {
     await setupLoggedOutMocks(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#puzzleSelect")).toBeVisible();
+    await expect(page.locator("#puzzleCardList .puzzle-card").first()).toBeVisible();
   });
 
   test("solver view shows grid and clues", async ({ page }) => {
@@ -200,7 +205,9 @@ test.describe("Generate flow — landing to solver", () => {
       };
     });
     await page.goto("/");
-    // Wait for login
+    // Logged-in user sees puzzle view; click New Crossword to show generate form
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
     // Fill topic and generate
     await page.locator("#topicInput").fill("Greek Gods");
@@ -210,8 +217,8 @@ test.describe("Generate flow — landing to solver", () => {
     await expect(page.locator("#landingPage")).toBeHidden();
     // Solver should show the generated puzzle title
     await expect(page.locator("#title")).toContainText("Greek Gods");
-    // Puzzle selector should be hidden (this is a generated puzzle, not pre-built)
-    await expect(page.locator("#puzzleSelect")).toBeHidden();
+    // Generate panel should be hidden after successful generation
+    await expect(page.locator("#generatePanel")).toBeHidden();
   });
 });
 

@@ -7,7 +7,6 @@
   // --- DOM references ---
   var landingPage       = document.getElementById("landingPage");
   var puzzleView        = document.getElementById("puzzleView");
-  var prebuiltPanel     = document.getElementById("prebuiltPanel");
   var generatePanel     = document.getElementById("generatePanel");
   var topicInput        = document.getElementById("topicInput");
   var wordCountSelect   = document.getElementById("wordCount");
@@ -17,8 +16,10 @@
   var landingTryBtn     = document.getElementById("landingTryPrebuilt");
   var landingSignIn     = document.getElementById("landingSignIn");
   var backToLanding     = document.getElementById("backToLanding");
+  var newCrosswordCard  = document.getElementById("newCrosswordCard");
 
   var loggedIn = false;
+  var currentCoins = 0;
 
   // --- View navigation ---
   function showLanding() {
@@ -26,16 +27,9 @@
     puzzleView.style.display = "none";
   }
 
-  function showPuzzle(source) {
+  function showPuzzle() {
     landingPage.style.display = "none";
     puzzleView.style.display = "";
-    // Show/hide panels based on source.
-    if (prebuiltPanel) {
-      prebuiltPanel.style.display = source === "generated" ? "none" : "";
-    }
-    if (generatePanel) {
-      generatePanel.style.display = loggedIn ? "" : "none";
-    }
     // Recalculate cell sizes after the browser reflows the now-visible puzzle view.
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
@@ -46,25 +40,55 @@
     });
   }
 
+  /** showGenerateForm shows the generate form and hides the puzzle grid area. */
+  function showGenerateForm() {
+    if (generatePanel) generatePanel.style.display = "";
+    // Hide the puzzle grid and controls while showing the form.
+    var pane = puzzleView.querySelector(".pane");
+    if (pane) pane.style.display = "none";
+    var controls = puzzleView.querySelector(".controls");
+    if (controls) controls.style.display = "none";
+    // Update title.
+    var titleEl = document.getElementById("title");
+    var subEl = document.getElementById("subtitle");
+    if (titleEl) titleEl.textContent = "Generate a New Crossword";
+    if (subEl) subEl.textContent = "Enter a topic and choose the number of words.";
+    // Set active state on "New Crossword" card.
+    if (window.CrosswordApp && window.CrosswordApp.setActiveCard) {
+      window.CrosswordApp.setActiveCard(newCrosswordCard);
+    }
+    if (topicInput) topicInput.focus();
+  }
+
+  // --- "New Crossword" card click ---
+  if (newCrosswordCard) {
+    newCrosswordCard.addEventListener("click", function () {
+      if (currentCoins < 5) {
+        // Show the form area but with an insufficient credits message.
+        showGenerateForm();
+        generateBtn.disabled = true;
+        generateStatus.textContent = "Not enough credits. You need 5 credits to generate a puzzle.";
+        return;
+      }
+      showGenerateForm();
+    });
+  }
+
   // --- Landing page buttons ---
   landingTryBtn.addEventListener("click", function () {
-    showPuzzle("prebuilt");
+    showPuzzle();
   });
 
   landingSignIn.addEventListener("click", function () {
     if (loggedIn) {
-      // Already logged in — go to puzzle view.
-      showPuzzle("prebuilt");
-      if (topicInput) topicInput.focus();
+      showPuzzle();
       return;
     }
-    // Trigger Google Sign-In by clicking the header's sign-in button.
     var headerSignIn = document.querySelector("[data-mpr-header='google-signin'] div[role='button']");
     if (headerSignIn) {
       headerSignIn.click();
     } else {
-      // Fallback: go to puzzle view.
-      showPuzzle("prebuilt");
+      showPuzzle();
     }
   });
 
@@ -91,21 +115,20 @@
       creditBadge.classList.remove("logged-out");
       generateStatus.textContent = "";
       landingSignIn.textContent = "Go to generator";
-      if (generatePanel) generatePanel.style.display = "";
     }
   }
 
   function updateBalance(balance) {
     if (!balance) return;
     var coins = balance.coins != null ? balance.coins : Math.floor(balance.available_cents / 100);
+    currentCoins = coins;
     creditBadge.textContent = coins + " credits";
   }
 
   function onLogin() {
     loggedIn = true;
     updateAuthUI();
-    // Logged-in users skip landing and go to puzzle view.
-    showPuzzle("prebuilt");
+    showPuzzle();
     // Bootstrap credits.
     _fetch("/api/bootstrap", { method: "POST", credentials: "include" })
       .then(function (resp) {
@@ -186,10 +209,20 @@
           subtitle: result.data.subtitle || "Generated from LLM.",
         });
 
-        // Switch to generated view and render.
-        showPuzzle("generated");
-        window.CrosswordApp.render(payload);
-        generateStatus.textContent = "Puzzle ready! Tip: this puzzle won\u2019t be saved after reload.";
+        // Show grid area again.
+        var pane = puzzleView.querySelector(".pane");
+        if (pane) pane.style.display = "";
+        var controls = puzzleView.querySelector(".controls");
+        if (controls) controls.style.display = "";
+
+        // Add to sidebar and render.
+        if (window.CrosswordApp && window.CrosswordApp.addGeneratedPuzzle) {
+          window.CrosswordApp.addGeneratedPuzzle(payload);
+        } else {
+          window.CrosswordApp.render(payload);
+        }
+        generatePanel.style.display = "none";
+        generateStatus.textContent = "";
       })
       .catch(function (err) {
         console.error("generate error:", err);

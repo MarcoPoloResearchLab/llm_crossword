@@ -67,22 +67,25 @@ test.describe("Layout — no container-in-a-page", () => {
 });
 
 test.describe("Layout — clues always on the right at 25%", () => {
-  test("clues container takes approximately 25% of page width", async ({ page }) => {
+  test("clues container takes approximately 25% of puzzle-main width", async ({ page }) => {
     await goToPuzzle(page);
 
     var layout = await page.evaluate(() => {
       var pv = document.getElementById("puzzleView");
       if (!pv) return null;
       var clues = pv.querySelector(".clues");
+      // Measure against .puzzle-main (the right panel), not the full viewport,
+      // since .puzzle-sidebar takes ~280px on the left.
+      var main = pv.querySelector(".puzzle-main") || pv;
       if (!clues) return null;
-      return { clueWidth: clues.getBoundingClientRect().width, viewportWidth: window.innerWidth };
+      return { clueWidth: clues.getBoundingClientRect().width, mainWidth: main.getBoundingClientRect().width };
     });
 
     expect(layout).not.toBeNull();
-    var ratio = layout.clueWidth / layout.viewportWidth;
-    // Clues should be between 20% and 35% of viewport
+    var ratio = layout.clueWidth / layout.mainWidth;
+    // Clues should be between 20% and 40% of the main area
     expect(ratio).toBeGreaterThanOrEqual(0.20);
-    expect(ratio).toBeLessThanOrEqual(0.35);
+    expect(ratio).toBeLessThanOrEqual(0.40);
   });
 
   test("clues are to the right of the grid", async ({ page }) => {

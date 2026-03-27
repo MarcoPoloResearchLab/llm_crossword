@@ -4,23 +4,22 @@
 
   var _fetch = (window.__testOverrides && window.__testOverrides.fetch) || window.fetch.bind(window);
 
-  var puzzleViewEl = document.getElementById("puzzleView");
-  var titleEl      = document.getElementById("title");
-  var subEl        = document.getElementById("subtitle");
-  var selectEl     = document.getElementById("puzzleSelect");
-  var statusEl     = document.getElementById("status");
-  var errorBox     = document.getElementById("errorBox");
-  var gridViewport = document.getElementById("gridViewport");
-  var gridEl       = document.getElementById("grid");
-  var acrossOl     = document.getElementById("across");
-  var downOl       = document.getElementById("down");
-  var checkBtn     = document.getElementById("check");
-  var revealBtn    = document.getElementById("reveal");
+  var puzzleViewEl  = document.getElementById("puzzleView");
+  var titleEl       = document.getElementById("title");
+  var subEl         = document.getElementById("subtitle");
+  var statusEl      = document.getElementById("status");
+  var errorBox      = document.getElementById("errorBox");
+  var gridViewport  = document.getElementById("gridViewport");
+  var gridEl        = document.getElementById("grid");
+  var acrossOl      = document.getElementById("across");
+  var downOl        = document.getElementById("down");
+  var checkBtn      = document.getElementById("check");
+  var revealBtn     = document.getElementById("reveal");
+  var cardListEl    = document.getElementById("puzzleCardList");
 
   var puzzleDataPath = "assets/data/crosswords.json";
 
   // Create a CrosswordWidget using the existing DOM elements in #puzzleView.
-  // We pass existing elements so the widget doesn't create its own DOM.
   var widget = new window.CrosswordWidget(null, {
     hints: true,
     responsive: true,
@@ -29,7 +28,6 @@
     showTitle: false,
     showControls: false,
     showSelector: false,
-    // Inject existing DOM elements for the main puzzle view.
     _existingElements: {
       gridViewport: gridViewport,
       gridEl: gridEl,
@@ -62,6 +60,98 @@
     widget.render(p);
   }
 
+  /** renderMiniGrid creates a small CSS grid thumbnail from puzzle entries. */
+  function renderMiniGrid(entries) {
+    // Compute grid bounds.
+    var minRow = Infinity, minCol = Infinity, maxRow = -1, maxCol = -1;
+    var i, e;
+    for (i = 0; i < entries.length; i++) {
+      e = entries[i];
+      minRow = Math.min(minRow, e.row);
+      minCol = Math.min(minCol, e.col);
+      if (e.dir === "across") {
+        maxRow = Math.max(maxRow, e.row);
+        maxCol = Math.max(maxCol, e.col + e.answer.length - 1);
+      } else {
+        maxRow = Math.max(maxRow, e.row + e.answer.length - 1);
+        maxCol = Math.max(maxCol, e.col);
+      }
+    }
+    if (!isFinite(minRow)) return document.createElement("div");
+
+    var rows = maxRow - minRow + 1;
+    var cols = maxCol - minCol + 1;
+
+    // Build a boolean grid of occupied cells.
+    var occupied = [];
+    var r, c;
+    for (r = 0; r < rows; r++) {
+      occupied[r] = [];
+      for (c = 0; c < cols; c++) {
+        occupied[r][c] = false;
+      }
+    }
+    for (i = 0; i < entries.length; i++) {
+      e = entries[i];
+      var len = e.answer.length;
+      for (var j = 0; j < len; j++) {
+        if (e.dir === "across") {
+          occupied[e.row - minRow][e.col - minCol + j] = true;
+        } else {
+          occupied[e.row - minRow + j][e.col - minCol] = true;
+        }
+      }
+    }
+
+    // Create the mini grid element, sizing cells to fit within 36x36.
+    var thumbSize = 36;
+    var gapPx = 1;
+    var cellW = Math.floor((thumbSize - (cols - 1) * gapPx) / cols);
+    var cellH = Math.floor((thumbSize - (rows - 1) * gapPx) / rows);
+    var cellPx = Math.max(1, Math.min(cellW, cellH));
+
+    var el = document.createElement("div");
+    el.className = "mini-grid";
+    el.style.gridTemplateColumns = "repeat(" + cols + ", " + cellPx + "px)";
+    el.style.gridTemplateRows = "repeat(" + rows + ", " + cellPx + "px)";
+    for (r = 0; r < rows; r++) {
+      for (c = 0; c < cols; c++) {
+        var cell = document.createElement("div");
+        cell.className = "mini-grid__cell " + (occupied[r][c] ? "mini-grid__cell--letter" : "mini-grid__cell--blank");
+        el.appendChild(cell);
+      }
+    }
+    return el;
+  }
+
+  /** createPuzzleCard builds a sidebar card element for a puzzle. */
+  function createPuzzleCard(puzzle, index) {
+    var card = document.createElement("div");
+    card.className = "puzzle-card";
+    card.dataset.puzzleIndex = String(index);
+
+    var thumb = document.createElement("div");
+    thumb.className = "puzzle-card__thumb";
+    thumb.appendChild(renderMiniGrid(puzzle.entries));
+    card.appendChild(thumb);
+
+    var title = document.createElement("div");
+    title.className = "puzzle-card__title";
+    title.textContent = puzzle.title;
+    card.appendChild(title);
+
+    return card;
+  }
+
+  /** setActiveCard highlights the selected card and removes active from others. */
+  function setActiveCard(card) {
+    var all = puzzleViewEl.querySelectorAll(".puzzle-card");
+    for (var i = 0; i < all.length; i++) {
+      all[i].classList.remove("puzzle-card--active");
+    }
+    if (card) card.classList.add("puzzle-card--active");
+  }
+
   /** validatePuzzleSpecification ensures a puzzle specification adheres to the required schema. */
   function validatePuzzleSpecification(spec) {
     if (!spec || typeof spec !== "object") return false;
@@ -74,36 +164,83 @@
     return true;
   }
 
-  /** loadAndRenderPuzzles retrieves puzzle specifications, builds puzzles, and renders them. */
+  // Store all puzzles for sidebar access.
+  var allPuzzles = [];
+
+  /** loadAndRenderPuzzles retrieves puzzle specifications, builds puzzles, and populates the sidebar. */
   async function loadAndRenderPuzzles() {
     if (statusEl) statusEl.textContent = "Loading puzzles...";
     var response = await _fetch(puzzleDataPath);
     var puzzleSpecifications = await response.json();
     if (!Array.isArray(puzzleSpecifications)) throw new Error("Crossword data must be an array");
 
-    var generatedPuzzles = [];
     for (var i = 0; i < puzzleSpecifications.length; i++) {
       var spec = puzzleSpecifications[i];
       if (!validatePuzzleSpecification(spec)) throw new Error("Crossword specification invalid");
       var puzzle = generateCrossword(spec.items, { title: spec.title, subtitle: spec.subtitle });
-      generatedPuzzles.push(puzzle);
-      if (selectEl) {
-        var opt = document.createElement("option");
-        opt.value = String(i);
-        opt.textContent = puzzle.title;
-        selectEl.appendChild(opt);
+      allPuzzles.push(puzzle);
+    }
+
+    // Populate sidebar cards.
+    if (cardListEl) {
+      for (var j = 0; j < allPuzzles.length; j++) {
+        var card = createPuzzleCard(allPuzzles[j], j);
+        cardListEl.appendChild(card);
+      }
+
+      // Click handler for puzzle cards (delegated).
+      cardListEl.addEventListener("click", function (event) {
+        var cardEl = event.target.closest(".puzzle-card");
+        if (!cardEl) return;
+        var idx = Number(cardEl.dataset.puzzleIndex);
+        if (isNaN(idx) || !allPuzzles[idx]) return;
+        selectPuzzle(idx, cardEl);
+      });
+    }
+
+    // Render the first puzzle by default.
+    if (allPuzzles.length > 0) {
+      render(allPuzzles[0]);
+      // Set first card active.
+      if (cardListEl && cardListEl.children.length > 0) {
+        setActiveCard(cardListEl.children[0]);
       }
     }
+  }
 
-    if (selectEl) {
-      selectEl.addEventListener("change", function (event) {
-        render(generatedPuzzles[Number(event.target.value)]);
+  /** selectPuzzle renders a puzzle and highlights its card. */
+  function selectPuzzle(index, cardEl) {
+    var generatePanel = document.getElementById("generatePanel");
+    if (generatePanel) generatePanel.style.display = "none";
+
+    // Show grid area.
+    var pane = puzzleViewEl.querySelector(".pane");
+    if (pane) pane.style.display = "";
+    var controls = puzzleViewEl.querySelector(".controls");
+    if (controls) controls.style.display = "";
+
+    render(allPuzzles[index]);
+    setActiveCard(cardEl);
+
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        widget.recalculate();
       });
-      selectEl.value = "0";
-    }
+    });
+  }
 
-    if (generatedPuzzles.length > 0) {
-      render(generatedPuzzles[0]);
+  /** addGeneratedPuzzle adds a dynamically generated puzzle to the sidebar and selects it. */
+  function addGeneratedPuzzle(puzzle) {
+    var index = allPuzzles.length;
+    allPuzzles.push(puzzle);
+
+    if (cardListEl) {
+      // Insert at top of list (right after "New Crossword" card).
+      var card = createPuzzleCard(puzzle, index);
+      cardListEl.insertBefore(card, cardListEl.firstChild);
+      selectPuzzle(index, card);
+    } else {
+      render(puzzle);
     }
   }
 
@@ -112,6 +249,9 @@
     render: render,
     loadPrebuilt: loadAndRenderPuzzles,
     recalculate: function () { widget.recalculate(); },
+    addGeneratedPuzzle: addGeneratedPuzzle,
+    setActiveCard: setActiveCard,
+    renderMiniGrid: renderMiniGrid,
   };
 
   loadAndRenderPuzzles().catch(function (error) {

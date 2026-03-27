@@ -39,8 +39,9 @@ test.describe("Login flow — puzzle view", () => {
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
   });
 
-  test("puzzle view shows puzzle selector", async ({ page }) => {
-    await expect(page.getByText("Choose puzzle:")).toBeVisible();
+  test("puzzle view shows puzzle sidebar with cards", async ({ page }) => {
+    await expect(page.locator("#puzzleSidebar")).toBeVisible();
+    await expect(page.locator("#puzzleCardList .puzzle-card").first()).toBeVisible({ timeout: 5000 });
   });
 
   test("puzzle view does not have mode tabs", async ({ page }) => {
@@ -71,14 +72,13 @@ test.describe("Login flow — pre-built puzzles", () => {
     await expect(page.getByRole("button", { name: "Reveal" })).toBeVisible();
   });
 
-  test("puzzle selector has options populated", async ({ page }) => {
+  test("puzzle sidebar has cards populated", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     // Wait for puzzles to load.
     await page.waitForTimeout(3000);
-    var select = page.locator("#puzzleSelect");
-    var options = select.locator("option");
-    var count = await options.count();
+    var cards = page.locator("#puzzleCardList .puzzle-card");
+    var count = await cards.count();
     expect(count).toBeGreaterThanOrEqual(1);
   });
 });
