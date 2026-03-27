@@ -321,7 +321,17 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 	items, llmErr := handler.callLLMProxy(llmCtx, topic, wordCount)
 	if llmErr != nil {
 		handler.logger.Error("llm proxy call failed", zap.Error(llmErr), zap.String("topic", topic))
-		ctx.JSON(http.StatusBadGateway, errorResponse("llm_error", "failed to generate words, please try again"))
+
+		// Refund the debited credits since generation failed.
+		handler.refundCredits(ctx.Request.Context(), claims.GetUserID(), GenerateAmountCents(), "generate_failure")
+
+		// Return a specific HTTP status and error code based on the upstream failure.
+		var proxyErr *llmProxyError
+		if errors.As(llmErr, &proxyErr) && proxyErr.StatusCode == http.StatusGatewayTimeout {
+			ctx.JSON(http.StatusGatewayTimeout, errorResponse("llm_timeout", "the language model took too long — credits have been refunded, please try again"))
+			return
+		}
+		ctx.JSON(http.StatusBadGateway, errorResponse("llm_error", "failed to generate words — credits have been refunded, please try again"))
 		return
 	}
 
@@ -393,6 +403,37 @@ func (handler *httpHandler) fetchBalance(ctx context.Context, userID string) (*b
 		AvailableCents: resp.GetAvailableCents(),
 		Coins:          resp.GetAvailableCents() / CoinValueCents(),
 	}, nil
+}
+
+// refundCredits grants back credits when a post-debit operation fails.
+// Failures here are logged but not surfaced to the user since the primary
+// error is already being returned.
+func (handler *httpHandler) refundCredits(ctx context.Context, userID string, amountCents int64, reason string) {
+	refundCtx, cancel := context.WithTimeout(ctx, handler.cfg.LedgerTimeout)
+	defer cancel()
+
+	_, err := handler.ledgerClient.Grant(refundCtx, &creditv1.GrantRequest{
+		UserId:         userID,
+		AmountCents:    amountCents,
+		IdempotencyKey: fmt.Sprintf("refund:%s:%s", reason, uuid.NewString()),
+		MetadataJson:   marshalMetadata(map[string]string{"action": "refund", "reason": reason}),
+		LedgerId:       handler.cfg.DefaultLedgerID,
+		TenantId:       handler.cfg.DefaultTenantID,
+	})
+	if err != nil {
+		handler.logger.Error("refund grant failed",
+			zap.String("user_id", userID),
+			zap.Int64("amount_cents", amountCents),
+			zap.String("reason", reason),
+			zap.Error(err),
+		)
+	} else {
+		handler.logger.Info("credits refunded",
+			zap.String("user_id", userID),
+			zap.Int64("amount_cents", amountCents),
+			zap.String("reason", reason),
+		)
+	}
 }
 
 // --- helpers ---

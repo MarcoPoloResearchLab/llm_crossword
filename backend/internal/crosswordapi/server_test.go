@@ -862,3 +862,57 @@ func TestHandleGenerate_SaveFailureIsNonFatal(t *testing.T) {
 		t.Fatalf("expected 200 (save failure is non-fatal), got %d: %s", resp.Code, resp.Body.String())
 	}
 }
+
+func TestHandleGenerate_LLMError_RefundsCredits(t *testing.T) {
+	var grantCalled bool
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantCalled = true
+			if in.AmountCents != GenerateAmountCents() {
+				t.Errorf("expected refund of %d cents, got %d", GenerateAmountCents(), in.AmountCents)
+			}
+			return &creditv1.Empty{}, nil
+		},
+	}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("llm down"))
+	}))
+	defer llmServer.Close()
+
+	handler := testHandler(ledger, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+	if !grantCalled {
+		t.Error("expected refund grant to be called after LLM failure")
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "llm_error" {
+		t.Errorf("expected error code llm_error, got %v", resp["error"])
+	}
+}
+
+func TestHandleGenerate_LLMTimeout_Returns504(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGatewayTimeout)
+		w.Write([]byte("timeout"))
+	}))
+	defer llmServer.Close()
+
+	handler := testHandler(ledger, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	if w.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "llm_timeout" {
+		t.Errorf("expected error code llm_timeout, got %v", resp["error"])
+	}
+}
