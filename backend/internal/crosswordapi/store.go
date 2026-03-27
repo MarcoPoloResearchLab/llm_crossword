@@ -41,6 +41,7 @@ type Store interface {
 	GetPuzzle(id string, userID string) (*Puzzle, error)
 	GetPuzzleByShareToken(token string) (*Puzzle, error)
 	DeletePuzzle(id string, userID string) error
+	ListDistinctUserIDs() ([]string, error)
 }
 
 // gormStore implements Store using GORM.
@@ -114,6 +115,12 @@ func (s *gormStore) GetPuzzleByShareToken(token string) (*Puzzle, error) {
 		return nil, err
 	}
 	return &puzzle, nil
+}
+
+func (s *gormStore) ListDistinctUserIDs() ([]string, error) {
+	var userIDs []string
+	err := s.db.Model(&Puzzle{}).Distinct("user_id").Order("user_id").Pluck("user_id", &userIDs).Error
+	return userIDs, err
 }
 
 func (s *gormStore) DeletePuzzle(id string, userID string) error {

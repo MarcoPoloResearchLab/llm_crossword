@@ -101,8 +101,11 @@ func testHandler(ledger *mockLedgerClient, llmServer *httptest.Server) *httpHand
 }
 
 func testHandlerWithStore(ledger *mockLedgerClient, llmServer *httptest.Server, s Store) *httpHandler {
+	return testHandlerWithConfig(ledger, llmServer, s, testConfig())
+}
+
+func testHandlerWithConfig(ledger *mockLedgerClient, llmServer *httptest.Server, s Store, cfg Config) *httpHandler {
 	logger, _ := zap.NewDevelopment()
-	cfg := testConfig()
 	if llmServer != nil {
 		cfg.LLMProxyURL = llmServer.URL
 	}
@@ -147,6 +150,12 @@ func testRouterWithClaims(handler *httpHandler, claims *sessionvalidator.Claims)
 	router.GET("/api/puzzles/:id", handler.handleGetPuzzle)
 	router.DELETE("/api/puzzles/:id", handler.handleDeletePuzzle)
 	router.GET("/api/shared/:token", handler.handleGetSharedPuzzle)
+
+	admin := router.Group("/api/admin")
+	admin.Use(handler.requireAdmin)
+	admin.GET("/users", handler.handleAdminListUsers)
+	admin.GET("/balance", handler.handleAdminBalance)
+	admin.POST("/grant", handler.handleAdminGrant)
 
 	return router
 }
@@ -734,8 +743,12 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 	defer llmServer.Close()
 
 	ledger := &mockLedgerClient{
-		spendFunc:      func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) { return &creditv1.Empty{}, nil },
-		getBalanceFunc: func(ctx context.Context, req *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) { return &creditv1.BalanceResponse{AvailableCents: 1000}, nil },
+		spendFunc: func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, req *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{AvailableCents: 1000}, nil
+		},
 	}
 	handler := testHandlerWithStore(ledger, llmServer, s)
 	router := testRouterWithClaims(handler, testClaims())
@@ -851,8 +864,12 @@ func TestHandleGenerate_SaveFailureIsNonFatal(t *testing.T) {
 	defer llmServer.Close()
 
 	ledger := &mockLedgerClient{
-		spendFunc:      func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) { return &creditv1.Empty{}, nil },
-		getBalanceFunc: func(ctx context.Context, req *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) { return &creditv1.BalanceResponse{}, nil },
+		spendFunc: func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, req *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{}, nil
+		},
 	}
 	handler := testHandlerWithStore(ledger, llmServer, s)
 	router := testRouterWithClaims(handler, testClaims())
@@ -860,5 +877,301 @@ func TestHandleGenerate_SaveFailureIsNonFatal(t *testing.T) {
 	// Should still return 200 even though save failed.
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200 (save failure is non-fatal), got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+// --- admin tests ---
+
+func adminClaims() *sessionvalidator.Claims {
+	return &sessionvalidator.Claims{
+		UserID:          "admin-1",
+		UserEmail:       "admin@example.com",
+		UserDisplayName: "Admin User",
+		UserAvatarURL:   "https://example.com/admin.png",
+		UserRoles:       []string{"user"},
+	}
+}
+
+func adminConfig() Config {
+	cfg := testConfig()
+	cfg.AdminEmails = []string{"admin@example.com"}
+	return cfg
+}
+
+func TestAdminGrant_Success(t *testing.T) {
+	var grantedAmount int64
+	var grantedUserID string
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantedAmount = in.AmountCents
+			grantedUserID = in.UserId
+			return &creditv1.Empty{}, nil
+		},
+	}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if grantedUserID != "target-user" {
+		t.Errorf("expected target-user, got %s", grantedUserID)
+	}
+	expectedCents := int64(10) * CoinValueCents()
+	if grantedAmount != expectedCents {
+		t.Errorf("expected %d cents, got %d", expectedCents, grantedAmount)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["granted"] != true {
+		t.Errorf("expected granted=true, got %v", body["granted"])
+	}
+}
+
+func TestAdminGrant_NonAdminForbidden(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	// Use regular (non-admin) claims.
+	router := testRouterWithClaims(handler, testClaims())
+
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAdminGrant_NoAuth(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, nil)
+
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAdminGrant_InvalidPayload(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	tests := []struct {
+		name string
+		body string
+		code int
+	}{
+		{"missing user_id", `{"amount_coins":10}`, http.StatusBadRequest},
+		{"missing amount", `{"user_id":"user-1"}`, http.StatusBadRequest},
+		{"zero amount", `{"user_id":"user-1","amount_coins":0}`, http.StatusBadRequest},
+		{"negative amount", `{"user_id":"user-1","amount_coins":-5}`, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := doRequest(router, "POST", "/api/admin/grant", tt.body)
+			if resp.Code != tt.code {
+				t.Fatalf("expected %d, got %d: %s", tt.code, resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestAdminGrant_LedgerError(t *testing.T) {
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			return nil, status.Error(codes.Internal, "ledger down")
+		},
+	}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":5}`)
+	if resp.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestSessionReturnsIsAdmin(t *testing.T) {
+	ledger := &mockLedgerClient{}
+
+	// Admin user.
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+	resp := doRequest(router, "GET", "/api/session", "")
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["is_admin"] != true {
+		t.Errorf("expected is_admin=true for admin, got %v", body["is_admin"])
+	}
+
+	// Regular user.
+	handler2 := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router2 := testRouterWithClaims(handler2, testClaims())
+	resp2 := doRequest(router2, "GET", "/api/session", "")
+	var body2 map[string]any
+	if err := json.Unmarshal(resp2.Body.Bytes(), &body2); err != nil {
+		t.Fatal(err)
+	}
+	if body2["is_admin"] != false {
+		t.Errorf("expected is_admin=false for regular user, got %v", body2["is_admin"])
+	}
+}
+
+func TestAdminListUsers(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	s := &mockStore{
+		listUsersFunc: func() ([]string, error) {
+			return []string{"user-1", "user-2", "user-3"}, nil
+		},
+	}
+	handler := testHandlerWithConfig(ledger, nil, s, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/users", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	users, ok := body["users"].([]any)
+	if !ok || len(users) != 3 {
+		t.Fatalf("expected 3 users, got %v", body["users"])
+	}
+}
+
+func TestAdminListUsers_NonAdminForbidden(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, testClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/users", "")
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAdminBalance(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/balance?user_id=target-user", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	balance, ok := body["balance"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected balance object, got %v", body)
+	}
+	if balance["coins"] == nil {
+		t.Error("expected coins field in balance")
+	}
+}
+
+func TestAdminBalance_MissingUserID(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/balance", "")
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestHandleGenerate_LLMError_RefundsCredits(t *testing.T) {
+	var grantCalled bool
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantCalled = true
+			if in.AmountCents != GenerateAmountCents() {
+				t.Errorf("expected refund of %d cents, got %d", GenerateAmountCents(), in.AmountCents)
+			}
+			return &creditv1.Empty{}, nil
+		},
+	}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("llm down"))
+	}))
+	defer llmServer.Close()
+
+	handler := testHandler(ledger, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+	if !grantCalled {
+		t.Error("expected refund grant to be called after LLM failure")
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "llm_error" {
+		t.Errorf("expected error code llm_error, got %v", resp["error"])
+	}
+}
+
+func TestHandleGenerate_LLMTimeout_Returns504(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGatewayTimeout)
+		w.Write([]byte("timeout"))
+	}))
+	defer llmServer.Close()
+
+	handler := testHandler(ledger, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	if w.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "llm_timeout" {
+		t.Errorf("expected error code llm_timeout, got %v", resp["error"])
+	}
+}
+
+func TestRequireAdmin_AllowsRoleBasedAccess(t *testing.T) {
+	// User is NOT in the admin email list but HAS the "admin" role in their TAuth claims.
+	roleClaims := &sessionvalidator.Claims{
+		UserID:          "role-admin-1",
+		UserEmail:       "roleuser@example.com",
+		UserDisplayName: "Role Admin",
+		UserRoles:       []string{"user", "admin"},
+	}
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, testConfig()) // no AdminEmails set
+	router := testRouterWithClaims(handler, roleClaims)
+
+	w := doRequest(router, "GET", "/api/admin/users", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for role-based admin, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRequireAdmin_DeniesNonAdmin(t *testing.T) {
+	// User has no admin email AND no admin role.
+	claims := testClaims() // roles: ["user"]
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, testConfig()) // no AdminEmails
+	router := testRouterWithClaims(handler, claims)
+
+	w := doRequest(router, "GET", "/api/admin/users", "")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
 	}
 }

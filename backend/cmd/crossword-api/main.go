@@ -28,6 +28,7 @@ const (
 	flagLLMProxyKey     = "llm-proxy-key"
 	flagLLMProxyTimeout = "llm-proxy-timeout"
 	flagDatabaseDSN     = "database-dsn"
+	flagAdminEmails     = "admin-emails"
 	envPrefix           = "CROSSWORDAPI"
 )
 
@@ -77,6 +78,7 @@ func newRootCommand() *cobra.Command {
 	cmd.Flags().String(flagLLMProxyKey, "", "LLM proxy service secret")
 	cmd.Flags().Duration(flagLLMProxyTimeout, 0, "LLM proxy request timeout")
 	cmd.Flags().String(flagDatabaseDSN, "crosswords.db", "SQLite database path")
+	cmd.Flags().String(flagAdminEmails, "", "comma-separated list of administrator emails")
 
 	return cmd
 }
@@ -93,6 +95,7 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 		flagJWTSigningKey, flagJWTIssuer, flagJWTCookieName, flagTAuthBaseURL,
 		flagLLMProxyURL, flagLLMProxyKey, flagLLMProxyTimeout,
 		flagDatabaseDSN,
+		flagAdminEmails,
 	}
 	for _, flagName := range allFlags {
 		if err := v.BindPFlag(flagName, cmd.Flags().Lookup(flagName)); err != nil {
@@ -127,6 +130,7 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	cfg.LLMProxyKey = v.GetString(flagLLMProxyKey)
 	cfg.LLMProxyTimeout = v.GetDuration(flagLLMProxyTimeout)
 	cfg.DatabaseDSN = v.GetString(flagDatabaseDSN)
+	cfg.AdminEmails = crosswordapi.ParseAdminEmails(v.GetString(flagAdminEmails))
 
 	return cfg.Validate()
 }

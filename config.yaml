@@ -1,3 +1,6 @@
+administrators:
+  - "temirov@gmail.com"
+
 environments:
   - description: "Local development"
     origins:

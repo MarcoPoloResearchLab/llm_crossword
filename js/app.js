@@ -238,8 +238,19 @@
         if (!result.ok) {
           if (result.data.error === "insufficient_credits") {
             generateStatus.textContent = "Not enough credits. You need 5 credits per puzzle.";
+          } else if (result.data.error === "llm_timeout") {
+            generateStatus.textContent = "The AI model timed out. Your credits have been refunded — please try again.";
+          } else if (result.data.error === "llm_error") {
+            generateStatus.textContent = "Generation failed. Your credits have been refunded — please try again.";
           } else {
             generateStatus.textContent = result.data.message || "Generation failed. Please try again.";
+          }
+          // Refresh balance after a refund so the badge reflects the returned credits.
+          if (result.data.error === "llm_timeout" || result.data.error === "llm_error") {
+            _fetch("/api/balance", { credentials: "include" })
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (d) { if (d && d.balance) updateBalance(d.balance); })
+              .catch(function () {});
           }
           return;
         }
