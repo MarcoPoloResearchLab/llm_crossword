@@ -337,11 +337,12 @@ func TestGetPuzzleByShareToken_NotFound(t *testing.T) {
 
 // mockStore implements Store for handler testing.
 type mockStore struct {
-	createFunc        func(puzzle *Puzzle) error
-	listFunc          func(userID string) ([]Puzzle, error)
-	getFunc           func(id, userID string) (*Puzzle, error)
-	deleteFunc        func(id, userID string) error
-	getByShareFunc    func(token string) (*Puzzle, error)
+	createFunc     func(puzzle *Puzzle) error
+	listFunc       func(userID string) ([]Puzzle, error)
+	getFunc        func(id, userID string) (*Puzzle, error)
+	deleteFunc     func(id, userID string) error
+	getByShareFunc func(token string) (*Puzzle, error)
+	listUsersFunc  func() ([]string, error)
 }
 
 func (m *mockStore) CreatePuzzle(puzzle *Puzzle) error {
@@ -378,4 +379,11 @@ func (m *mockStore) GetPuzzleByShareToken(token string) (*Puzzle, error) {
 		return m.getByShareFunc(token)
 	}
 	return nil, errors.New("not found")
+}
+
+func (m *mockStore) ListDistinctUserIDs() ([]string, error) {
+	if m.listUsersFunc != nil {
+		return m.listUsersFunc()
+	}
+	return nil, nil
 }
