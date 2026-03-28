@@ -1,6 +1,7 @@
 server:
   listen_addr: ":8080"
   enable_cors: true
+  enable_tenant_header_override: true
   cors_allowed_origins:
     - "http://localhost:8000"
   database_url: "sqlite:///data/tauth.db"
