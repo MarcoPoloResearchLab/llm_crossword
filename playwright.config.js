@@ -9,6 +9,7 @@ module.exports = defineConfig({
   fullyParallel: true,
   retries: 0,
   use: {
+    headless: true,
     baseURL: BASE_URL,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",

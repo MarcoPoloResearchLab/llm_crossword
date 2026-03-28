@@ -2,6 +2,10 @@
 
 A crossword puzzle builder, powered by LLM.
 
+## Planning Docs
+
+- [Word Illustration Feature Plan](./docs/word-illustrations-plan.md)
+
 ## Using the Crossword
 
 1. Choose a puzzle from the selector at the top of the page. Each puzzle loads with its own grid and clue list.
