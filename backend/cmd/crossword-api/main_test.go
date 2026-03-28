@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,112 @@ func TestLoadConfig_AllSet(t *testing.T) {
 	}
 	if len(cfg.AllowedOrigins) != 1 || cfg.AllowedOrigins[0] != "http://localhost:8000" {
 		t.Errorf("unexpected origins: %v", cfg.AllowedOrigins)
+	}
+}
+
+func TestLoadConfig_AdminEmailsFromConfigYAML(t *testing.T) {
+	envVars := map[string]string{
+		"CROSSWORDAPI_LISTEN_ADDR":       ":9090",
+		"CROSSWORDAPI_LEDGER_ADDR":       "localhost:50051",
+		"CROSSWORDAPI_LEDGER_INSECURE":   "true",
+		"CROSSWORDAPI_LEDGER_TIMEOUT":    "5s",
+		"CROSSWORDAPI_DEFAULT_TENANT_ID": "t1",
+		"CROSSWORDAPI_DEFAULT_LEDGER_ID": "l1",
+		"CROSSWORDAPI_ALLOWED_ORIGINS":   "http://localhost:8000",
+		"CROSSWORDAPI_JWT_SIGNING_KEY":   "test-key",
+		"CROSSWORDAPI_JWT_ISSUER":        "tauth",
+		"CROSSWORDAPI_JWT_COOKIE_NAME":   "app_session",
+		"CROSSWORDAPI_TAUTH_BASE_URL":    "http://localhost:8080",
+		"CROSSWORDAPI_LLM_PROXY_URL":     "http://localhost:9999",
+		"CROSSWORDAPI_LLM_PROXY_KEY":     "secret",
+		"CROSSWORDAPI_LLM_PROXY_TIMEOUT": "30s",
+	}
+	for key, value := range envVars {
+		os.Setenv(key, value)
+	}
+	defer func() {
+		for key := range envVars {
+			os.Unsetenv(key)
+		}
+	}()
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("administrators:\n  - \"admin@example.com\"\n"), 0o644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+
+	originalWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir tempDir: %v", err)
+	}
+	defer os.Chdir(originalWorkingDirectory)
+
+	cmd := newRootCommand()
+	cfg := &crosswordapi.Config{}
+	if err := loadConfig(cmd, cfg); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(cfg.AdminEmails) != 1 || cfg.AdminEmails[0] != "admin@example.com" {
+		t.Fatalf("unexpected admin emails: %v", cfg.AdminEmails)
+	}
+}
+
+func TestLoadConfig_AdminEmailsMergeEnvAndConfig(t *testing.T) {
+	envVars := map[string]string{
+		"CROSSWORDAPI_LISTEN_ADDR":       ":9090",
+		"CROSSWORDAPI_LEDGER_ADDR":       "localhost:50051",
+		"CROSSWORDAPI_LEDGER_INSECURE":   "true",
+		"CROSSWORDAPI_LEDGER_TIMEOUT":    "5s",
+		"CROSSWORDAPI_DEFAULT_TENANT_ID": "t1",
+		"CROSSWORDAPI_DEFAULT_LEDGER_ID": "l1",
+		"CROSSWORDAPI_ALLOWED_ORIGINS":   "http://localhost:8000",
+		"CROSSWORDAPI_JWT_SIGNING_KEY":   "test-key",
+		"CROSSWORDAPI_JWT_ISSUER":        "tauth",
+		"CROSSWORDAPI_JWT_COOKIE_NAME":   "app_session",
+		"CROSSWORDAPI_TAUTH_BASE_URL":    "http://localhost:8080",
+		"CROSSWORDAPI_LLM_PROXY_URL":     "http://localhost:9999",
+		"CROSSWORDAPI_LLM_PROXY_KEY":     "secret",
+		"CROSSWORDAPI_LLM_PROXY_TIMEOUT": "30s",
+		"CROSSWORDAPI_ADMIN_EMAILS":      "env-admin@example.com",
+	}
+	for key, value := range envVars {
+		os.Setenv(key, value)
+	}
+	defer func() {
+		for key := range envVars {
+			os.Unsetenv(key)
+		}
+	}()
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("administrators:\n  - \"file-admin@example.com\"\n"), 0o644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+
+	originalWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir tempDir: %v", err)
+	}
+	defer os.Chdir(originalWorkingDirectory)
+
+	cmd := newRootCommand()
+	cfg := &crosswordapi.Config{}
+	if err := loadConfig(cmd, cfg); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(cfg.AdminEmails) != 2 {
+		t.Fatalf("expected merged admin emails, got %v", cfg.AdminEmails)
+	}
+	if cfg.AdminEmails[0] != "env-admin@example.com" || cfg.AdminEmails[1] != "file-admin@example.com" {
+		t.Fatalf("unexpected merged admin emails: %v", cfg.AdminEmails)
 	}
 }
 
@@ -167,6 +274,25 @@ func TestLoadConfig_BindPFlagError(t *testing.T) {
 	err := loadConfig(cmd, cfg)
 	if err == nil {
 		t.Fatal("expected error when flags are not registered")
+	}
+}
+
+func TestLoadAdminEmailsFromConfigPaths(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("administrators:\n  - \"admin@example.com\"\n"), 0o644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+
+	adminEmails, err := loadAdminEmailsFromConfigPaths([]string{
+		filepath.Join(tempDir, "missing.yaml"),
+		configPath,
+	})
+	if err != nil {
+		t.Fatalf("loadAdminEmailsFromConfigPaths() error = %v", err)
+	}
+	if len(adminEmails) != 1 || adminEmails[0] != "admin@example.com" {
+		t.Fatalf("unexpected admin emails: %v", adminEmails)
 	}
 }
 

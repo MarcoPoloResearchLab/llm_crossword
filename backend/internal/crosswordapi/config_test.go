@@ -1,6 +1,8 @@
 package crosswordapi
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -147,6 +149,64 @@ func TestParseAdminEmails(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseAdminEmailsFromYAML(t *testing.T) {
+	yamlText := `
+administrators:
+  - "Admin@example.com"
+  - 'boss@example.com'
+
+environments:
+  - description: "Local"
+`
+
+	got := ParseAdminEmailsFromYAML(yamlText)
+	want := []string{"admin@example.com", "boss@example.com"}
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d emails, got %d: %v", len(want), len(got), got)
+	}
+	for index, email := range want {
+		if got[index] != email {
+			t.Fatalf("email[%d] = %q, want %q", index, got[index], email)
+		}
+	}
+}
+
+func TestLoadAdminEmailsFromYAMLFile(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	configText := "administrators:\n  - \"admin@example.com\"\n"
+
+	if err := os.WriteFile(configPath, []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	got, err := LoadAdminEmailsFromYAMLFile(configPath)
+	if err != nil {
+		t.Fatalf("LoadAdminEmailsFromYAMLFile() error = %v", err)
+	}
+	if len(got) != 1 || got[0] != "admin@example.com" {
+		t.Fatalf("unexpected emails: %v", got)
+	}
+}
+
+func TestMergeAdminEmails(t *testing.T) {
+	got := MergeAdminEmails(
+		[]string{"admin@example.com", "boss@example.com"},
+		[]string{"Admin@example.com", "staff@example.com"},
+	)
+	want := []string{"admin@example.com", "boss@example.com", "staff@example.com"}
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d emails, got %d: %v", len(want), len(got), got)
+	}
+	for index, email := range want {
+		if got[index] != email {
+			t.Fatalf("email[%d] = %q, want %q", index, got[index], email)
+		}
 	}
 }
 

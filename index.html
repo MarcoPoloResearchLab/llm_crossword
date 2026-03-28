@@ -15,6 +15,32 @@
   <link as="script" href="js/crossword-widget.js" rel="preload">
   <link as="script" href="js/crossword.js" rel="preload">
 
+  <script>
+    try {
+      var rootElement = document.documentElement;
+      var authPendingStorageKey = "llm-crossword-auth-pending";
+      var postLoginViewStorageKey = "llm-crossword-post-login-view";
+      var pendingAuth = window.sessionStorage.getItem(authPendingStorageKey) === "1";
+      var postLoginView = window.sessionStorage.getItem(postLoginViewStorageKey);
+
+      if (pendingAuth) {
+        rootElement.setAttribute("data-auth-pending", "true");
+      } else {
+        rootElement.setAttribute("data-auth-check", "pending");
+      }
+
+      if (postLoginView) {
+        rootElement.setAttribute("data-post-login-view", postLoginView);
+      }
+    } catch {}
+  </script>
+  <style>
+    html[data-auth-check="pending"] #landingPage,
+    html[data-auth-check="pending"] #puzzleView {
+      display: none !important;
+    }
+  </style>
+
   <!-- mpr-ui components -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@latest/mpr-ui.css"/>
   <link rel="stylesheet" href="css/crossword.css">
@@ -91,18 +117,43 @@
 
   <!-- Left sidebar with puzzle cards -->
   <aside id="puzzleSidebar" class="puzzle-sidebar">
-    <div id="newCrosswordCard" class="puzzle-card puzzle-card--new">
-      <div class="puzzle-card__icon">+</div>
-      <div class="puzzle-card__title">New Crossword</div>
+    <div id="puzzleSidebarContent" class="puzzle-sidebar__content">
+      <div id="newCrosswordCard" class="puzzle-card puzzle-card--new">
+        <div class="puzzle-card__icon">+</div>
+        <div class="puzzle-card__title">New Crossword</div>
+      </div>
+      <div id="puzzleCardList" class="puzzle-card-list"></div>
     </div>
-    <div id="puzzleCardList"></div>
+    <button
+      id="puzzleSidebarToggle"
+      class="puzzle-sidebar__toggle"
+      type="button"
+      aria-controls="puzzleSidebar"
+      aria-expanded="true"
+      aria-label="Collapse puzzle list"
+      title="Collapse puzzle list"
+    >
+      <span class="puzzle-sidebar__toggle-icon" aria-hidden="true">&#x2039;</span>
+    </button>
   </aside>
 
   <!-- Right main area -->
   <div id="puzzleMain" class="puzzle-main">
     <div class="hdr">
-      <h1 id="title">Crossword Puzzle</h1>
-      <div class="sub" id="subtitle">Loading...</div>
+      <div class="hdr__copy">
+        <h1 id="title">Crossword Puzzle</h1>
+        <div class="sub" id="subtitle">Loading...</div>
+        <div id="descriptionPanel" class="hdr__details" hidden>
+          <button
+            id="descriptionToggle"
+            class="hdr__details-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="descriptionContent"
+          >Show details</button>
+          <p id="descriptionContent" class="hdr__details-copy" hidden></p>
+        </div>
+      </div>
     </div>
 
     <!-- Generate form (shown when "New Crossword" card is selected) -->
@@ -149,82 +200,107 @@
   </div>
 </div>
 
-<!-- ========== Settings drawer (mpr-detail-drawer) ========== -->
-<mpr-detail-drawer id="settingsDrawer" heading="Settings" subheading="Account &amp; Admin">
-
-  <div slot="body">
-    <!-- Tab nav -->
-    <div class="settings-tabs">
-      <button id="settingsTabAccount" class="settings-tabs__btn settings-tabs__btn--active" data-tab="account">Account</button>
-      <button id="settingsTabAdmin" class="settings-tabs__btn" data-tab="admin" style="display:none;">Admin</button>
+<!-- ========== Settings modal ========== -->
+<dialog id="settingsDrawer" class="settings-modal" aria-labelledby="settingsTitle" aria-describedby="settingsSubtitle">
+  <div class="settings-modal__surface">
+    <div class="settings-modal__header">
+      <div>
+        <h2 id="settingsTitle" class="settings-modal__title">Settings</h2>
+        <p id="settingsSubtitle" class="settings-modal__subtitle">Account and admin access</p>
+      </div>
+      <button id="settingsCloseButton" class="settings-modal__close" type="button">Close</button>
     </div>
 
-    <!-- ===== Account section ===== -->
-    <div id="settingsAccountTab" class="settings-section">
-      <div class="settings-account-card">
-        <div class="settings-account-card__row">
-          <img id="settingsAvatar" class="settings-account-card__avatar" src="" alt="" />
-          <div class="settings-account-card__info">
-            <div id="settingsName" class="settings-account-card__name">—</div>
-            <div id="settingsEmail" class="settings-account-card__email">—</div>
+    <div class="settings-modal__body">
+      <!-- Tab nav -->
+      <div class="settings-tabs">
+        <button id="settingsTabAccount" class="settings-tabs__btn settings-tabs__btn--active" data-tab="account" type="button">Account</button>
+        <button id="settingsTabAdmin" class="settings-tabs__btn" data-tab="admin" type="button" style="display:none;">Admin</button>
+      </div>
+
+      <!-- ===== Account section ===== -->
+      <div id="settingsAccountTab" class="settings-section">
+        <div class="settings-account-card">
+          <div class="settings-account-card__row">
+            <img id="settingsAvatar" class="settings-account-card__avatar" src="" alt="" />
+            <div class="settings-account-card__info">
+              <div id="settingsName" class="settings-account-card__name">—</div>
+              <div id="settingsEmail" class="settings-account-card__email">—</div>
+            </div>
+          </div>
+          <div class="settings-account-card__details">
+            <div class="settings-account-card__details-header">Session details</div>
+            <dl id="settingsAccountDetails" class="settings-account-details"></dl>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- ===== Admin section ===== -->
-    <div id="settingsAdminTab" class="settings-section" style="display:none;">
-      <div class="admin-panel__body">
-        <!-- User list -->
-        <div class="admin-panel__users">
-          <div class="admin-panel__section-header">
-            <h3 class="admin-panel__section-title">Users</h3>
-            <button id="adminRefreshUsers" class="admin-panel__btn-sm secondary">Refresh</button>
+      <!-- ===== Admin section ===== -->
+      <div id="settingsAdminTab" class="settings-section" style="display:none;">
+        <div class="admin-panel__body">
+          <!-- User list -->
+          <div class="admin-panel__users">
+            <div class="admin-panel__section-header">
+              <h3 class="admin-panel__section-title">Users</h3>
+              <button id="adminRefreshUsers" class="admin-panel__btn-sm secondary" type="button">Refresh</button>
+            </div>
+            <input type="search" id="adminUserSearch" class="admin-panel__search" placeholder="Filter users..." />
+            <div id="adminUserList" class="admin-panel__user-list"></div>
+            <div id="adminUsersStatus" class="admin-panel__status"></div>
           </div>
-          <input type="search" id="adminUserSearch" class="admin-panel__search" placeholder="Filter users..." />
-          <div id="adminUserList" class="admin-panel__user-list"></div>
-          <div id="adminUsersStatus" class="admin-panel__status"></div>
-        </div>
 
-        <!-- Selected user details -->
-        <div class="admin-panel__details">
-          <div id="adminNoSelection" class="admin-panel__placeholder">Select a user to view balance and grant credits.</div>
+          <!-- Selected user details -->
+          <div class="admin-panel__details">
+            <div id="adminNoSelection" class="admin-panel__placeholder">Select a user to view balance and grant credits.</div>
 
-          <div id="adminUserDetails" style="display:none;">
-            <div class="admin-panel__user-header">
-              <span id="adminSelectedUser" class="admin-panel__selected-label"></span>
-              <button id="adminRefreshUser" class="admin-panel__btn-sm secondary">Refresh</button>
-            </div>
-
-            <!-- Balance -->
-            <div class="admin-panel__balance-card">
-              <div class="admin-panel__balance-row">
-                <span class="admin-panel__balance-label">Available</span>
-                <span id="adminBalanceCoins" class="admin-panel__balance-value">-</span>
+            <div id="adminUserDetails" style="display:none;">
+              <div class="admin-panel__user-header">
+                <div class="admin-panel__selected-user">
+                  <span id="adminSelectedUser" class="admin-panel__selected-label"></span>
+                  <span id="adminSelectedUserMeta" class="admin-panel__selected-meta"></span>
+                </div>
+                <button id="adminRefreshUser" class="admin-panel__btn-sm secondary" type="button">Refresh</button>
               </div>
-              <div class="admin-panel__balance-row">
-                <span class="admin-panel__balance-label">Total (cents)</span>
-                <span id="adminBalanceTotal" class="admin-panel__balance-value">-</span>
-              </div>
-              <div id="adminBalanceStatus" class="admin-panel__status"></div>
-            </div>
 
-            <!-- Grant form -->
-            <h3 class="admin-panel__section-title">Grant credits</h3>
-            <form id="adminGrantForm" class="admin-panel__grant-form">
-              <label class="admin-panel__label">
-                Credits
-                <input type="number" id="adminGrantCoins" min="1" step="1" required class="admin-panel__input" />
-              </label>
-              <button type="submit" id="adminGrantBtn">Grant</button>
-            </form>
-            <div id="adminGrantStatus" class="admin-panel__status"></div>
+              <!-- Balance -->
+              <div class="admin-panel__balance-card">
+                <div class="admin-panel__balance-row">
+                  <span class="admin-panel__balance-label">Available</span>
+                  <span id="adminBalanceCoins" class="admin-panel__balance-value">-</span>
+                </div>
+                <div class="admin-panel__balance-row">
+                  <span class="admin-panel__balance-label">Total (cents)</span>
+                  <span id="adminBalanceTotal" class="admin-panel__balance-value">-</span>
+                </div>
+                <div id="adminBalanceStatus" class="admin-panel__status"></div>
+              </div>
+
+              <!-- Grant form -->
+              <h3 class="admin-panel__section-title">Grant credits</h3>
+              <form id="adminGrantForm" class="admin-panel__grant-form">
+                <label class="admin-panel__label">
+                  Credits
+                  <input type="number" id="adminGrantCoins" min="1" step="1" required class="admin-panel__input" />
+                </label>
+                <label class="admin-panel__label">
+                  Reason
+                  <textarea id="adminGrantReason" required maxlength="240" rows="3" class="admin-panel__input admin-panel__textarea"></textarea>
+                </label>
+                <button type="submit" id="adminGrantBtn">Grant</button>
+              </form>
+              <div class="admin-panel__hint">Successful grants apply immediately and are recorded below with the reason and admin email.</div>
+              <div id="adminGrantStatus" class="admin-panel__status"></div>
+
+              <h3 class="admin-panel__section-title">Grant history</h3>
+              <div id="adminGrantHistoryStatus" class="admin-panel__status"></div>
+              <div id="adminGrantHistoryList" class="admin-panel__history-list"></div>
+            </div>
           </div>
         </div>
       </div>
     </div>
   </div>
-</mpr-detail-drawer>
+</dialog>
 
 <mpr-footer
   id="page-footer"

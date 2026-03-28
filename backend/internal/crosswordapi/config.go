@@ -2,6 +2,7 @@ package crosswordapi
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -109,6 +110,80 @@ func ParseAdminEmails(raw string) []string {
 		}
 	}
 	return normalized
+}
+
+// ParseAdminEmailsFromYAML extracts administrators from the shared UI config.yaml.
+func ParseAdminEmailsFromYAML(yamlText string) []string {
+	if strings.TrimSpace(yamlText) == "" {
+		return []string{}
+	}
+
+	adminEmails := make([]string, 0)
+	lines := strings.Split(yamlText, "\n")
+	inAdministrators := false
+
+	for _, rawLine := range lines {
+		line := strings.TrimRight(rawLine, "\r")
+		trimmedLine := strings.TrimSpace(line)
+		isIndented := len(line) > 0 && (line[0] == ' ' || line[0] == '\t')
+
+		if !inAdministrators {
+			if strings.HasPrefix(trimmedLine, "administrators:") {
+				inAdministrators = true
+			}
+			continue
+		}
+
+		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
+			continue
+		}
+		if !isIndented {
+			break
+		}
+		if !strings.HasPrefix(trimmedLine, "-") {
+			continue
+		}
+
+		emailValue := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "-"))
+		emailValue = strings.Trim(emailValue, `"'`)
+		if emailValue == "" {
+			continue
+		}
+		adminEmails = append(adminEmails, emailValue)
+	}
+
+	return ParseAdminEmails(strings.Join(adminEmails, ","))
+}
+
+// LoadAdminEmailsFromYAMLFile reads and parses administrators from a YAML file.
+func LoadAdminEmailsFromYAMLFile(path string) ([]string, error) {
+	yamlBytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminEmailsFromYAML(string(yamlBytes)), nil
+}
+
+// MergeAdminEmails combines multiple admin-email lists into one normalized set.
+func MergeAdminEmails(emailLists ...[]string) []string {
+	merged := make([]string, 0)
+	seen := make(map[string]struct{})
+
+	for _, emailList := range emailLists {
+		for _, email := range emailList {
+			normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+			if normalizedEmail == "" {
+				continue
+			}
+			if _, exists := seen[normalizedEmail]; exists {
+				continue
+			}
+			seen[normalizedEmail] = struct{}{}
+			merged = append(merged, normalizedEmail)
+		}
+	}
+
+	return merged
 }
 
 // IsAdmin returns true if the given email is in the admin list.

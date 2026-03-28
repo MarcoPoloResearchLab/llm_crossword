@@ -28,10 +28,11 @@ func TestCreateAndListPuzzles(t *testing.T) {
 	s := testStore(t)
 
 	puzzle := &Puzzle{
-		UserID:   "user-1",
-		Title:    "Test Puzzle",
-		Subtitle: "A test.",
-		Topic:    "testing",
+		UserID:      "user-1",
+		Title:       "Test Puzzle",
+		Subtitle:    "A test.",
+		Description: "A longer stored description.",
+		Topic:       "testing",
 		Words: []PuzzleWord{
 			{Word: "HELLO", Clue: "A greeting", Hint: "what you say when you meet someone"},
 			{Word: "WORLD", Clue: "The planet", Hint: "Earth"},
@@ -63,6 +64,9 @@ func TestCreateAndListPuzzles(t *testing.T) {
 	}
 	if puzzles[0].Title != "Test Puzzle" {
 		t.Errorf("expected title 'Test Puzzle', got %q", puzzles[0].Title)
+	}
+	if puzzles[0].Description != "A longer stored description." {
+		t.Errorf("expected description to persist, got %q", puzzles[0].Description)
 	}
 	if len(puzzles[0].Words) != 2 {
 		t.Errorf("expected 2 words, got %d", len(puzzles[0].Words))
@@ -335,14 +339,92 @@ func TestGetPuzzleByShareToken_NotFound(t *testing.T) {
 	}
 }
 
+func TestUserProfiles_AppearInAdminUsers(t *testing.T) {
+	s := testStore(t)
+
+	if err := s.UpsertUserProfile(&UserProfile{
+		UserID:      "google:123",
+		Email:       "alpha@example.com",
+		DisplayName: "Alpha",
+	}); err != nil {
+		t.Fatalf("UpsertUserProfile: %v", err)
+	}
+
+	users, err := s.ListAdminUsers()
+	if err != nil {
+		t.Fatalf("ListAdminUsers: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(users))
+	}
+	if users[0].Email != "alpha@example.com" {
+		t.Fatalf("expected alpha@example.com, got %q", users[0].Email)
+	}
+	if users[0].UserID != "google:123" {
+		t.Fatalf("expected google:123, got %q", users[0].UserID)
+	}
+}
+
+func TestListAdminUsers_ExcludesLegacyPuzzleUsersWithoutEmails(t *testing.T) {
+	s := testStore(t)
+
+	if err := s.CreatePuzzle(&Puzzle{
+		UserID: "google:legacy",
+		Title:  "Legacy",
+		Words:  []PuzzleWord{{Word: "OLD", Clue: "Older", Hint: "before"}},
+	}); err != nil {
+		t.Fatalf("CreatePuzzle: %v", err)
+	}
+
+	users, err := s.ListAdminUsers()
+	if err != nil {
+		t.Fatalf("ListAdminUsers: %v", err)
+	}
+	if len(users) != 0 {
+		t.Fatalf("expected legacy user without email to be omitted, got %v", users)
+	}
+}
+
+func TestAdminGrantRecords_RoundTrip(t *testing.T) {
+	s := testStore(t)
+
+	if err := s.CreateAdminGrantRecord(&AdminGrantRecord{
+		AdminUserID:  "admin-1",
+		AdminEmail:   "admin@example.com",
+		TargetUserID: "target-user",
+		TargetEmail:  "target@example.com",
+		AmountCoins:  7,
+		Reason:       "manual support adjustment",
+	}); err != nil {
+		t.Fatalf("CreateAdminGrantRecord: %v", err)
+	}
+
+	records, err := s.ListAdminGrantRecords("target-user", 20)
+	if err != nil {
+		t.Fatalf("ListAdminGrantRecords: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	if records[0].Reason != "manual support adjustment" {
+		t.Fatalf("expected reason to round-trip, got %q", records[0].Reason)
+	}
+	if records[0].AmountCoins != 7 {
+		t.Fatalf("expected 7 coins, got %d", records[0].AmountCoins)
+	}
+}
+
 // mockStore implements Store for handler testing.
 type mockStore struct {
-	createFunc     func(puzzle *Puzzle) error
-	listFunc       func(userID string) ([]Puzzle, error)
-	getFunc        func(id, userID string) (*Puzzle, error)
-	deleteFunc     func(id, userID string) error
-	getByShareFunc func(token string) (*Puzzle, error)
-	listUsersFunc  func() ([]string, error)
+	createFunc            func(puzzle *Puzzle) error
+	listFunc              func(userID string) ([]Puzzle, error)
+	getFunc               func(id, userID string) (*Puzzle, error)
+	deleteFunc            func(id, userID string) error
+	getByShareFunc        func(token string) (*Puzzle, error)
+	upsertUserProfileFunc func(profile *UserProfile) error
+	listUsersFunc         func() ([]AdminUser, error)
+	createGrantRecordFunc func(record *AdminGrantRecord) error
+	listGrantRecordsFunc  func(targetUserID string, limit int) ([]AdminGrantRecord, error)
 }
 
 func (m *mockStore) CreatePuzzle(puzzle *Puzzle) error {
@@ -381,9 +463,30 @@ func (m *mockStore) GetPuzzleByShareToken(token string) (*Puzzle, error) {
 	return nil, errors.New("not found")
 }
 
-func (m *mockStore) ListDistinctUserIDs() ([]string, error) {
+func (m *mockStore) UpsertUserProfile(profile *UserProfile) error {
+	if m.upsertUserProfileFunc != nil {
+		return m.upsertUserProfileFunc(profile)
+	}
+	return nil
+}
+
+func (m *mockStore) ListAdminUsers() ([]AdminUser, error) {
 	if m.listUsersFunc != nil {
 		return m.listUsersFunc()
+	}
+	return nil, nil
+}
+
+func (m *mockStore) CreateAdminGrantRecord(record *AdminGrantRecord) error {
+	if m.createGrantRecordFunc != nil {
+		return m.createGrantRecordFunc(record)
+	}
+	return nil
+}
+
+func (m *mockStore) ListAdminGrantRecords(targetUserID string, limit int) ([]AdminGrantRecord, error) {
+	if m.listGrantRecordsFunc != nil {
+		return m.listGrantRecordsFunc(targetUserID, limit)
 	}
 	return nil, nil
 }

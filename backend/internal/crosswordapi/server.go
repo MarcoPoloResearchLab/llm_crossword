@@ -182,6 +182,7 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 	admin.Use(handler.requireAdmin)
 	admin.GET("/users", handler.handleAdminListUsers)
 	admin.GET("/balance", handler.handleAdminBalance)
+	admin.GET("/grants", handler.handleAdminGrantHistory)
 	admin.POST("/grant", handler.handleAdminGrant)
 
 	return router
@@ -195,20 +196,33 @@ type httpHandler struct {
 	store         Store
 }
 
+const (
+	adminGrantHistoryLimit = 20
+	adminGrantReasonMaxLen = 240
+)
+
 func (handler *httpHandler) handleSession(ctx *gin.Context) {
 	claims := getClaims(ctx)
+	var roles []string
+	isAdmin := false
 	if claims == nil {
 		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
 		return
+	}
+	handler.syncUserProfile(claims)
+	roles = append(roles, claims.GetUserRoles()...)
+	isAdmin = handler.cfg.IsAdmin(claims.GetUserEmail()) || hasRole(claims, "admin")
+	if isAdmin && !hasRole(claims, "admin") {
+		roles = append(roles, "admin")
 	}
 	ctx.JSON(http.StatusOK, gin.H{
 		"user_id":    claims.GetUserID(),
 		"email":      claims.GetUserEmail(),
 		"display":    claims.GetUserDisplayName(),
 		"avatar_url": claims.GetUserAvatarURL(),
-		"roles":      claims.GetUserRoles(),
+		"roles":      roles,
 		"expires":    claims.GetExpiresAt().Unix(),
-		"is_admin":   handler.cfg.IsAdmin(claims.GetUserEmail()),
+		"is_admin":   isAdmin,
 	})
 }
 
@@ -218,6 +232,7 @@ func (handler *httpHandler) handleBootstrap(ctx *gin.Context) {
 		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
 		return
 	}
+	handler.syncUserProfile(claims)
 	requestCtx, cancel := context.WithTimeout(ctx.Request.Context(), handler.cfg.LedgerTimeout)
 	defer cancel()
 
@@ -268,6 +283,7 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
 		return
 	}
+	handler.syncUserProfile(claims)
 
 	var req generateRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -336,14 +352,19 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 		return
 	}
 
+	metadata, metadataErr := handler.generatePuzzleMetadata(ctx.Request.Context(), topic, items)
+	if metadataErr != nil {
+		handler.logger.Warn("puzzle metadata generation failed", zap.Error(metadataErr), zap.String("topic", topic))
+		metadata = fallbackPuzzleMetadata(topic)
+	}
+
 	// Save puzzle to database.
-	title := fmt.Sprintf("Crossword — %s", topic)
-	subtitle := fmt.Sprintf("Generated from %q topic.", topic)
 	puzzle := &Puzzle{
-		UserID:   claims.GetUserID(),
-		Title:    title,
-		Subtitle: subtitle,
-		Topic:    topic,
+		UserID:      claims.GetUserID(),
+		Title:       metadata.Title,
+		Subtitle:    metadata.Subtitle,
+		Description: metadata.Description,
+		Topic:       topic,
 	}
 	for _, item := range items {
 		puzzle.Words = append(puzzle.Words, PuzzleWord{
@@ -364,12 +385,40 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"items":       items,
-		"title":       title,
-		"subtitle":    subtitle,
+		"title":       metadata.Title,
+		"subtitle":    metadata.Subtitle,
+		"description": metadata.Description,
 		"balance":     balance,
 		"id":          puzzle.ID,
 		"share_token": puzzle.ShareToken,
 	})
+}
+
+func (handler *httpHandler) generatePuzzleMetadata(ctx context.Context, topic string, items []WordItem) (*PuzzleMetadata, error) {
+	var lastErr error
+
+	for attempt := 0; attempt < 2; attempt++ {
+		metadataCtx, metadataCancel := context.WithTimeout(ctx, handler.cfg.LLMProxyTimeout)
+		metadata, err := handler.callPuzzleMetadataLLMProxy(metadataCtx, topic, items)
+		metadataCancel()
+		if err == nil {
+			return metadata, nil
+		}
+		lastErr = err
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("metadata generation failed")
+	}
+	return nil, lastErr
+}
+
+func fallbackPuzzleMetadata(topic string) *PuzzleMetadata {
+	return &PuzzleMetadata{
+		Title:       normalizeMetadataTitle(topic, topic),
+		Subtitle:    "",
+		Description: "",
+	}
 }
 
 func (handler *httpHandler) respondWithBalance(ctx *gin.Context, userID string) {
@@ -535,13 +584,13 @@ func (handler *httpHandler) handleDeletePuzzle(ctx *gin.Context) {
 }
 
 func (handler *httpHandler) handleAdminListUsers(ctx *gin.Context) {
-	userIDs, err := handler.store.ListDistinctUserIDs()
+	users, err := handler.store.ListAdminUsers()
 	if err != nil {
 		handler.logger.Error("admin list users failed", zap.Error(err))
-		ctx.JSON(http.StatusInternalServerError, errorResponse("db_error", "failed to list users"))
+		ctx.JSON(http.StatusOK, gin.H{"users": []AdminUser{}})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"users": userIDs})
+	ctx.JSON(http.StatusOK, gin.H{"users": users})
 }
 
 func (handler *httpHandler) handleAdminBalance(ctx *gin.Context) {
@@ -557,6 +606,23 @@ func (handler *httpHandler) handleAdminBalance(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"balance": balance})
+}
+
+func (handler *httpHandler) handleAdminGrantHistory(ctx *gin.Context) {
+	userID := strings.TrimSpace(ctx.Query("user_id"))
+	if userID == "" {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_user_id", "user_id query parameter is required"))
+		return
+	}
+
+	records, err := handler.store.ListAdminGrantRecords(userID, adminGrantHistoryLimit)
+	if err != nil {
+		handler.logger.Error("admin grant history failed", zap.Error(err), zap.String("target_user", userID))
+		ctx.JSON(http.StatusInternalServerError, errorResponse("db_error", "grant history unavailable"))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"grants": records})
 }
 
 func (handler *httpHandler) requireAdmin(ctx *gin.Context) {
@@ -586,11 +652,17 @@ func hasRole(claims *sessionvalidator.Claims, role string) bool {
 
 type adminGrantRequest struct {
 	UserID      string `json:"user_id"`
+	UserEmail   string `json:"user_email"`
 	AmountCoins int64  `json:"amount_coins"`
+	Reason      string `json:"reason"`
 }
 
 func (handler *httpHandler) handleAdminGrant(ctx *gin.Context) {
 	claims := getClaims(ctx)
+	reason := ""
+	targetEmail := ""
+	metadata := map[string]any{}
+	var grantRecord *AdminGrantRecord
 
 	var req adminGrantRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -605,19 +677,34 @@ func (handler *httpHandler) handleAdminGrant(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_amount", "amount_coins must be positive"))
 		return
 	}
+	reason = strings.TrimSpace(req.Reason)
+	if reason == "" {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_reason", "reason is required"))
+		return
+	}
+	if len(reason) > adminGrantReasonMaxLen {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_reason", "reason must be 240 characters or fewer"))
+		return
+	}
+	targetEmail = strings.TrimSpace(req.UserEmail)
 
 	amountCents := req.AmountCoins * CoinValueCents()
 	requestCtx, cancel := context.WithTimeout(ctx.Request.Context(), handler.cfg.LedgerTimeout)
 	defer cancel()
 
+	metadata["action"] = "admin_grant"
+	metadata["admin_id"] = claims.GetUserID()
+	metadata["admin_email"] = claims.GetUserEmail()
+	metadata["reason"] = reason
+	if targetEmail != "" {
+		metadata["target_email"] = targetEmail
+	}
+
 	_, err := handler.ledgerClient.Grant(requestCtx, &creditv1.GrantRequest{
-		UserId:         req.UserID,
-		AmountCents:    amountCents,
-		IdempotencyKey: fmt.Sprintf("admin-grant:%s:%s", claims.GetUserID(), uuid.NewString()),
-		MetadataJson: marshalMetadata(map[string]string{
-			"action":   "admin_grant",
-			"admin_id": claims.GetUserID(),
-		}),
+		UserId:           req.UserID,
+		AmountCents:      amountCents,
+		IdempotencyKey:   fmt.Sprintf("admin-grant:%s:%s", claims.GetUserID(), uuid.NewString()),
+		MetadataJson:     marshalMetadata(metadata),
 		ExpiresAtUnixUtc: 0,
 		LedgerId:         handler.cfg.DefaultLedgerID,
 		TenantId:         handler.cfg.DefaultTenantID,
@@ -628,20 +715,59 @@ func (handler *httpHandler) handleAdminGrant(ctx *gin.Context) {
 		return
 	}
 
+	grantRecord = &AdminGrantRecord{
+		AdminUserID:  claims.GetUserID(),
+		AdminEmail:   claims.GetUserEmail(),
+		TargetUserID: req.UserID,
+		TargetEmail:  targetEmail,
+		AmountCoins:  req.AmountCoins,
+		Reason:       reason,
+	}
+	if recordErr := handler.store.CreateAdminGrantRecord(grantRecord); recordErr != nil {
+		handler.logger.Error("admin grant record save failed",
+			zap.Error(recordErr),
+			zap.String("admin", claims.GetUserEmail()),
+			zap.String("target_user", req.UserID),
+		)
+		grantRecord = nil
+	}
+
 	handler.logger.Info("admin grant",
 		zap.String("admin", claims.GetUserEmail()),
 		zap.String("target_user", req.UserID),
 		zap.Int64("coins", req.AmountCoins),
+		zap.String("reason", reason),
 	)
 
 	// Return updated balance for the target user.
 	balance, balanceErr := handler.fetchBalance(ctx.Request.Context(), req.UserID)
 	if balanceErr != nil {
 		handler.logger.Error("balance fetch after admin grant failed", zap.Error(balanceErr))
-		ctx.JSON(http.StatusOK, gin.H{"granted": true})
+		ctx.JSON(http.StatusOK, gin.H{"granted": true, "grant": grantRecord})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"granted": true, "balance": balance})
+	ctx.JSON(http.StatusOK, gin.H{"granted": true, "balance": balance, "grant": grantRecord})
+}
+
+func (handler *httpHandler) syncUserProfile(claims *sessionvalidator.Claims) {
+	if claims == nil || handler.store == nil {
+		return
+	}
+
+	err := handler.store.UpsertUserProfile(&UserProfile{
+		UserID:      claims.GetUserID(),
+		Email:       claims.GetUserEmail(),
+		DisplayName: claims.GetUserDisplayName(),
+		AvatarURL:   claims.GetUserAvatarURL(),
+		LastSeenAt:  time.Now().UTC(),
+	})
+	if err != nil {
+		handler.logger.Warn("user profile sync failed",
+			zap.String("user_id", claims.GetUserID()),
+			zap.String("email", claims.GetUserEmail()),
+			zap.Error(err),
+		)
+	}
 }
 
 func waitForClientReady(ctx context.Context, conn *grpc.ClientConn) error {

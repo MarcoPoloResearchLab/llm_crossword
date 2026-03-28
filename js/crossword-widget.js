@@ -124,7 +124,10 @@
 
   function validatePayload(p) {
     var errors = [];
-    if (!p || typeof p !== "object") errors.push("Payload missing.");
+    if (!p || typeof p !== "object") {
+      errors.push("Payload missing.");
+      return errors;
+    }
     if (!Array.isArray(p.entries) || p.entries.length === 0) errors.push("entries[] is required.");
 
     var byId = {};
@@ -226,7 +229,6 @@
         cc = (ent.dir === "across" ? ent.col + i : ent.col) - offsetCol;
         cell = getCell(cr, cc);
         var dir = ent.dir;
-        if (!cell) continue;
         if (i > 0) cell.links[dir].prev = { r: dir === "across" ? cr : cr - 1, c: dir === "across" ? cc - 1 : cc };
         if (i < L - 1) cell.links[dir].next = { r: dir === "across" ? cr : cr + 1, c: dir === "across" ? cc + 1 : cc };
       }
@@ -240,7 +242,6 @@
         var slotKey = r + ":" + c;
         var sl = starts[slotKey];
         if (!sl) continue;
-        if (model[r][c].block) continue;
         model[r][c].num = nextNum;
         if (sl.across) { sl.across.num = nextNum; across.push(sl.across); }
         if (sl.down) { sl.down.num = nextNum; down.push(sl.down); }
@@ -288,6 +289,7 @@
     this._dragCleanup = null;
     this._puzzles = [];
     this._destroyed = false;
+    this._testApi = null;
 
     // Event handler references for cleanup
     this._boundHandlers = [];
@@ -531,14 +533,6 @@
     gridEl.innerHTML = ""; acrossOl.innerHTML = ""; downOl.innerHTML = "";
     errorBox.style.display = hiddenStyleValue; errorBox.textContent = "";
 
-    // Remove old per-render event handlers
-    var bi;
-    for (bi = 0; bi < this._boundHandlers.length; bi++) {
-      var h = this._boundHandlers[bi];
-      h.el.removeEventListener(h.ev, h.fn, h.opts);
-    }
-    this._boundHandlers = [];
-
     // Validate
     var errors = validatePayload(p);
     if (errors.length) {
@@ -721,6 +715,18 @@
       if (!link) return null;
       var t = getCell(link.r, link.c);
       return (t && !t.block) ? t : null;
+    };
+
+    this._testApi = {
+      cellsById: cellsById,
+      clueById: clueById,
+      getCell: getCell,
+      focusCell: focusCell,
+      step: step,
+      isEntrySolved: isEntrySolved,
+      updateEntrySolvedState: updateEntrySolvedState,
+      updateSolvedStateForCell: updateSolvedStateForCell,
+      revealLetter: revealLetter,
     };
 
     /* Draw grid cells */
@@ -1020,9 +1026,19 @@
     // Clear container
     this._container.innerHTML = "";
     this._puzzles = [];
+    this._testApi = null;
   };
 
   /* ── Expose globally ─────────────────────────────────────────────── */
+
+  CrosswordWidget.__test = {
+    launchConfetti: launchConfetti,
+    sanitizeClue: sanitizeClue,
+    computeGridSize: computeGridSize,
+    validatePayload: validatePayload,
+    buildModel: buildModel,
+    validatePuzzleSpecification: validatePuzzleSpecification,
+  };
 
   window.CrosswordWidget = CrosswordWidget;
 

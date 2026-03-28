@@ -44,6 +44,7 @@ services:
       - "9090:9090"
     volumes:
       - crossword_puzzle_data:/data
+      - ./config.yaml:/config.yaml:ro
     restart: unless-stopped
 
   ghttp:

@@ -155,6 +155,7 @@ func testRouterWithClaims(handler *httpHandler, claims *sessionvalidator.Claims)
 	admin.Use(handler.requireAdmin)
 	admin.GET("/users", handler.handleAdminListUsers)
 	admin.GET("/balance", handler.handleAdminBalance)
+	admin.GET("/grants", handler.handleAdminGrantHistory)
 	admin.POST("/grant", handler.handleAdminGrant)
 
 	return router
@@ -182,6 +183,25 @@ func doRequest(router *gin.Engine, method, path string, body string) *httptest.R
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
+}
+
+func testLLMResponseServer(t *testing.T, responses ...string) *httptest.Server {
+	t.Helper()
+
+	callIndex := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if callIndex >= len(responses) {
+			http.Error(w, "unexpected extra llm call", http.StatusInternalServerError)
+			return
+		}
+
+		response := llmProxyResponse{
+			Request:  "test",
+			Response: responses[callIndex],
+		}
+		callIndex++
+		json.NewEncoder(w).Encode(response)
+	}))
 }
 
 // --- tests ---
@@ -400,13 +420,12 @@ func TestHandleGenerate_Success(t *testing.T) {
 		{Word: "ZEUS", Definition: "King of gods", Hint: "Lightning thrower"},
 		{Word: "HERA", Definition: "Queen of gods", Hint: "Wife of Zeus"},
 	}
-	wrapper := llmProxyResponse{
-		Request:  "test",
-		Response: mustMarshalJSON(items),
+	metadata := PuzzleMetadata{
+		Title:       "Olympian Power Network",
+		Subtitle:    "Zeus and Hera anchor a tightly focused set of Olympian deity answers.",
+		Description: "This puzzle centers on prominent Olympian figures and the shared mythology that connects their roles, symbols, and relationships.",
 	}
-	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(wrapper)
-	}))
+	llmServer := testLLMResponseServer(t, mustMarshalJSON(items), mustMarshalJSON(metadata))
 	defer llmServer.Close()
 
 	handler := testHandler(ledger, llmServer)
@@ -420,6 +439,81 @@ func TestHandleGenerate_Success(t *testing.T) {
 	respItems, ok := resp["items"].([]any)
 	if !ok || len(respItems) != 2 {
 		t.Fatalf("expected 2 items, got %v", resp["items"])
+	}
+	if resp["title"] != metadata.Title {
+		t.Fatalf("expected title %q, got %v", metadata.Title, resp["title"])
+	}
+	if resp["subtitle"] != metadata.Subtitle {
+		t.Fatalf("expected subtitle %q, got %v", metadata.Subtitle, resp["subtitle"])
+	}
+	if resp["description"] != metadata.Description {
+		t.Fatalf("expected description %q, got %v", metadata.Description, resp["description"])
+	}
+}
+
+func TestHandleGenerate_MetadataRetrySucceeds(t *testing.T) {
+	items := []WordItem{
+		{Word: "FORUM", Definition: "Public square", Hint: "civic center"},
+	}
+	metadata := PuzzleMetadata{
+		Title:       "Roman Civic Core",
+		Subtitle:    "The forum-focused answer set highlights the political and commercial heart of the city.",
+		Description: "This puzzle emphasizes the public institutions and shared spaces that structured Roman urban life.",
+	}
+	llmServer := testLLMResponseServer(t, mustMarshalJSON(items), "not json", mustMarshalJSON(metadata))
+	defer llmServer.Close()
+
+	handler := testHandler(&mockLedgerClient{}, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/generate", `{"topic":"Roman city","word_count":8}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	if body["title"] != metadata.Title {
+		t.Fatalf("expected metadata retry title %q, got %v", metadata.Title, body["title"])
+	}
+	if body["description"] != metadata.Description {
+		t.Fatalf("expected metadata retry description %q, got %v", metadata.Description, body["description"])
+	}
+}
+
+func TestHandleGenerate_MetadataFailureFallsBackWithoutRefund(t *testing.T) {
+	items := []WordItem{
+		{Word: "FORUM", Definition: "Public square", Hint: "civic center"},
+	}
+	var grantCalls int
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantCalls++
+			return &creditv1.Empty{}, nil
+		},
+	}
+	llmServer := testLLMResponseServer(t, mustMarshalJSON(items), "not json", `{"title":"still wrong"}`)
+	defer llmServer.Close()
+
+	handler := testHandler(ledger, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/generate", `{"topic":"Crossword city","word_count":8}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if grantCalls != 0 {
+		t.Fatalf("expected no refund for metadata-only failure, got %d grant calls", grantCalls)
+	}
+
+	var body map[string]any
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	if body["title"] != "city" {
+		t.Fatalf("expected fallback title %q, got %v", "city", body["title"])
+	}
+	if body["subtitle"] != "" {
+		t.Fatalf("expected empty fallback subtitle, got %v", body["subtitle"])
+	}
+	if body["description"] != "" {
+		t.Fatalf("expected empty fallback description, got %v", body["description"])
 	}
 }
 
@@ -612,7 +706,7 @@ func TestHandleListPuzzles_Empty(t *testing.T) {
 func TestHandleListPuzzles_WithPuzzles(t *testing.T) {
 	s := &mockStore{
 		listFunc: func(userID string) ([]Puzzle, error) {
-			return []Puzzle{{ID: "p1", Title: "Test", Words: []PuzzleWord{{Word: "HI", Clue: "Greeting", Hint: "hey"}}}}, nil
+			return []Puzzle{{ID: "p1", Title: "Test", Description: "Stored detail", Words: []PuzzleWord{{Word: "HI", Clue: "Greeting", Hint: "hey"}}}}, nil
 		},
 	}
 	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
@@ -625,6 +719,9 @@ func TestHandleListPuzzles_WithPuzzles(t *testing.T) {
 	json.Unmarshal(resp.Body.Bytes(), &body)
 	if len(body["puzzles"]) != 1 {
 		t.Errorf("expected 1 puzzle, got %d", len(body["puzzles"]))
+	}
+	if body["puzzles"][0].Description != "Stored detail" {
+		t.Errorf("expected description 'Stored detail', got %q", body["puzzles"][0].Description)
 	}
 }
 
@@ -654,7 +751,7 @@ func TestHandleGetPuzzle_NoClaims(t *testing.T) {
 func TestHandleGetPuzzle_Found(t *testing.T) {
 	s := &mockStore{
 		getFunc: func(id, userID string) (*Puzzle, error) {
-			return &Puzzle{ID: id, Title: "Found It"}, nil
+			return &Puzzle{ID: id, Title: "Found It", Description: "Stored detail"}, nil
 		},
 	}
 	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
@@ -667,6 +764,9 @@ func TestHandleGetPuzzle_Found(t *testing.T) {
 	json.Unmarshal(resp.Body.Bytes(), &body)
 	if body.Title != "Found It" {
 		t.Errorf("expected title 'Found It', got %q", body.Title)
+	}
+	if body.Description != "Stored detail" {
+		t.Errorf("expected description 'Stored detail', got %q", body.Description)
 	}
 }
 
@@ -735,11 +835,16 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 			return nil
 		},
 	}
-	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
-			"response": `[{"word":"CAT","definition":"Animal","hint":"meow"}]`,
-		})
-	}))
+	metadata := PuzzleMetadata{
+		Title:       "Cat Life",
+		Subtitle:    "Animal-focused answers keep the generated puzzle tight and familiar.",
+		Description: "This puzzle concentrates on simple animal vocabulary and clueing that stays approachable.",
+	}
+	llmServer := testLLMResponseServer(
+		t,
+		`[{"word":"CAT","definition":"Animal","hint":"meow"}]`,
+		mustMarshalJSON(metadata),
+	)
 	defer llmServer.Close()
 
 	ledger := &mockLedgerClient{
@@ -762,6 +867,15 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 	if savedPuzzle.Topic != "cats" {
 		t.Errorf("expected topic 'cats', got %q", savedPuzzle.Topic)
 	}
+	if savedPuzzle.Title != metadata.Title {
+		t.Errorf("expected title %q, got %q", metadata.Title, savedPuzzle.Title)
+	}
+	if savedPuzzle.Subtitle != metadata.Subtitle {
+		t.Errorf("expected subtitle %q, got %q", metadata.Subtitle, savedPuzzle.Subtitle)
+	}
+	if savedPuzzle.Description != metadata.Description {
+		t.Errorf("expected description %q, got %q", metadata.Description, savedPuzzle.Description)
+	}
 	if len(savedPuzzle.Words) != 1 {
 		t.Errorf("expected 1 word, got %d", len(savedPuzzle.Words))
 	}
@@ -770,14 +884,21 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 	if body["id"] != "saved-id" {
 		t.Errorf("expected id 'saved-id' in response, got %v", body["id"])
 	}
+	if body["title"] != metadata.Title {
+		t.Errorf("expected title %q in response, got %v", metadata.Title, body["title"])
+	}
+	if body["description"] != metadata.Description {
+		t.Errorf("expected description %q in response, got %v", metadata.Description, body["description"])
+	}
 }
 
 func TestHandleGetSharedPuzzle_Success(t *testing.T) {
 	s, _ := OpenDatabase(":memory:")
 	puzzle := &Puzzle{
-		UserID: "user-1",
-		Title:  "Shared Test",
-		Words:  []PuzzleWord{{Word: "SHARE", Clue: "Give", Hint: "distribute"}},
+		UserID:      "user-1",
+		Title:       "Shared Test",
+		Description: "Shared detail",
+		Words:       []PuzzleWord{{Word: "SHARE", Clue: "Give", Hint: "distribute"}},
 	}
 	if err := s.CreatePuzzle(puzzle); err != nil {
 		t.Fatalf("CreatePuzzle: %v", err)
@@ -793,6 +914,9 @@ func TestHandleGetSharedPuzzle_Success(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Title != "Shared Test" {
 		t.Errorf("expected title 'Shared Test', got %q", resp.Title)
+	}
+	if resp.Description != "Shared detail" {
+		t.Errorf("expected description 'Shared detail', got %q", resp.Description)
 	}
 	if len(resp.Words) != 1 {
 		t.Errorf("expected 1 word, got %d", len(resp.Words))
@@ -901,17 +1025,19 @@ func adminConfig() Config {
 func TestAdminGrant_Success(t *testing.T) {
 	var grantedAmount int64
 	var grantedUserID string
+	var grantedMetadata string
 	ledger := &mockLedgerClient{
 		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
 			grantedAmount = in.AmountCents
 			grantedUserID = in.UserId
+			grantedMetadata = in.MetadataJson
 			return &creditv1.Empty{}, nil
 		},
 	}
 	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
 	router := testRouterWithClaims(handler, adminClaims())
 
-	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","user_email":"target@example.com","amount_coins":10,"reason":"support follow-up"}`)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -922,6 +1048,16 @@ func TestAdminGrant_Success(t *testing.T) {
 	if grantedAmount != expectedCents {
 		t.Errorf("expected %d cents, got %d", expectedCents, grantedAmount)
 	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(grantedMetadata), &metadata); err != nil {
+		t.Fatalf("grant metadata: %v", err)
+	}
+	if metadata["reason"] != "support follow-up" {
+		t.Errorf("expected reason in metadata, got %v", metadata["reason"])
+	}
+	if metadata["target_email"] != "target@example.com" {
+		t.Errorf("expected target_email in metadata, got %v", metadata["target_email"])
+	}
 
 	var body map[string]any
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
@@ -929,6 +1065,13 @@ func TestAdminGrant_Success(t *testing.T) {
 	}
 	if body["granted"] != true {
 		t.Errorf("expected granted=true, got %v", body["granted"])
+	}
+	grant, ok := body["grant"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected grant object, got %T", body["grant"])
+	}
+	if grant["reason"] != "support follow-up" {
+		t.Errorf("expected response reason, got %v", grant["reason"])
 	}
 }
 
@@ -938,7 +1081,7 @@ func TestAdminGrant_NonAdminForbidden(t *testing.T) {
 	// Use regular (non-admin) claims.
 	router := testRouterWithClaims(handler, testClaims())
 
-	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10,"reason":"manual grant"}`)
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -949,7 +1092,7 @@ func TestAdminGrant_NoAuth(t *testing.T) {
 	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
 	router := testRouterWithClaims(handler, nil)
 
-	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10,"reason":"manual grant"}`)
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -965,10 +1108,11 @@ func TestAdminGrant_InvalidPayload(t *testing.T) {
 		body string
 		code int
 	}{
-		{"missing user_id", `{"amount_coins":10}`, http.StatusBadRequest},
-		{"missing amount", `{"user_id":"user-1"}`, http.StatusBadRequest},
-		{"zero amount", `{"user_id":"user-1","amount_coins":0}`, http.StatusBadRequest},
-		{"negative amount", `{"user_id":"user-1","amount_coins":-5}`, http.StatusBadRequest},
+		{"missing user_id", `{"amount_coins":10,"reason":"test"}`, http.StatusBadRequest},
+		{"missing amount", `{"user_id":"user-1","reason":"test"}`, http.StatusBadRequest},
+		{"missing reason", `{"user_id":"user-1","amount_coins":1}`, http.StatusBadRequest},
+		{"zero amount", `{"user_id":"user-1","amount_coins":0,"reason":"test"}`, http.StatusBadRequest},
+		{"negative amount", `{"user_id":"user-1","amount_coins":-5,"reason":"test"}`, http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -989,7 +1133,7 @@ func TestAdminGrant_LedgerError(t *testing.T) {
 	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
 	router := testRouterWithClaims(handler, adminClaims())
 
-	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":5}`)
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":5,"reason":"manual grant"}`)
 	if resp.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -1009,6 +1153,13 @@ func TestSessionReturnsIsAdmin(t *testing.T) {
 	if body["is_admin"] != true {
 		t.Errorf("expected is_admin=true for admin, got %v", body["is_admin"])
 	}
+	roles, ok := body["roles"].([]any)
+	if !ok {
+		t.Fatalf("expected roles array, got %T", body["roles"])
+	}
+	if len(roles) == 0 || roles[len(roles)-1] != "admin" {
+		t.Errorf("expected admin role in session response, got %v", body["roles"])
+	}
 
 	// Regular user.
 	handler2 := testHandlerWithConfig(ledger, nil, nil, adminConfig())
@@ -1023,11 +1174,42 @@ func TestSessionReturnsIsAdmin(t *testing.T) {
 	}
 }
 
+func TestSessionReturnsRoleBasedAdmin(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	roleClaims := &sessionvalidator.Claims{
+		UserID:          "role-admin-1",
+		UserEmail:       "roleuser@example.com",
+		UserDisplayName: "Role Admin",
+		UserRoles:       []string{"user", "admin"},
+	}
+	handler := testHandlerWithConfig(ledger, nil, nil, testConfig())
+	router := testRouterWithClaims(handler, roleClaims)
+	resp := doRequest(router, "GET", "/api/session", "")
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["is_admin"] != true {
+		t.Errorf("expected is_admin=true for role-based admin, got %v", body["is_admin"])
+	}
+	roles, ok := body["roles"].([]any)
+	if !ok {
+		t.Fatalf("expected roles array, got %T", body["roles"])
+	}
+	if len(roles) != 2 || roles[0] != "user" || roles[1] != "admin" {
+		t.Errorf("expected original admin roles in session response, got %v", body["roles"])
+	}
+}
+
 func TestAdminListUsers(t *testing.T) {
 	ledger := &mockLedgerClient{}
 	s := &mockStore{
-		listUsersFunc: func() ([]string, error) {
-			return []string{"user-1", "user-2", "user-3"}, nil
+		listUsersFunc: func() ([]AdminUser, error) {
+			return []AdminUser{
+				{UserID: "user-1", Email: "alpha@example.com"},
+				{UserID: "user-2", Email: "beta@example.com"},
+				{UserID: "user-3"},
+			}, nil
 		},
 	}
 	handler := testHandlerWithConfig(ledger, nil, s, adminConfig())
@@ -1044,6 +1226,40 @@ func TestAdminListUsers(t *testing.T) {
 	users, ok := body["users"].([]any)
 	if !ok || len(users) != 3 {
 		t.Fatalf("expected 3 users, got %v", body["users"])
+	}
+	firstUser, ok := users[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected object user entry, got %T", users[0])
+	}
+	if firstUser["email"] != "alpha@example.com" {
+		t.Fatalf("expected first email, got %v", firstUser["email"])
+	}
+}
+
+func TestAdminListUsers_StoreErrorReturnsEmptyList(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	s := &mockStore{
+		listUsersFunc: func() ([]AdminUser, error) {
+			return nil, errors.New("db down")
+		},
+	}
+	handler := testHandlerWithConfig(ledger, nil, s, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/users", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	users, ok := body["users"].([]any)
+	if !ok {
+		t.Fatalf("expected users array, got %v", body["users"])
+	}
+	if len(users) != 0 {
+		t.Fatalf("expected empty users list, got %v", users)
 	}
 }
 
@@ -1088,6 +1304,107 @@ func TestAdminBalance_MissingUserID(t *testing.T) {
 	resp := doRequest(router, "GET", "/api/admin/balance", "")
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAdminGrantHistory(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	s := &mockStore{
+		listGrantRecordsFunc: func(targetUserID string, limit int) ([]AdminGrantRecord, error) {
+			if targetUserID != "target-user" {
+				t.Fatalf("expected target-user, got %s", targetUserID)
+			}
+			if limit != adminGrantHistoryLimit {
+				t.Fatalf("expected limit %d, got %d", adminGrantHistoryLimit, limit)
+			}
+			return []AdminGrantRecord{
+				{
+					ID:           "grant-1",
+					AdminUserID:  "admin-1",
+					AdminEmail:   "admin@example.com",
+					TargetUserID: "target-user",
+					TargetEmail:  "target@example.com",
+					AmountCoins:  5,
+					Reason:       "support follow-up",
+				},
+			}, nil
+		},
+	}
+	handler := testHandlerWithConfig(ledger, nil, s, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/grants?user_id=target-user", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	grants, ok := body["grants"].([]any)
+	if !ok || len(grants) != 1 {
+		t.Fatalf("expected 1 grant, got %v", body["grants"])
+	}
+	grant, ok := grants[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected grant object, got %T", grants[0])
+	}
+	if grant["reason"] != "support follow-up" {
+		t.Fatalf("expected reason, got %v", grant["reason"])
+	}
+}
+
+func TestAdminGrantHistory_MissingUserID(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/grants", "")
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestHandleSession_SyncsUserProfileForAdminLookup(t *testing.T) {
+	store := testStore(t)
+	userHandler := testHandlerWithStore(&mockLedgerClient{}, nil, store)
+	userRouter := testRouterWithClaims(userHandler, testClaims())
+
+	resp := doRequest(userRouter, "GET", "/api/session", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	adminHandler := testHandlerWithConfig(&mockLedgerClient{}, nil, store, adminConfig())
+	adminRouter := testRouterWithClaims(adminHandler, adminClaims())
+	adminResp := doRequest(adminRouter, "GET", "/api/admin/users", "")
+	if adminResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", adminResp.Code, adminResp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(adminResp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	users, ok := body["users"].([]any)
+	if !ok || len(users) == 0 {
+		t.Fatalf("expected users, got %v", body["users"])
+	}
+
+	found := false
+	for _, rawUser := range users {
+		user, ok := rawUser.(map[string]any)
+		if !ok {
+			continue
+		}
+		if user["user_id"] == "user-123" && user["email"] == "user@example.com" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected synced user profile in admin list, got %v", users)
 	}
 }
 

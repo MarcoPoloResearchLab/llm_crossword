@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -31,6 +32,11 @@ const (
 	flagAdminEmails     = "admin-emails"
 	envPrefix           = "CROSSWORDAPI"
 )
+
+var defaultAdminConfigPaths = []string{
+	"/config.yaml",
+	"config.yaml",
+}
 
 // run executes the root command and returns the exit code.
 func run() int {
@@ -132,5 +138,30 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	cfg.DatabaseDSN = v.GetString(flagDatabaseDSN)
 	cfg.AdminEmails = crosswordapi.ParseAdminEmails(v.GetString(flagAdminEmails))
 
+	configAdminEmails, err := loadAdminEmailsFromConfigPaths(defaultAdminConfigPaths)
+	if err != nil {
+		return err
+	}
+	cfg.AdminEmails = crosswordapi.MergeAdminEmails(cfg.AdminEmails, configAdminEmails)
+
 	return cfg.Validate()
+}
+
+func loadAdminEmailsFromConfigPaths(paths []string) ([]string, error) {
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+
+		adminEmails, err := crosswordapi.LoadAdminEmailsFromYAMLFile(path)
+		if err == nil {
+			return adminEmails, nil
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		return nil, fmt.Errorf("load admin config %s: %w", path, err)
+	}
+
+	return []string{}, nil
 }
