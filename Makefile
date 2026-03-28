@@ -44,7 +44,12 @@ lint:
 # ---------- Testing ----------
 
 test-backend:
-	cd $(BACKEND_DIR) && $(GO) test ./... -cover
+	cd $(BACKEND_DIR) && $(GO) test ./... -coverprofile=coverage.out
+	@coverage="$$(cd $(BACKEND_DIR) && $(GO) tool cover -func=coverage.out | awk '/^total:/ { print $$3 }')"; \
+	if [ "$$coverage" != "100.0%" ]; then \
+		echo "Go coverage must be 100.0% (got $$coverage)"; \
+		exit 1; \
+	fi
 
 $(NODE_MODULES): package-lock.json
 	$(NPM) ci --foreground-scripts
@@ -75,7 +80,7 @@ build:
 	cd $(BACKEND_DIR) && $(GO) build -o bin/crossword-api ./cmd/crossword-api
 
 clean:
-	rm -rf $(BIN_DIR) .nyc_output coverage test-results playwright-report
+	rm -rf $(BIN_DIR) .nyc_output coverage test-results playwright-report $(BACKEND_DIR)/coverage.out
 
 # ---------- CI ----------
 

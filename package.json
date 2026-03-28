@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
-    "test:coverage": "rm -rf .nyc_output && playwright test && npx nyc report --reporter=text --reporter=lcov",
+    "test:coverage": "rm -rf .nyc_output coverage && playwright test && npx nyc report --reporter=text --reporter=lcov && npx nyc check-coverage --branches 100 --functions 100 --lines 100 --statements 100",
     "test:integration": "playwright test --config playwright.integration.config.js"
   },
   "devDependencies": {

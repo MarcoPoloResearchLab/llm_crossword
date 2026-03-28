@@ -38,6 +38,8 @@ var defaultAdminConfigPaths = []string{
 	"config.yaml",
 }
 
+var exitFunc = os.Exit
+
 // run executes the root command and returns the exit code.
 func run() int {
 	rootCmd := newRootCommand()
@@ -49,7 +51,7 @@ func run() int {
 }
 
 func main() {
-	os.Exit(run())
+	exitFunc(run())
 }
 
 func newRootCommand() *cobra.Command {

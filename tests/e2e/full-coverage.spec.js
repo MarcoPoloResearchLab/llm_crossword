@@ -168,6 +168,16 @@ test.describe("Admin coverage", () => {
     await expect(page.locator("#adminGrantStatus")).toContainText("Enter a positive number of credits.");
 
     await page.fill("#adminGrantCoins", "5");
+    await page.fill("#adminGrantReason", "");
+    await page.evaluate(() => {
+      document.getElementById("adminGrantForm").dispatchEvent(new Event("submit", {
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+    await expect(page.locator("#adminGrantStatus")).toContainText("Enter a reason for the grant.");
+
+    await page.fill("#adminGrantCoins", "5");
     await page.fill("#adminGrantReason", "Prize top-up");
     await page.evaluate(() => {
       document.getElementById("adminGrantForm").dispatchEvent(new Event("submit", {
@@ -311,6 +321,70 @@ test.describe("Admin coverage", () => {
     await expect(page.locator("#settingsDrawer")).not.toHaveAttribute("open", "");
   });
 
+  test("covers account rendering without an avatar element and refresh while the drawer is open", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent(`<!doctype html>
+      <html>
+        <body>
+          <dialog id="settingsDrawer"></dialog>
+          <button id="settingsCloseButton" type="button">Close</button>
+          <div id="userMenu"></div>
+          <button id="settingsTabAccount" type="button">Account</button>
+          <button id="settingsTabAdmin" type="button">Admin</button>
+          <div id="settingsAccountTab"></div>
+          <div id="settingsAdminTab" style="display:none;"></div>
+          <div id="settingsName"></div>
+          <div id="settingsEmail"></div>
+          <dl id="settingsAccountDetails"></dl>
+        </body>
+      </html>`);
+    await page.evaluate((responses) => {
+      window.fetch = function () {
+        var payload = responses.shift() || responses[responses.length - 1];
+        return Promise.resolve({
+          ok: true,
+          json: function () {
+            return Promise.resolve(payload);
+          },
+        });
+      };
+    }, [
+      createSession({
+        user_id: "admin-user",
+        email: "admin@example.com",
+        display: "First Admin",
+        roles: ["member", "admin"],
+        is_admin: true,
+      }),
+      createSession({
+        user_id: "admin-user",
+        email: "admin@example.com",
+        display: "Updated Admin",
+        roles: ["member", "admin"],
+        is_admin: true,
+      }),
+    ]);
+    await loadScript(page, "admin.js");
+    await page.waitForFunction(() => {
+      var menu = document.getElementById("userMenu");
+      return menu && menu.getAttribute("menu-items");
+    });
+
+    await page.evaluate(() => {
+      document.dispatchEvent(new CustomEvent("mpr-user:menu-item", {
+        detail: { action: "settings" },
+      }));
+    });
+    await expect(page.locator("#settingsDrawer")).toHaveAttribute("open", "");
+    await expect(page.locator("#settingsName")).toHaveText("First Admin");
+    await expect(page.locator("#settingsEmail")).toHaveText("admin@example.com");
+
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event("mpr-ui:auth:authenticated"));
+    });
+    await expect(page.locator("#settingsName")).toHaveText("Updated Admin");
+  });
+
   test("covers settings setup without a user menu", async ({ page }) => {
     await page.goto("/blank.html");
     await page.setContent("<!doctype html><html><body></body></html>");
@@ -424,6 +498,55 @@ test.describe("Admin coverage", () => {
     await expect(page.locator("#adminGrantStatus")).toContainText("Granted 6 credits!");
     await expect(page.locator("#adminBalanceCoins")).toHaveText("14");
     await expect(page.locator("#adminBalanceTotal")).toHaveText("-");
+  });
+
+  test("covers stale selected users and fallback rendering when the user list refresh fails", async ({ page }) => {
+    var userCalls = 0;
+
+    await setupLoggedInRoutes(page, {
+      session: createSession({
+        user_id: "admin-user",
+        email: "admin@example.com",
+        display: "Admin User",
+        roles: ["member", "admin"],
+        is_admin: true,
+      }),
+      configYaml: ADMIN_CONFIG_YAML,
+      extra: {
+        "**/api/admin/users": (route) => {
+          userCalls += 1;
+          if (userCalls === 1) {
+            return route.fulfill(json(200, {
+              users: [{ user_id: "google:alpha", email: "alpha@example.com", display: "Alpha" }],
+            }));
+          }
+          if (userCalls === 2) {
+            return route.abort("failed");
+          }
+          return route.fulfill(json(200, {
+            users: [{ user_id: "google:beta", email: "beta@example.com", display: "Beta" }],
+          }));
+        },
+        "**/api/admin/balance?user_id=*": (route) =>
+          route.fulfill(json(200, { balance: { coins: 9, total_cents: 900 } })),
+        "**/api/admin/grants?user_id=*": (route) =>
+          route.fulfill(json(200, { grants: [] })),
+      },
+    });
+
+    await page.goto("/");
+    await openAdminTab(page);
+    await page.locator("#adminUserList").getByRole("button", { name: "alpha@example.com" }).click();
+    await expect(page.locator("#adminSelectedUser")).toHaveText("alpha@example.com");
+
+    await page.click("#adminRefreshUsers");
+    await expect(page.locator("#adminUsersStatus")).toContainText("We couldn't load the user list. Try Refresh.");
+    await expect(page.locator("#adminUserList")).toContainText("alpha@example.com");
+    await expect(page.locator("#adminSelectedUser")).toHaveText("alpha@example.com");
+
+    await page.click("#adminRefreshUsers");
+    await expect(page.locator("#adminUserList")).toContainText("beta@example.com");
+    await expect(page.locator("#adminSelectedUser")).toHaveText("alpha@example.com");
   });
 
   test("covers admin-tab reset to account and ignored grants without a selection", async ({ page }) => {
@@ -1291,6 +1414,30 @@ test.describe("Isolated script coverage", () => {
     await expect(page.locator(".landing__title")).toHaveText("Shared Crossword");
   });
 
+  test("covers crossword.js guard clauses before bootstrapping", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent("<!doctype html><html><body></body></html>");
+    {
+      var pageErrorPromise = page.waitForEvent("pageerror");
+      await loadScript(page, "crossword.js");
+      await expect(pageErrorPromise.then((error) => error.message)).resolves.toMatch(/CrosswordWidget is required/);
+    }
+
+    await page.setContent("<!doctype html><html><body></body></html>");
+    await page.evaluate(() => {
+      window.__LLM_CROSSWORD_MAIN_PAGE_BOOTED__ = true;
+      window.CrosswordWidget = function () {};
+    });
+    await loadScript(page, "crossword.js");
+    expect(await page.evaluate(() => typeof window.CrosswordApp)).toBe("undefined");
+
+    await page.evaluate(() => {
+      delete window.__LLM_CROSSWORD_MAIN_PAGE_BOOTED__;
+    });
+    await loadScript(page, "crossword.js");
+    expect(await page.evaluate(() => typeof window.CrosswordApp)).toBe("undefined");
+  });
+
   test("covers crossword.js addGeneratedPuzzle without a card list", async ({ page }) => {
     await page.goto("/blank.html");
     await page.setContent(`<!doctype html>
@@ -1377,6 +1524,72 @@ test.describe("Isolated script coverage", () => {
     }, defaultPuzzles[0].items);
 
     expect(display).toBe("");
+  });
+
+  test("covers crossword.js sidebar toggles without a nested icon and retains shared tokens", async ({ page }) => {
+    await page.goto("/blank.html?puzzle=shared-sidebar");
+    await page.setContent(`<!doctype html>
+      <html>
+        <body>
+          <div id="puzzleView">
+            <div id="descriptionPanel" hidden><button id="descriptionToggle" type="button"></button><p id="descriptionContent" hidden></p></div>
+            <h1 id="title"></h1>
+            <div id="subtitle"></div>
+            <div id="status"></div>
+            <div id="errorBox"></div>
+            <div id="puzzleSidebar"></div>
+            <button id="puzzleSidebarToggle" type="button"></button>
+            <div id="puzzleCardList"></div>
+            <div id="generatePanel"></div>
+            <div class="pane" id="pane"></div>
+            <div class="controls"></div>
+            <div id="gridViewport"><div id="grid"></div></div>
+            <ol id="across"></ol>
+            <ol id="down"></ol>
+            <button id="check">Check</button>
+            <button id="reveal">Reveal</button>
+          </div>
+          <button id="shareBtn" style="display:none"></button>
+        </body>
+      </html>`);
+    await page.evaluate((spec) => {
+      window.fetch = function (url) {
+        if (String(url).indexOf("/api/shared/") >= 0) {
+          return Promise.resolve({
+            ok: true,
+            json: function () {
+              return Promise.resolve({
+                title: "Shared Sidebar Puzzle",
+                subtitle: "Shared subtitle",
+                description: "Shared detail copy.",
+                items: spec.items,
+                share_token: "shared-sidebar-token",
+              });
+            },
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: function () {
+            return Promise.resolve([spec]);
+          },
+        });
+      };
+    }, clonePuzzleSpec("Sidebar Fixture"));
+    await loadScript(page, "generator.js");
+    await loadScript(page, "crossword-widget.js");
+    await loadScript(page, "crossword.js");
+    await page.waitForFunction(() => document.getElementById("title").textContent === "Shared Sidebar Puzzle");
+
+    await expect(page.locator("#shareBtn")).toBeVisible();
+    expect(await page.locator("#puzzleSidebarToggle").textContent()).toBe("‹");
+    expect(await page.evaluate(() => window.CrosswordApp.isSidebarCollapsed())).toBe(false);
+
+    await page.locator("#puzzleSidebarToggle").click();
+
+    expect(await page.evaluate(() => window.CrosswordApp.isSidebarCollapsed())).toBe(true);
+    expect(await page.locator("#puzzleSidebarToggle").textContent()).toBe("›");
   });
 
   test("covers crossword.js false branches for empty sidebar state and missing share button", async ({ page }) => {
@@ -1496,6 +1709,61 @@ test.describe("Isolated script coverage", () => {
 
     expect(result.miniGridTag).toBe("DIV");
     expect(result.cardCount).toBe(2);
+  });
+
+  test("covers crossword.js invalid shared puzzle specifications", async ({ page }) => {
+    await page.goto("/blank.html?puzzle=broken-shared");
+    await page.setContent(`<!doctype html>
+      <html>
+        <body>
+          <div id="puzzleView">
+            <h1 id="title"></h1>
+            <div id="subtitle"></div>
+            <div id="status"></div>
+            <div id="errorBox"></div>
+            <div id="gridViewport"><div id="grid"></div></div>
+            <ol id="across"></ol>
+            <ol id="down"></ol>
+            <button id="check">Check</button>
+            <button id="reveal">Reveal</button>
+            <div id="puzzleSidebar"></div>
+            <button id="puzzleSidebarToggle" type="button"><span class="puzzle-sidebar__toggle-icon"></span></button>
+            <div id="puzzleCardList"></div>
+            <div class="pane"></div>
+            <div class="controls"></div>
+            <div id="generatePanel"></div>
+          </div>
+          <button id="shareBtn" style="display:none"></button>
+        </body>
+      </html>`);
+    await page.evaluate((spec) => {
+      window.fetch = function (url) {
+        if (String(url).indexOf("/api/shared/") >= 0) {
+          return Promise.resolve({
+            ok: true,
+            json: function () {
+              return Promise.resolve({
+                title: "Broken Shared Puzzle",
+                subtitle: "broken",
+                items: null,
+              });
+            },
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: function () {
+            return Promise.resolve([spec]);
+          },
+        });
+      };
+    }, clonePuzzleSpec("Broken Shared Fixture"));
+    await loadScript(page, "generator.js");
+    await loadScript(page, "crossword-widget.js");
+    await loadScript(page, "crossword.js");
+
+    await expect(page.locator("#errorBox")).toContainText("Shared crossword specification invalid");
   });
 
   test("covers crossword.js empty puzzle lists without optional UI", async ({ page }) => {

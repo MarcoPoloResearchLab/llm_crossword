@@ -406,10 +406,6 @@ func (handler *httpHandler) generatePuzzleMetadata(ctx context.Context, topic st
 		}
 		lastErr = err
 	}
-
-	if lastErr == nil {
-		lastErr = errors.New("metadata generation failed")
-	}
 	return nil, lastErr
 }
 
