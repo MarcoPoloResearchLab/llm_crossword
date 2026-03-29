@@ -18,10 +18,20 @@ test.describe("Landing page", () => {
     await expect(page.getByText("Create crossword puzzles with AI")).toBeVisible();
   });
 
+  test("shows the landing page brand logo", async ({ page }) => {
+    await expect(page.getByAltText("LLM Crossword logo")).toBeVisible();
+  });
+
   test("shows the hero subtitle describing the product", async ({ page }) => {
     await expect(
       page.getByText("Enter any topic and let a large language model"),
     ).toBeVisible();
+  });
+
+  test("publishes favicon links", async ({ page }) => {
+    await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", "/assets/img/llm_crossword_favicon.svg");
+    await expect(page.locator('link[rel="icon"][type="image/png"]')).toHaveAttribute("href", "/assets/img/llm_crossword_favicon.png");
+    await expect(page.locator('link[rel="shortcut icon"]')).toHaveAttribute("href", "/assets/img/llm_crossword_favicon.ico");
   });
 
   test("shows the 'Try a pre-built puzzle' button", async ({ page }) => {
@@ -61,12 +71,10 @@ test.describe("Landing page", () => {
     await expect(page.locator("#puzzleCardList .puzzle-card").first()).toBeVisible();
   });
 
-  test("back button returns to landing page from puzzle view", async ({ page }) => {
+  test("puzzle view no longer shows a back button", async ({ page }) => {
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView")).toBeVisible();
-    await page.getByRole("button", { name: "Back" }).click();
-    await expect(page.locator("#landingPage")).toBeVisible();
-    await expect(page.locator("#puzzleView")).toBeHidden();
+    await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
   });
 
   test("page title is set", async ({ page }) => {

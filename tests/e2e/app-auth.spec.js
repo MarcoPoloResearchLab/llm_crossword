@@ -22,7 +22,7 @@ test.describe("App auth — logged in state", () => {
     await page.locator("#newCrosswordCard").click();
     var genBtn = page.locator("#generateBtn");
     await expect(genBtn).toBeEnabled({ timeout: 5000 });
-    await expect(genBtn).toContainText("(5 credits)");
+    await expect(genBtn).toContainText("(4 credits)");
   });
 
   test("credit badge shows balance after login", async ({ page }) => {
@@ -103,15 +103,13 @@ test.describe("App auth — logged in state", () => {
     await expect(page.locator("#puzzleView .pane")).toBeHidden();
   });
 
-  test("back button does not reveal the landing page for a logged-in user", async ({ page }) => {
+  test("logged-in puzzle view does not show a back button", async ({ page }) => {
     await setupLoggedInRoutes(page);
     await page.goto("/");
 
     await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-
-    await page.getByRole("button", { name: "Back" }).click();
-
+    await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
     await expect(page.locator("#landingPage")).toBeHidden();
     await expect(page.locator("#puzzleView")).toBeVisible();
   });
@@ -423,8 +421,8 @@ test.describe("Settings modal — avatar dropdown", () => {
       "admin@example.com"
     );
     await expect(page.locator("#settingsAccountDetails")).not.toContainText("user-123");
-    await expect(page.locator("#settingsAccountDetails")).toContainText("member, admin");
-    await expect(page.locator("#settingsAccountDetails")).toContainText("Yes");
+    await expect(page.locator("#settingsAccountDetails")).not.toContainText("member, admin");
+    await expect(page.locator("#settingsAccountDetails")).not.toContainText("Yes");
     await expect(page.locator("#settingsAccountDetails")).toContainText(
       "2024-01-01T00:00:00.000Z"
     );
@@ -459,9 +457,9 @@ test.describe("Settings modal — avatar dropdown", () => {
     await page.click('[data-mpr-user="trigger"]');
     await page.click('[data-mpr-user-action="settings"]');
 
-    await expect(page.locator("#settingsAccountDetails")).toContainText("user");
+    await expect(page.locator("#settingsAccountDetails")).toContainText("Admin User");
     await expect(page.locator("#settingsAccountDetails")).not.toContainText("user, admin");
-    await expect(page.locator("#settingsAccountDetails")).toContainText("No");
+    await expect(page.locator("#settingsAccountDetails")).not.toContainText("No");
     await expect(page.locator("#settingsTabAdmin")).toBeHidden();
   });
 

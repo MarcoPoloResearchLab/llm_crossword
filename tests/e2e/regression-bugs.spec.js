@@ -35,7 +35,7 @@ test.describe("Session persistence on refresh", () => {
     await page.locator("#newCrosswordCard").click();
     const genBtn = page.locator("#generateBtn");
     await expect(genBtn).toBeEnabled({ timeout: 5000 });
-    await expect(genBtn).toContainText("(5 credits)");
+    await expect(genBtn).toContainText("(4 credits)");
 
     // Hard refresh
     await page.reload();
@@ -44,7 +44,7 @@ test.describe("Session persistence on refresh", () => {
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     await page.locator("#newCrosswordCard").click();
     await expect(genBtn).toBeEnabled({ timeout: 5000 });
-    await expect(genBtn).toContainText("(5 credits)");
+    await expect(genBtn).toContainText("(4 credits)");
   });
 
   test("credit badge persists after page reload", async ({ page }) => {
@@ -299,7 +299,7 @@ test.describe("Layout — no excessive empty space", () => {
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     const layout = await page.evaluate(() => {
-      var controls = document.querySelector("#puzzleView .controls");
+      var controls = document.querySelector("#puzzleView .controls__actions");
       var footer = document.querySelector("footer.mpr-footer");
       if (!controls || !footer) return null;
       var controlsRect = controls.getBoundingClientRect();
@@ -323,7 +323,7 @@ test.describe("Layout — no excessive empty space", () => {
     await page.waitForTimeout(500);
 
     const layout = await page.evaluate(() => {
-      var controls = document.querySelector("#puzzleView .controls");
+      var controls = document.querySelector("#puzzleView .controls__actions");
       var footer = document.querySelector("footer.mpr-footer");
       if (!controls || !footer) return null;
       var controlsRect = controls.getBoundingClientRect();
