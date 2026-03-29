@@ -1,12 +1,23 @@
 // @ts-check
 
 const { test, expect } = require("./coverage-fixture");
-const { setupLoggedInRoutes, setupLoggedOutRoutes, json } = require("./route-helpers");
+const { setupLoggedInRoutes, setupLoggedOutRoutes, json, createSession } = require("./route-helpers");
 
 test.describe("App auth — logged in state", () => {
+  test("logged-in user never lands on the landing page", async ({ page }) => {
+    await setupLoggedInRoutes(page);
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await expect(page.locator("#landingPage")).toBeHidden();
+  });
+
   test("generate button is enabled with credits when logged in", async ({ page }) => {
     await setupLoggedInRoutes(page);
     await page.goto("/");
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     await page.locator("#newCrosswordCard").click();
     var genBtn = page.locator("#generateBtn");
@@ -17,15 +28,109 @@ test.describe("App auth — logged in state", () => {
   test("credit badge shows balance after login", async ({ page }) => {
     await setupLoggedInRoutes(page);
     await page.goto("/");
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
     // Wait for bootstrap to complete
     await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 5000 });
+  });
+
+  test("auth restore does not flash the landing page while login is settling", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("llm-crossword-auth-pending", "1");
+    });
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/me": async (route) => {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          await route.fulfill(json(200, {}));
+        },
+      },
+    });
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 500 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("auth restore stays on the puzzle when the first /me check is unauthorized but the retry succeeds", async ({ page }) => {
+    var meCalls = 0;
+
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("llm-crossword-auth-pending", "1");
+    });
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/me": async (route) => {
+          meCalls += 1;
+          if (meCalls === 1) {
+            await route.fulfill(json(401, { error: "unauthorized" }));
+            return;
+          }
+          await route.fulfill(json(200, {}));
+        },
+      },
+    });
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 500 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 500 });
+    await page.waitForTimeout(1500);
+    await expect(page.locator("#landingPage")).toBeHidden();
+    await expect(page.locator("#puzzleView")).toBeVisible();
+  });
+
+  test("sign in to generate restores directly into the generator instead of the moon prebuilt puzzle", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("llm-crossword-auth-pending", "1");
+      window.sessionStorage.setItem("llm-crossword-post-login-view", "generator");
+    });
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/me": async (route) => {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          await route.fulfill(json(200, {}));
+        },
+      },
+    });
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 500 });
+    await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 500 });
+    await expect(page.locator("#title")).toContainText("Generate a New Crossword", { timeout: 10000 });
+    await expect(page.locator("#generatePanel")).toBeVisible();
+    await expect(page.locator("#puzzleView .pane")).toBeHidden();
+  });
+
+  test("back button does not reveal the landing page for a logged-in user", async ({ page }) => {
+    await setupLoggedInRoutes(page);
+    await page.goto("/");
+
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    await page.getByRole("button", { name: "Back" }).click();
+
+    await expect(page.locator("#landingPage")).toBeHidden();
+    await expect(page.locator("#puzzleView")).toBeVisible();
   });
 });
 
 test.describe("App auth — logged out state", () => {
+  test("logged-out user sees the landing page and not the puzzle view", async ({ page }) => {
+    await setupLoggedOutRoutes(page);
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeHidden();
+  });
+
   test("generate form is hidden when not logged in", async ({ page }) => {
     await setupLoggedOutRoutes(page);
     await page.goto("/");
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeHidden();
     // Generate form is hidden on landing page when logged out
     await expect(page.locator("#generatePanel")).toBeHidden({ timeout: 5000 });
     // Generate button should be disabled
@@ -42,6 +147,47 @@ test.describe("App auth — logged out state", () => {
     await expect(page.locator("#generatePanel")).toBeHidden();
     await page.locator("#newCrosswordCard").click();
     await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("late /me response does not reopen the landing page after choosing a pre-built puzzle", async ({ page }) => {
+    await setupLoggedOutRoutes(page, {
+      extra: {
+        "**/me": async (route) => {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          await route.fulfill(json(401, { error: "unauthorized" }));
+        },
+      },
+    });
+    const meResponse = page.waitForResponse((response) => response.url().includes("/me"));
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+
+    await expect(page.locator("#puzzleView")).toBeVisible();
+    await expect(page.locator("#landingPage")).toBeHidden();
+
+    await meResponse;
+
+    await expect(page.locator("#puzzleView")).toBeVisible();
+    await expect(page.locator("#landingPage")).toBeHidden();
+  });
+
+  test("stale auth-pending state eventually falls back to the landing page after the retry also fails", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("llm-crossword-auth-pending", "1");
+    });
+    await setupLoggedOutRoutes(page, {
+      extra: {
+        "**/me": (route) => route.fulfill(json(401, { error: "unauthorized" })),
+      },
+    });
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 500 });
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 500 });
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeHidden();
   });
 });
 
@@ -75,6 +221,7 @@ test.describe("App auth — generate success", () => {
         json(200, {
           title: "Test Generated",
           subtitle: "From LLM.",
+          description: "This puzzle focuses on familiar lunar vocabulary and exploration references.",
           balance: { coins: 10 },
           items: [
             { word: "orbit", definition: "The Moon's path around Earth", hint: "elliptical route" },
@@ -168,7 +315,7 @@ test.describe("App auth — landing Sign in button fallback", () => {
   });
 });
 
-test.describe("Settings drawer — avatar dropdown", () => {
+test.describe("Settings modal — avatar dropdown", () => {
   var adminConfigYaml =
     'administrators:\n  - "admin@example.com"\n\nenvironments: []\n';
 
@@ -176,7 +323,13 @@ test.describe("Settings drawer — avatar dropdown", () => {
     page,
   }) => {
     await setupLoggedInRoutes(page, {
-      session: { email: "admin@example.com", name: "Admin" },
+      session: createSession({
+        user_id: "admin-user",
+        email: "admin@example.com",
+        display: "Admin",
+        roles: ["member", "admin"],
+        is_admin: true,
+      }),
       configYaml: adminConfigYaml,
     });
     await page.goto("/");
@@ -203,9 +356,15 @@ test.describe("Settings drawer — avatar dropdown", () => {
     ).toBeVisible();
   });
 
-  test("clicking Settings opens the settings drawer", async ({ page }) => {
+  test("clicking Settings opens the settings modal", async ({ page }) => {
     await setupLoggedInRoutes(page, {
-      session: { email: "admin@example.com", name: "Admin" },
+      session: createSession({
+        user_id: "admin-user",
+        email: "admin@example.com",
+        display: "Admin",
+        roles: ["member", "admin"],
+        is_admin: true,
+      }),
       configYaml: adminConfigYaml,
     });
     await page.goto("/");
@@ -223,20 +382,24 @@ test.describe("Settings drawer — avatar dropdown", () => {
     await page.click('[data-mpr-user="trigger"]');
     await page.click('[data-mpr-user-action="settings"]');
 
-    // Drawer should be open (has open attribute).
+    // Modal should be open (has open attribute).
     await expect(page.locator("#settingsDrawer")).toHaveAttribute("open", "", {
       timeout: 5000,
     });
   });
 
-  test("settings drawer shows Account tab with user info", async ({
+  test("settings modal shows Account tab with the full session info", async ({
     page,
   }) => {
     await setupLoggedInRoutes(page, {
       session: {
+        user_id: "user-123",
         email: "admin@example.com",
-        name: "Admin User",
-        picture: "https://example.com/avatar.png",
+        display: "Admin User",
+        avatar_url: "https://example.com/avatar.png",
+        roles: ["member", "admin"],
+        expires: 1704067200,
+        is_admin: true,
       },
       configYaml: adminConfigYaml,
     });
@@ -259,11 +422,58 @@ test.describe("Settings drawer — avatar dropdown", () => {
     await expect(page.locator("#settingsEmail")).toHaveText(
       "admin@example.com"
     );
+    await expect(page.locator("#settingsAccountDetails")).not.toContainText("user-123");
+    await expect(page.locator("#settingsAccountDetails")).toContainText("member, admin");
+    await expect(page.locator("#settingsAccountDetails")).toContainText("Yes");
+    await expect(page.locator("#settingsAccountDetails")).toContainText(
+      "2024-01-01T00:00:00.000Z"
+    );
   });
 
-  test("admin user sees Admin tab in settings drawer", async ({ page }) => {
+  test("settings trusts the session admin state instead of re-reading config", async ({
+    page,
+  }) => {
     await setupLoggedInRoutes(page, {
-      session: { email: "admin@example.com", name: "Admin" },
+      session: {
+        user_id: "user-123",
+        email: "admin@example.com",
+        display: "Admin User",
+        avatar_url: "https://example.com/avatar.png",
+        roles: ["user"],
+        expires: 1704067200,
+        is_admin: false,
+      },
+      configYaml: adminConfigYaml,
+    });
+    await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    await page.waitForFunction(
+      () => {
+        var el = document.getElementById("userMenu");
+        return el && el.getAttribute("menu-items");
+      },
+      { timeout: 5000 }
+    );
+
+    await page.click('[data-mpr-user="trigger"]');
+    await page.click('[data-mpr-user-action="settings"]');
+
+    await expect(page.locator("#settingsAccountDetails")).toContainText("user");
+    await expect(page.locator("#settingsAccountDetails")).not.toContainText("user, admin");
+    await expect(page.locator("#settingsAccountDetails")).toContainText("No");
+    await expect(page.locator("#settingsTabAdmin")).toBeHidden();
+  });
+
+  test("admin user sees Admin tab in settings modal", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      session: createSession({
+        user_id: "admin-user",
+        email: "admin@example.com",
+        display: "Admin",
+        roles: ["member", "admin"],
+        is_admin: true,
+      }),
       configYaml: adminConfigYaml,
     });
     await page.goto("/");
@@ -286,7 +496,11 @@ test.describe("Settings drawer — avatar dropdown", () => {
 
   test("non-admin user does not see Admin tab", async ({ page }) => {
     await setupLoggedInRoutes(page, {
-      session: { email: "regular@example.com", name: "Regular User" },
+      session: createSession({
+        user_id: "regular-user",
+        email: "regular@example.com",
+        display: "Regular User",
+      }),
       configYaml: adminConfigYaml,
     });
     await page.goto("/");

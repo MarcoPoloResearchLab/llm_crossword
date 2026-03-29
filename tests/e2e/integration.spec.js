@@ -4,6 +4,8 @@
 // Tests verify what the USER sees — visible text and screenshot comparisons.
 
 const { test, expect } = require("@playwright/test");
+const { createSessionIdentity, installSignedSession } = require("./signed-session");
+const INTEGRATION_ORIGIN = (process.env.INTEGRATION_URL || "http://localhost:8000").replace(/\/+$/, "");
 
 test.describe("Landing page", () => {
   test("renders hero, CTAs, and feature cards", async ({ page }) => {
@@ -37,18 +39,16 @@ test.describe("Pre-built puzzle", () => {
   });
 });
 
-test.describe("Generate tab — unauthenticated", () => {
-  test("shows disabled generate button and login prompt", async ({ page }) => {
+test.describe("Generate flow — unauthenticated", () => {
+  test("shows the generator form with a disabled generate button when logged out", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await page.waitForTimeout(1000);
-    // Try switching to generate tab.
-    var genTab = page.getByRole("tab", { name: "Generate" });
-    if (await genTab.isVisible()) {
-      await genTab.click();
-    }
-    await page.waitForTimeout(500);
-    await expect(page).toHaveScreenshot("generate-logged-out.png", { maxDiffPixelRatio: 0.05 });
+    await page.locator("#newCrosswordCard").click();
+
+    await expect(page.locator("#generatePanel")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#generateBtn")).toBeDisabled();
+    await expect(page.locator("#title")).toContainText("Generate a New Crossword");
+    await expect(page.locator("#landingSignIn")).toContainText("Sign in to generate");
   });
 });
 
@@ -84,7 +84,7 @@ test.describe("Crossword grid layout", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     // Wait for puzzle to render — crosswords.json fetch + generator can take time
-    var cell = page.locator(".cell:not(.blk)").first();
+    var cell = page.locator("#puzzleView .cell:not(.blk)").first();
     await expect(cell).toBeVisible({ timeout: 15000 });
     var box = await cell.boundingBox();
     // Cells should be roughly square (width ≈ height, tolerance of 4px)
@@ -99,7 +99,7 @@ test.describe("Crossword grid layout", () => {
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     // Wait for puzzle to render
-    var cell = page.locator(".cell:not(.blk)").first();
+    var cell = page.locator("#puzzleView .cell:not(.blk)").first();
     await expect(cell).toBeVisible({ timeout: 15000 });
     var cellBox = await cell.boundingBox();
     var puzzleBox = await page.locator("#puzzleView").boundingBox();
@@ -111,10 +111,76 @@ test.describe("Crossword grid layout", () => {
 });
 
 test.describe("Session persistence", () => {
+  test("/tauth.js helper is reachable through ghttp proxy", async ({ page }) => {
+    var response = await page.request.get("/tauth.js");
+    expect(response.ok()).toBeTruthy();
+    var bodyText = await response.text();
+    expect(bodyText).toContain("getCurrentUser");
+  });
+
   test("/me endpoint is reachable through ghttp proxy", async ({ page }) => {
     var response = await page.request.get("/me");
     // Should return 401 or 403 (not 404) when not logged in
     expect([401, 403]).toContain(response.status());
+  });
+
+  test("/api/session endpoint is protected through ghttp proxy", async ({ page }) => {
+    var response = await page.request.get("/api/session");
+    expect(response.status()).toBe(401);
+  });
+
+  test("/auth/nonce endpoint issues a nonce through ghttp proxy", async ({ page }) => {
+    var response = await page.request.post("/auth/nonce", {
+      headers: {
+        Origin: INTEGRATION_ORIGIN,
+      },
+    });
+    expect(response.status()).toBe(200);
+    var payload = await response.json();
+    expect(payload).toMatchObject({
+      nonce: expect.any(String),
+    });
+  });
+});
+
+test.describe("Deterministic login", () => {
+  test("signed session cookie restores authenticated UI and generator access", async ({ page }) => {
+    var sessionIdentity = createSessionIdentity();
+
+    await installSignedSession(page.context(), INTEGRATION_ORIGIN, sessionIdentity);
+    await page.goto("/");
+
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#landingPage")).toBeHidden();
+    await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 10000 });
+
+    await page.locator("#newCrosswordCard").click();
+    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    await expect(page.locator("#landingSignIn")).toContainText("Go to generator");
+  });
+
+  test("signed session survives reload and logout clears the authenticated state", async ({ page }) => {
+    var sessionIdentity = createSessionIdentity();
+
+    await installSignedSession(page.context(), INTEGRATION_ORIGIN, sessionIdentity);
+    await page.goto("/");
+    await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 10000 });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#headerCreditBadge")).toContainText("credits", { timeout: 10000 });
+
+    await page.evaluate(async function logoutThroughBrowser() {
+      await window.fetch("/auth/logout", {
+        credentials: "include",
+        method: "POST",
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#headerCreditBadge")).toBeHidden();
+    await expect(page.locator("#landingSignIn")).toContainText("Sign in to generate");
   });
 });
 

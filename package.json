@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "playwright test",
-    "test:headed": "playwright test --headed",
-    "test:coverage": "rm -rf .nyc_output && playwright test && npx nyc report --reporter=text --reporter=lcov",
-    "test:integration": "playwright test --config playwright.integration.config.js"
+    "render:runtime-auth-config": "bash scripts/render-runtime-auth-config.sh",
+    "test": "npm run render:runtime-auth-config && playwright test",
+    "test:coverage": "npm run render:runtime-auth-config && rm -rf .nyc_output coverage && playwright test && npx nyc report --reporter=text --reporter=lcov && npx nyc check-coverage --branches 100 --functions 100 --lines 100 --statements 100",
+    "test:integration": "npm run render:runtime-auth-config && playwright test --config playwright.integration.config.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

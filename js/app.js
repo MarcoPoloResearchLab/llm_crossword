@@ -478,10 +478,6 @@
         return;
       }
       setAuthCheckPending(false);
-      if (!state.loggedIn && isAuthPending()) {
-        showPuzzle();
-        return;
-      }
       if (!state.loggedIn) {
         showLanding();
       }
@@ -613,8 +609,10 @@
   applyView();
 
   (window.__LLM_CROSSWORD_TEST__ || (window.__LLM_CROSSWORD_TEST__ = {})).app = {
+    clearPendingAuthRestoreTimer: clearPendingAuthRestoreTimer,
     clearAuthPending: clearAuthPending,
     clearPostLoginView: clearPostLoginView,
+    finalizePendingAuthRestoreFailure: finalizePendingAuthRestoreFailure,
     getPostLoginView: getPostLoginView,
     getState: function () {
       return {
@@ -626,10 +624,16 @@
       };
     },
     isAuthPending: isAuthPending,
+    requireChild: requireChild,
+    requireElement: requireElement,
+    schedulePendingAuthRestoreRetry: schedulePendingAuthRestoreRetry,
     setAuthPending: setAuthPending,
     setLoggedIn: function (value) {
       state.loggedIn = !!value;
       updateAuthUI();
+    },
+    setPendingAuthRestoreTimer: function (timerId) {
+      state.pendingAuthRestoreTimer = timerId;
     },
     setPostLoginView: setPostLoginView,
     setShareToken: setShareToken,

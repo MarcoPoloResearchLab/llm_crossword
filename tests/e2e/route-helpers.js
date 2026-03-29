@@ -5,6 +5,9 @@
 // monkey-patched wrapper.  If app code ever drops credentials or changes the
 // /me check, the tests will notice.
 
+const fs = require("fs");
+const path = require("path");
+
 const defaultPuzzles = [
   {
     title: "Test Puzzle",
@@ -19,6 +22,59 @@ const defaultPuzzles = [
   },
 ];
 
+const defaultSession = Object.freeze({
+  user_id: "user-123",
+  email: "user@example.com",
+  display: "Test User",
+  avatar_url: "",
+  roles: ["member"],
+  expires: 4102444800,
+  is_admin: false,
+});
+
+const appShellHtml = `<!doctype html>
+<html>
+  <body>
+    <section id="landingPage">
+      <button id="landingTryPrebuilt" type="button">Try a pre-built puzzle</button>
+      <button id="landingSignIn" type="button">Sign in to generate</button>
+    </section>
+    <span id="headerCreditBadge" style="display:none;"></span>
+    <div id="puzzleView" style="display:none;">
+      <div id="newCrosswordCard" role="button" tabindex="0">New Crossword</div>
+      <div class="hdr">
+        <div class="hdr__copy">
+          <h1 id="title">Crossword Puzzle</h1>
+          <div id="subtitle">Loading...</div>
+          <div id="descriptionPanel" hidden>
+            <button id="descriptionToggle" type="button" aria-expanded="false" aria-controls="descriptionContent">Show details</button>
+            <p id="descriptionContent" hidden></p>
+          </div>
+        </div>
+      </div>
+      <div id="generatePanel" style="display:none;">
+        <input id="topicInput" type="text">
+        <select id="wordCount">
+          <option value="5">5</option>
+          <option value="8" selected>8</option>
+        </select>
+        <button id="generateBtn" type="button">Generate</button>
+        <div id="generateStatus"></div>
+      </div>
+      <div class="pane"></div>
+      <div class="controls">
+        <button id="shareBtn" type="button" style="display:none;">Share</button>
+        <button id="backToLanding" type="button">Back</button>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+const mprUiConfigStub = fs.readFileSync(
+  path.join(__dirname, "mpr-ui-config.stub.js"),
+  "utf8"
+);
+
 function json(status, body) {
   return {
     status,
@@ -29,6 +85,13 @@ function json(status, body) {
 
 function text(status, body) {
   return { status, contentType: "text/plain", body };
+}
+
+function createSession(overrides = {}) {
+  return {
+    ...defaultSession,
+    ...(overrides || {}),
+  };
 }
 
 /**
@@ -46,129 +109,8 @@ async function setupBaseRoutes(page) {
     route.fulfill(json(401, { error: "unauthorized" }))
   );
   // Stub mpr-ui-config.js so it doesn't fetch the CDN bundle.
-  // Register minimal custom elements so layout tests work without CDN access.
   await page.route("**/mpr-ui-config.js", (route) =>
-    route.fulfill(
-      text(
-        200,
-        [
-          "(function(){",
-          "  if (!customElements.get('mpr-header')) {",
-          "    customElements.define('mpr-header', class extends HTMLElement {",
-          "      connectedCallback() {",
-          "        this.style.display = 'block';",
-          "        this.style.width = '100%';",
-          "        this.style.height = '56px';",
-          "      }",
-          "    });",
-          "  }",
-          "  if (!customElements.get('mpr-user')) {",
-          "    customElements.define('mpr-user', class extends HTMLElement {",
-          "      static get observedAttributes() { return ['menu-items', 'logout-url', 'logout-label']; }",
-          "      connectedCallback() { this._render(); }",
-          "      attributeChangedCallback() { this._render(); }",
-          "      _render() {",
-          "        var logoutLabel = this.getAttribute('logout-label') || 'Log out';",
-          "        var logoutUrl = this.getAttribute('logout-url') || '/';",
-          "        var items = [];",
-          "        try { items = JSON.parse(this.getAttribute('menu-items') || '[]'); } catch(e) {}",
-          "        this.innerHTML = '<div class=\"mpr-user__layout\">' +",
-          "          '<button type=\"button\" class=\"mpr-user__trigger\" data-mpr-user=\"trigger\" ' +",
-          "            'aria-haspopup=\"true\" aria-expanded=\"false\">U</button>' +",
-          "          '<div class=\"mpr-user__menu\" data-mpr-user=\"menu\" role=\"menu\" ' +",
-          "            'style=\"display:none;position:absolute;right:0;top:100%;min-width:160px;' +",
-          "            'padding:8px;background:#1e293b;border:1px solid rgba(148,163,184,0.25);' +",
-          "            'border-radius:12px;z-index:999\">' +",
-          "          items.map(function(it, i) {",
-          "            return '<button type=\"button\" class=\"mpr-user__menu-item\" role=\"menuitem\" ' +",
-          "              'data-mpr-user=\"menu-item\" data-mpr-user-action=\"' + (it.action||'') + '\" ' +",
-          "              'data-mpr-user-index=\"' + i + '\">' + (it.label||'') + '</button>';",
-          "          }).join('') +",
-          "          '<a class=\"mpr-user__menu-item\" role=\"menuitem\" href=\"' + logoutUrl + '\" ' +",
-          "            'data-mpr-user=\"logout\">' + logoutLabel + '</a>' +",
-          "          '</div></div>';",
-          "        var trigger = this.querySelector('[data-mpr-user=\"trigger\"]');",
-          "        var menu = this.querySelector('[data-mpr-user=\"menu\"]');",
-          "        if (trigger && menu) {",
-          "          trigger.addEventListener('click', function() {",
-          "            var open = menu.style.display !== 'none';",
-          "            menu.style.display = open ? 'none' : 'block';",
-          "            trigger.setAttribute('aria-expanded', open ? 'false' : 'true');",
-          "          });",
-          "        }",
-          "        var self = this;",
-          "        this.querySelectorAll('[data-mpr-user=\"menu-item\"]').forEach(function(btn) {",
-          "          btn.addEventListener('click', function() {",
-          "            var action = btn.getAttribute('data-mpr-user-action');",
-          "            var idx = parseInt(btn.getAttribute('data-mpr-user-index'), 10);",
-          "            self.dispatchEvent(new CustomEvent('mpr-user:menu-item', {",
-          "              bubbles: true, detail: { action: action, index: idx, label: btn.textContent }",
-          "            }));",
-          "            menu.style.display = 'none';",
-          "            trigger.setAttribute('aria-expanded', 'false');",
-          "          });",
-          "        });",
-          "      }",
-          "    });",
-          "  }",
-          "  if (!customElements.get('mpr-detail-drawer')) {",
-          "    customElements.define('mpr-detail-drawer', class extends HTMLElement {",
-          "      static get observedAttributes() { return ['open', 'heading', 'subheading']; }",
-          "      connectedCallback() { this._init(); this._sync(); }",
-          "      attributeChangedCallback() { if (this._panel) this._sync(); }",
-          "      _init() {",
-          "        if (this._panel) return;",
-          "        var heading = this.getAttribute('heading') || 'Details';",
-          "        var slotBody = this.querySelector('[slot=\"body\"]');",
-          "        var backdrop = document.createElement('div');",
-          "        backdrop.className = 'mpr-detail-drawer__backdrop';",
-          "        var panel = document.createElement('aside');",
-          "        panel.className = 'mpr-detail-drawer__panel';",
-          "        panel.innerHTML = '<div class=\"mpr-detail-drawer__header\" style=\"display:flex;' +",
-          "          'justify-content:space-between;align-items:center\">' +",
-          "          '<h2 class=\"mpr-detail-drawer__heading\">' + heading + '</h2>' +",
-          "          '<button class=\"mpr-detail-drawer__close\" ' +",
-          "            'data-mpr-detail-drawer=\"close\">Close</button></div>' +",
-          "          '<div class=\"mpr-detail-drawer__body\"></div>';",
-          "        var body = panel.querySelector('.mpr-detail-drawer__body');",
-          "        if (slotBody) {",
-          "          while (slotBody.firstChild) body.appendChild(slotBody.firstChild);",
-          "          slotBody.remove();",
-          "        }",
-          "        this.appendChild(backdrop);",
-          "        this.appendChild(panel);",
-          "        this._backdrop = backdrop;",
-          "        this._panel = panel;",
-          "        var self = this;",
-          "        panel.querySelector('[data-mpr-detail-drawer=\"close\"]')",
-          "          .addEventListener('click', function() {",
-          "            self.removeAttribute('open');",
-          "            self.dispatchEvent(new CustomEvent('mpr-ui:detail-drawer:close',{bubbles:true}));",
-          "          });",
-          "        backdrop.addEventListener('click', function() {",
-          "          self.removeAttribute('open');",
-          "          self.dispatchEvent(new CustomEvent('mpr-ui:detail-drawer:close',{bubbles:true}));",
-          "        });",
-          "      }",
-          "      _sync() {",
-          "        var isOpen = this.hasAttribute('open');",
-          "        this.style.cssText = 'position:fixed;inset:0;z-index:80;display:block;' +",
-          "          (isOpen ? '' : 'pointer-events:none;');",
-          "        this._backdrop.style.cssText = 'position:absolute;inset:0;' +",
-          "          'background:rgba(15,23,42,0.65);opacity:' + (isOpen?'1':'0') + ';' +",
-          "          'pointer-events:' + (isOpen?'auto':'none') + ';';",
-          "        this._panel.style.cssText = 'position:absolute;top:0;bottom:0;right:0;' +",
-          "          'width:min(38rem,100vw);padding:1.25rem;background:rgba(15,23,42,0.98);' +",
-          "          'border-left:1px solid rgba(148,163,184,0.25);display:flex;' +",
-          "          'flex-direction:column;gap:1rem;overflow:auto;pointer-events:auto;' +",
-          "          'transform:translateX(' + (isOpen?'0':'100%') + ');';",
-          "      }",
-          "    });",
-          "  }",
-          "})();",
-        ].join("\n")
-      )
-    )
+    route.fulfill(text(200, mprUiConfigStub))
   );
 }
 
@@ -187,11 +129,7 @@ async function setupLoggedInRoutes(page, opts = {}) {
   var coins = opts.coins != null ? opts.coins : 15;
   var puzzles = opts.puzzles || defaultPuzzles;
   var configYaml = opts.configYaml != null ? opts.configYaml : "";
-  var session = opts.session || {
-    email: "user@example.com",
-    name: "Test User",
-    picture: "",
-  };
+  var session = createSession(opts.session);
 
   await setupBaseRoutes(page);
   // Override the default 401 /api/session with the provided session data.
@@ -250,9 +188,18 @@ async function setupLoggedOutRoutes(page, opts = {}) {
   }
 }
 
+async function mountAppShell(page) {
+  await page.goto("/blank.html");
+  await page.setContent(appShellHtml);
+}
+
 module.exports = {
+  appShellHtml,
+  createSession,
   defaultPuzzles,
+  defaultSession,
   json,
+  mountAppShell,
   text,
   setupLoggedInRoutes,
   setupLoggedOutRoutes,
