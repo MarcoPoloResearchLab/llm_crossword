@@ -194,11 +194,8 @@
   }
 
   function formatRolesValue(value) {
-    if (Array.isArray(value)) {
-      return value.length > 0 ? value.join(", ") : placeholderValue;
-    }
-    if (!hasDisplayValue(value)) return placeholderValue;
-    return String(value);
+    if (!Array.isArray(value)) return placeholderValue;
+    return value.length > 0 ? value.join(", ") : placeholderValue;
   }
 
   function formatExpiresValue(value) {
@@ -657,4 +654,40 @@
         });
     });
   }
+
+  (window.__LLM_CROSSWORD_TEST__ || (window.__LLM_CROSSWORD_TEST__ = {})).admin = {
+    checkAdminStatus: checkAdminStatus,
+    formatExpiresValue: formatExpiresValue,
+    formatRolesValue: formatRolesValue,
+    getUserPrimaryLabel: getUserPrimaryLabel,
+    getUserSearchText: getUserSearchText,
+    getUserSecondaryLabel: getUserSecondaryLabel,
+    hasDisplayValue: hasDisplayValue,
+    hasAdminRole: hasAdminRole,
+    isSameUser: isSameUser,
+    loadGrantHistory: loadGrantHistory,
+    loadUsers: loadUsers,
+    normalizeAdminUser: normalizeAdminUser,
+    normalizeRoles: normalizeRoles,
+    normalizeSessionData: normalizeSessionData,
+    openDrawer: openDrawer,
+    populateAccount: populateAccount,
+    renderAccountDetails: renderAccountDetails,
+    renderGrantHistory: renderGrantHistory,
+    renderSelectedUser: renderSelectedUser,
+    selectUser: selectUser,
+    setAdminState: setAdminState,
+    setMenuItems: setMenuItems,
+    setStatus: setStatus,
+    setSessionData: function (data) {
+      sessionData = data;
+    },
+    switchTab: switchTab,
+    setSelectedUser: function (user) {
+      selectedUser = user;
+    },
+    setUsers: function (users) {
+      allUsers = users;
+    },
+  };
 })();

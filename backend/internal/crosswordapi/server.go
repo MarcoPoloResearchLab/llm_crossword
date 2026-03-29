@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 )
 
 type runOptions struct {
@@ -114,6 +116,11 @@ func Run(ctx context.Context, cfg Config, opts ...RunOption) error {
 		llmHTTPClient: &http.Client{Timeout: cfg.LLMProxyTimeout},
 		store:         store,
 	}
+	billingService, billingErr := newBillingService(cfg, ledgerClient, store, logger)
+	if billingErr != nil {
+		return fmt.Errorf("billing init: %w", billingErr)
+	}
+	handler.billingService = billingService
 
 	router := setupRouter(cfg, handler, sessionValidator)
 
@@ -166,6 +173,7 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 
 	// Public endpoint — no auth required.
 	router.GET("/api/shared/:token", handler.handleGetSharedPuzzle)
+	router.POST("/api/billing/paddle/webhook", handler.handleBillingWebhook)
 
 	api := router.Group("/api")
 	api.Use(validator.GinMiddleware("auth_claims"))
@@ -173,10 +181,15 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 	api.GET("/session", handler.handleSession)
 	api.POST("/bootstrap", handler.handleBootstrap)
 	api.GET("/balance", handler.handleBalance)
+	api.GET("/billing/summary", handler.handleBillingSummary)
+	api.POST("/billing/checkout", handler.handleBillingCheckout)
+	api.POST("/billing/portal", handler.handleBillingPortal)
 	api.POST("/generate", handler.handleGenerate)
 	api.GET("/puzzles", handler.handleListPuzzles)
 	api.GET("/puzzles/:id", handler.handleGetPuzzle)
+	api.POST("/puzzles/:id/complete", handler.handleCompletePuzzle)
 	api.DELETE("/puzzles/:id", handler.handleDeletePuzzle)
+	api.POST("/shared/:token/complete", handler.handleCompleteSharedPuzzle)
 
 	admin := api.Group("/admin")
 	admin.Use(handler.requireAdmin)
@@ -189,11 +202,12 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 }
 
 type httpHandler struct {
-	logger        *zap.Logger
-	ledgerClient  creditv1.CreditServiceClient
-	cfg           Config
-	llmHTTPClient *http.Client
-	store         Store
+	logger         *zap.Logger
+	ledgerClient   creditv1.CreditServiceClient
+	cfg            Config
+	llmHTTPClient  *http.Client
+	store          Store
+	billingService *billingService
 }
 
 const (
@@ -236,31 +250,19 @@ func (handler *httpHandler) handleBootstrap(ctx *gin.Context) {
 	requestCtx, cancel := context.WithTimeout(ctx.Request.Context(), handler.cfg.LedgerTimeout)
 	defer cancel()
 
-	if err := handler.ensureBootstrap(requestCtx, claims.GetUserID()); err != nil {
+	grants, err := handler.ensureBootstrapAndDailyGrants(requestCtx, claims.GetUserID())
+	if err != nil {
 		handler.logger.Error("bootstrap grant failed", zap.Error(err))
 		ctx.JSON(http.StatusBadGateway, errorResponse("ledger_error", "grant failed"))
 		return
 	}
-	handler.respondWithBalance(ctx, claims.GetUserID())
-}
-
-func (handler *httpHandler) ensureBootstrap(ctx context.Context, userID string) error {
-	// Idempotency is enforced by Ledger via the idempotency key.
-	// If the user was already bootstrapped, Ledger returns AlreadyExists
-	// which we treat as success.
-	_, err := handler.ledgerClient.Grant(ctx, &creditv1.GrantRequest{
-		UserId:           userID,
-		AmountCents:      BootstrapAmountCents(),
-		IdempotencyKey:   fmt.Sprintf("bootstrap:%s", userID),
-		MetadataJson:     marshalMetadata(map[string]string{"action": "bootstrap"}),
-		ExpiresAtUnixUtc: 0,
-		LedgerId:         handler.cfg.DefaultLedgerID,
-		TenantId:         handler.cfg.DefaultTenantID,
-	})
-	if err != nil && !isGRPCAlreadyExists(err) {
-		return err
+	balance, balanceErr := handler.fetchBalance(ctx.Request.Context(), claims.GetUserID())
+	if balanceErr != nil {
+		handler.logger.Error("balance fetch failed", zap.Error(balanceErr))
+		ctx.JSON(http.StatusBadGateway, errorResponse("ledger_error", "balance unavailable"))
+		return
 	}
-	return nil
+	ctx.JSON(http.StatusOK, gin.H{"balance": balance, "grants": grants})
 }
 
 func (handler *httpHandler) handleBalance(ctx *gin.Context) {
@@ -270,6 +272,142 @@ func (handler *httpHandler) handleBalance(ctx *gin.Context) {
 		return
 	}
 	handler.respondWithBalance(ctx, claims.GetUserID())
+}
+
+func (handler *httpHandler) handleBillingSummary(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+
+	summary, err := handler.billingService.Summary(ctx.Request.Context(), claims.GetUserID())
+	if err != nil {
+		handler.logger.Error("billing summary failed", zap.Error(err), zap.String("user_id", claims.GetUserID()))
+		ctx.JSON(http.StatusInternalServerError, errorResponse("billing_error", "billing summary unavailable"))
+		return
+	}
+
+	balance, balanceErr := handler.fetchBalance(ctx.Request.Context(), claims.GetUserID())
+	if balanceErr != nil {
+		handler.logger.Error("billing summary balance failed", zap.Error(balanceErr), zap.String("user_id", claims.GetUserID()))
+		ctx.JSON(http.StatusBadGateway, errorResponse("ledger_error", "balance unavailable"))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"enabled":          summary.Enabled,
+		"provider_code":    summary.ProviderCode,
+		"balance":          balance,
+		"packs":            summary.Packs,
+		"activity":         summary.Activity,
+		"portal_available": summary.PortalAvailable,
+	})
+}
+
+func (handler *httpHandler) handleBillingCheckout(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+	if handler.billingService == nil {
+		ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		return
+	}
+
+	var req billingCheckoutRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_payload", "expected JSON body with pack_id"))
+		return
+	}
+
+	returnURL := buildAbsoluteRequestURL(ctx.Request, "/?billing_transaction_id={transaction_id}")
+	checkoutSession, err := handler.billingService.CreateCheckout(
+		ctx.Request.Context(),
+		claims.GetUserID(),
+		claims.GetUserEmail(),
+		req.PackID,
+		returnURL,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrBillingPackUnknown):
+			ctx.JSON(http.StatusBadRequest, errorResponse("invalid_pack", "billing pack not found"))
+		case errors.Is(err, ErrBillingDisabled):
+			ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		case errors.Is(err, ErrPaddleCheckoutURLMissing):
+			ctx.JSON(http.StatusBadGateway, errorResponse("billing_checkout_missing", "configure Paddle default payment link before checkout"))
+		default:
+			handler.logger.Error("billing checkout failed", zap.Error(err), zap.String("user_id", claims.GetUserID()))
+			ctx.JSON(http.StatusBadGateway, errorResponse("billing_checkout_failed", "unable to start checkout"))
+		}
+		return
+	}
+
+	checkoutSession.CheckoutURL = strings.ReplaceAll(checkoutSession.CheckoutURL, "{transaction_id}", checkoutSession.TransactionID)
+	ctx.JSON(http.StatusOK, checkoutSession)
+}
+
+func (handler *httpHandler) handleBillingPortal(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+	if handler.billingService == nil {
+		ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		return
+	}
+
+	portalSession, err := handler.billingService.CreatePortalSession(ctx.Request.Context(), claims.GetUserID())
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrBillingPortalUnavailable):
+			ctx.JSON(http.StatusBadRequest, errorResponse("billing_portal_unavailable", "billing portal is unavailable"))
+		case errors.Is(err, ErrBillingDisabled):
+			ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		default:
+			handler.logger.Error("billing portal failed", zap.Error(err), zap.String("user_id", claims.GetUserID()))
+			ctx.JSON(http.StatusBadGateway, errorResponse("billing_portal_failed", "unable to open billing portal"))
+		}
+		return
+	}
+	ctx.JSON(http.StatusOK, portalSession)
+}
+
+func (handler *httpHandler) handleBillingWebhook(ctx *gin.Context) {
+	if handler.billingService == nil {
+		ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		return
+	}
+
+	payload, err := io.ReadAll(http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 1024*1024))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_payload", "unable to read webhook payload"))
+		return
+	}
+
+	signatureHeader := strings.TrimSpace(ctx.Request.Header.Get(handler.billingService.provider.SignatureHeaderName()))
+	if signatureHeader == "" {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing webhook signature"))
+		return
+	}
+
+	if err := handler.billingService.HandleWebhook(ctx.Request.Context(), signatureHeader, payload); err != nil {
+		switch {
+		case errors.Is(err, ErrBillingUnauthorized):
+			ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "invalid webhook signature"))
+		case errors.Is(err, ErrBillingWebhookInvalid):
+			ctx.JSON(http.StatusBadRequest, errorResponse("invalid_payload", "invalid webhook payload"))
+		default:
+			handler.logger.Error("billing webhook failed", zap.Error(err))
+			ctx.JSON(http.StatusInternalServerError, errorResponse("billing_webhook_failed", "billing webhook processing failed"))
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 type generateRequest struct {
@@ -315,7 +453,7 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 
 	_, err := handler.ledgerClient.Spend(spendCtx, &creditv1.SpendRequest{
 		UserId:         claims.GetUserID(),
-		AmountCents:    GenerateAmountCents(),
+		AmountCents:    handler.cfg.GenerateAmountCents(),
 		IdempotencyKey: fmt.Sprintf("generate:%s", uuid.NewString()),
 		MetadataJson:   marshalMetadata(map[string]any{"action": "generate", "topic": topic}),
 		LedgerId:       handler.cfg.DefaultLedgerID,
@@ -340,7 +478,7 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 		handler.logger.Error("llm proxy call failed", zap.Error(llmErr), zap.String("topic", topic))
 
 		// Refund the debited credits since generation failed.
-		handler.refundCredits(ctx.Request.Context(), claims.GetUserID(), GenerateAmountCents(), "generate_failure")
+		handler.refundCredits(ctx.Request.Context(), claims.GetUserID(), handler.cfg.GenerateAmountCents(), "generate_failure")
 
 		// Return a specific HTTP status and error code based on the upstream failure.
 		var proxyErr *llmProxyError
@@ -382,15 +520,22 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 	balanceCtx, balanceCancel := context.WithTimeout(ctx.Request.Context(), handler.cfg.LedgerTimeout)
 	defer balanceCancel()
 	balance, _ := handler.fetchBalance(balanceCtx, claims.GetUserID())
+	if puzzle.ID != "" {
+		if decorateErr := handler.decorateOwnedPuzzle(puzzle, claims.GetUserID(), time.Now().UTC()); decorateErr != nil {
+			handler.logger.Error("decorate generated puzzle failed", zap.Error(decorateErr), zap.String("puzzle_id", puzzle.ID))
+		}
+	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"items":       items,
-		"title":       metadata.Title,
-		"subtitle":    metadata.Subtitle,
-		"description": metadata.Description,
-		"balance":     balance,
-		"id":          puzzle.ID,
-		"share_token": puzzle.ShareToken,
+		"items":          items,
+		"title":          metadata.Title,
+		"subtitle":       metadata.Subtitle,
+		"description":    metadata.Description,
+		"balance":        balance,
+		"id":             puzzle.ID,
+		"share_token":    puzzle.ShareToken,
+		"source":         puzzle.Source,
+		"reward_summary": puzzle.RewardSummary,
 	})
 }
 
@@ -405,10 +550,6 @@ func (handler *httpHandler) generatePuzzleMetadata(ctx context.Context, topic st
 			return metadata, nil
 		}
 		lastErr = err
-	}
-
-	if lastErr == nil {
-		lastErr = errors.New("metadata generation failed")
 	}
 	return nil, lastErr
 }
@@ -437,6 +578,34 @@ type balanceResponse struct {
 	Coins          int64 `json:"coins"`
 }
 
+type bootstrapGrantSummary struct {
+	BootstrapCoins  int64 `json:"bootstrap_coins"`
+	DailyLoginCoins int64 `json:"daily_login_coins"`
+	LowBalanceCoins int64 `json:"low_balance_coins"`
+}
+
+type completionRequest struct {
+	UsedHint   bool `json:"used_hint"`
+	UsedReveal bool `json:"used_reveal"`
+}
+
+type completionRewardBreakdown struct {
+	Base        int64 `json:"base"`
+	NoHintBonus int64 `json:"no_hint_bonus"`
+	DailyBonus  int64 `json:"daily_bonus"`
+	Total       int64 `json:"total"`
+}
+
+type completionResponse struct {
+	Mode            string                    `json:"mode"`
+	Balance         *balanceResponse          `json:"balance,omitempty"`
+	Reward          completionRewardBreakdown `json:"reward"`
+	CreatorRewarded bool                      `json:"creator_rewarded"`
+	CreatorCoins    int64                     `json:"creator_coins"`
+	Reason          string                    `json:"reason,omitempty"`
+	RewardSummary   *RewardSummary            `json:"reward_summary,omitempty"`
+}
+
 func (handler *httpHandler) fetchBalance(ctx context.Context, userID string) (*balanceResponse, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, handler.cfg.LedgerTimeout)
 	defer cancel()
@@ -451,8 +620,157 @@ func (handler *httpHandler) fetchBalance(ctx context.Context, userID string) (*b
 	return &balanceResponse{
 		TotalCents:     resp.GetTotalCents(),
 		AvailableCents: resp.GetAvailableCents(),
-		Coins:          resp.GetAvailableCents() / CoinValueCents(),
+		Coins:          resp.GetAvailableCents() / handler.cfg.CoinValueCents,
 	}, nil
+}
+
+func utcDayBounds(now time.Time) (time.Time, time.Time) {
+	utcNow := now.UTC()
+	dayStart := time.Date(utcNow.Year(), utcNow.Month(), utcNow.Day(), 0, 0, 0, 0, time.UTC)
+	return dayStart, dayStart.Add(24 * time.Hour)
+}
+
+func clampNonNegative(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func (handler *httpHandler) ensureGrant(ctx context.Context, userID string, amountCents int64, idempotencyKey string, metadata map[string]any) (bool, error) {
+	if amountCents <= 0 {
+		return false, nil
+	}
+
+	_, err := handler.ledgerClient.Grant(ctx, &creditv1.GrantRequest{
+		UserId:           userID,
+		AmountCents:      amountCents,
+		IdempotencyKey:   idempotencyKey,
+		MetadataJson:     marshalMetadata(metadata),
+		ExpiresAtUnixUtc: 0,
+		LedgerId:         handler.cfg.DefaultLedgerID,
+		TenantId:         handler.cfg.DefaultTenantID,
+	})
+	if err != nil {
+		if isGRPCAlreadyExists(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (handler *httpHandler) ensureBootstrapAndDailyGrants(ctx context.Context, userID string) (*bootstrapGrantSummary, error) {
+	grantSummary := &bootstrapGrantSummary{}
+	dayStart, _ := utcDayBounds(time.Now().UTC())
+	dayKey := dayStart.Format("2006-01-02")
+
+	if applied, err := handler.ensureGrant(
+		ctx,
+		userID,
+		handler.cfg.BootstrapAmountCents(),
+		fmt.Sprintf("bootstrap:%s", userID),
+		map[string]any{"action": "bootstrap"},
+	); err != nil {
+		return nil, err
+	} else if applied {
+		grantSummary.BootstrapCoins = handler.cfg.BootstrapCoins
+	}
+
+	if applied, err := handler.ensureGrant(
+		ctx,
+		userID,
+		handler.cfg.DailyLoginAmountCents(),
+		fmt.Sprintf("daily-login:%s:%s", userID, dayKey),
+		map[string]any{"action": "daily_login", "day": dayKey},
+	); err != nil {
+		return nil, err
+	} else if applied {
+		grantSummary.DailyLoginCoins = handler.cfg.DailyLoginCoins
+	}
+
+	balance, err := handler.fetchBalance(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if balance.Coins >= handler.cfg.LowBalanceFloorCoins {
+		return grantSummary, nil
+	}
+
+	topUpCoins := handler.cfg.LowBalanceFloorCoins - balance.Coins
+	if applied, err := handler.ensureGrant(
+		ctx,
+		userID,
+		topUpCoins*handler.cfg.CoinValueCents,
+		fmt.Sprintf("low-balance:%s:%s", userID, dayKey),
+		map[string]any{"action": "low_balance_top_up", "day": dayKey, "top_up_coins": topUpCoins},
+	); err != nil {
+		return nil, err
+	} else if applied {
+		grantSummary.LowBalanceCoins = topUpCoins
+	}
+
+	return grantSummary, nil
+}
+
+func (handler *httpHandler) defaultRewardSummaryForOwner(_ *Puzzle) *RewardSummary {
+	return &RewardSummary{
+		OwnerRewardStatus:         "available",
+		OwnerRewardClaimTotal:     0,
+		SharedUniqueSolves:        0,
+		CreatorCreditsEarned:      0,
+		CreatorPuzzleCapRemaining: handler.cfg.CreatorSharedPerPuzzleCap,
+		CreatorDailyCapRemaining:  handler.cfg.CreatorSharedDailyCap,
+	}
+}
+
+func (handler *httpHandler) buildRewardSummary(puzzle *Puzzle, viewerUserID string, now time.Time) (*RewardSummary, error) {
+	if puzzle == nil {
+		return nil, nil
+	}
+
+	summary := handler.defaultRewardSummaryForOwner(puzzle)
+	if viewerUserID != puzzle.UserID {
+		summary.OwnerRewardStatus = "practice"
+		return summary, nil
+	}
+
+	record, err := handler.store.GetPuzzleSolveRecord(puzzle.ID, viewerUserID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if record != nil {
+		summary.OwnerRewardClaimTotal = record.SolverRewardCoins
+		if record.SolverRewardCoins > 0 {
+			summary.OwnerRewardStatus = "claimed"
+		} else if record.IneligibilityReason != "" {
+			summary.OwnerRewardStatus = "ineligible"
+		}
+	}
+
+	dayStart, dayEnd := utcDayBounds(now)
+	stats, err := handler.store.GetPuzzleRewardStats(puzzle.ID, puzzle.UserID, dayStart, dayEnd)
+	if err != nil {
+		return nil, err
+	}
+	summary.SharedUniqueSolves = stats.SharedUniqueSolves
+	summary.CreatorCreditsEarned = stats.CreatorCreditsEarned
+	summary.CreatorPuzzleCapRemaining = clampNonNegative(handler.cfg.CreatorSharedPerPuzzleCap - stats.CreatorCreditsEarned)
+	summary.CreatorDailyCapRemaining = clampNonNegative(handler.cfg.CreatorSharedDailyCap - stats.CreatorCreditsEarnedToday)
+	return summary, nil
+}
+
+func (handler *httpHandler) decorateOwnedPuzzle(puzzle *Puzzle, viewerUserID string, now time.Time) error {
+	if puzzle == nil {
+		return nil
+	}
+	summary, err := handler.buildRewardSummary(puzzle, viewerUserID, now)
+	if err != nil {
+		return err
+	}
+	puzzle.Source = "owned"
+	puzzle.RewardSummary = summary
+	return nil
 }
 
 // refundCredits grants back credits when a post-debit operation fails.
@@ -544,6 +862,13 @@ func (handler *httpHandler) handleListPuzzles(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, errorResponse("db_error", "failed to list puzzles"))
 		return
 	}
+	for index := range puzzles {
+		if decorateErr := handler.decorateOwnedPuzzle(&puzzles[index], claims.GetUserID(), time.Now().UTC()); decorateErr != nil {
+			handler.logger.Error("decorate puzzle failed", zap.Error(decorateErr), zap.String("puzzle_id", puzzles[index].ID))
+			ctx.JSON(http.StatusInternalServerError, errorResponse("db_error", "failed to list puzzles"))
+			return
+		}
+	}
 	ctx.JSON(http.StatusOK, gin.H{"puzzles": puzzles})
 }
 
@@ -558,6 +883,11 @@ func (handler *httpHandler) handleGetPuzzle(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "puzzle not found"))
 		return
 	}
+	if decorateErr := handler.decorateOwnedPuzzle(puzzle, claims.GetUserID(), time.Now().UTC()); decorateErr != nil {
+		handler.logger.Error("decorate puzzle failed", zap.Error(decorateErr), zap.String("puzzle_id", puzzle.ID))
+		ctx.JSON(http.StatusInternalServerError, errorResponse("db_error", "failed to load puzzle"))
+		return
+	}
 	ctx.JSON(http.StatusOK, puzzle)
 }
 
@@ -567,6 +897,7 @@ func (handler *httpHandler) handleGetSharedPuzzle(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "puzzle not found"))
 		return
 	}
+	puzzle.Source = "shared"
 	ctx.JSON(http.StatusOK, puzzle)
 }
 
@@ -581,6 +912,230 @@ func (handler *httpHandler) handleDeletePuzzle(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"deleted": true})
+}
+
+func (handler *httpHandler) handleCompletePuzzle(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+
+	var req completionRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_payload", "expected JSON body with used_hint and used_reveal"))
+		return
+	}
+
+	puzzle, err := handler.store.GetPuzzle(ctx.Param("id"), claims.GetUserID())
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "puzzle not found"))
+		return
+	}
+
+	response, statusCode, completeErr := handler.completePuzzleSolve(ctx.Request.Context(), puzzle, claims.GetUserID(), req)
+	if completeErr != nil {
+		handler.logger.Error("complete puzzle failed", zap.Error(completeErr), zap.String("puzzle_id", puzzle.ID), zap.String("solver", claims.GetUserID()))
+		ctx.JSON(statusCode, errorResponse("completion_error", "failed to record completion"))
+		return
+	}
+	ctx.JSON(statusCode, response)
+}
+
+func (handler *httpHandler) handleCompleteSharedPuzzle(ctx *gin.Context) {
+	var req completionRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_payload", "expected JSON body with used_hint and used_reveal"))
+		return
+	}
+
+	puzzle, err := handler.store.GetPuzzleByShareToken(ctx.Param("token"))
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "puzzle not found"))
+		return
+	}
+
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusOK, &completionResponse{
+			Mode:   "shared",
+			Reason: "anonymous_solver",
+		})
+		return
+	}
+
+	response, statusCode, completeErr := handler.completePuzzleSolve(ctx.Request.Context(), puzzle, claims.GetUserID(), req)
+	if completeErr != nil {
+		handler.logger.Error("complete shared puzzle failed", zap.Error(completeErr), zap.String("puzzle_id", puzzle.ID), zap.String("solver", claims.GetUserID()))
+		ctx.JSON(statusCode, errorResponse("completion_error", "failed to record completion"))
+		return
+	}
+	ctx.JSON(statusCode, response)
+}
+
+func (handler *httpHandler) completePuzzleSolve(ctx context.Context, puzzle *Puzzle, solverUserID string, req completionRequest) (*completionResponse, int, error) {
+	now := time.Now().UTC()
+	dayStart, dayEnd := utcDayBounds(now)
+	isOwner := puzzle != nil && puzzle.UserID == solverUserID
+	mode := "shared"
+	if isOwner {
+		mode = "owner"
+	}
+
+	existingRecord, err := handler.store.GetPuzzleSolveRecord(puzzle.ID, solverUserID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, http.StatusInternalServerError, err
+	}
+	if existingRecord != nil {
+		response := &completionResponse{
+			Mode: mode,
+			Reward: completionRewardBreakdown{
+				Base:        existingRecord.OwnerBaseRewardCoins,
+				NoHintBonus: existingRecord.OwnerNoHintBonusCoins,
+				DailyBonus:  existingRecord.OwnerDailyBonusCoins,
+				Total:       existingRecord.SolverRewardCoins,
+			},
+			CreatorRewarded: existingRecord.CreatorRewardCoins > 0,
+			CreatorCoins:    existingRecord.CreatorRewardCoins,
+			Reason:          existingRecord.IneligibilityReason,
+		}
+		if response.Reason == "" {
+			response.Reason = "already_recorded"
+		}
+		if isOwner {
+			balance, balanceErr := handler.fetchBalance(ctx, solverUserID)
+			if balanceErr != nil {
+				return nil, http.StatusBadGateway, balanceErr
+			}
+			response.Balance = balance
+			summary, summaryErr := handler.buildRewardSummary(puzzle, solverUserID, now)
+			if summaryErr != nil {
+				return nil, http.StatusInternalServerError, summaryErr
+			}
+			response.RewardSummary = summary
+		}
+		return response, http.StatusOK, nil
+	}
+
+	record := &PuzzleSolveRecord{
+		PuzzleID:          puzzle.ID,
+		PuzzleOwnerUserID: puzzle.UserID,
+		SolverUserID:      solverUserID,
+		Source:            mode,
+		UsedHint:          req.UsedHint,
+		UsedReveal:        req.UsedReveal,
+	}
+	response := &completionResponse{Mode: mode}
+
+	if req.UsedReveal {
+		record.IneligibilityReason = "revealed"
+		if err := handler.store.CreatePuzzleSolveRecord(record); err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
+		response.Reason = record.IneligibilityReason
+		if isOwner {
+			balance, balanceErr := handler.fetchBalance(ctx, solverUserID)
+			if balanceErr != nil {
+				return nil, http.StatusBadGateway, balanceErr
+			}
+			response.Balance = balance
+			summary, summaryErr := handler.buildRewardSummary(puzzle, solverUserID, now)
+			if summaryErr != nil {
+				return nil, http.StatusInternalServerError, summaryErr
+			}
+			response.RewardSummary = summary
+		}
+		return response, http.StatusOK, nil
+	}
+
+	if isOwner {
+		record.OwnerBaseRewardCoins = handler.cfg.OwnerSolveCoins
+		if !req.UsedHint {
+			record.OwnerNoHintBonusCoins = handler.cfg.OwnerNoHintBonusCoins
+		}
+		qualifiedOwnerSolvesToday, countErr := handler.store.CountQualifiedOwnerSolvesByDay(solverUserID, dayStart, dayEnd)
+		if countErr != nil {
+			return nil, http.StatusInternalServerError, countErr
+		}
+		if qualifiedOwnerSolvesToday < handler.cfg.OwnerDailySolveBonusLimit {
+			record.OwnerDailyBonusCoins = handler.cfg.OwnerDailySolveBonusCoins
+		}
+		record.SolverRewardCoins = record.OwnerBaseRewardCoins + record.OwnerNoHintBonusCoins + record.OwnerDailyBonusCoins
+		response.Reward = completionRewardBreakdown{
+			Base:        record.OwnerBaseRewardCoins,
+			NoHintBonus: record.OwnerNoHintBonusCoins,
+			DailyBonus:  record.OwnerDailyBonusCoins,
+			Total:       record.SolverRewardCoins,
+		}
+
+		if _, grantErr := handler.ensureGrant(
+			ctx,
+			solverUserID,
+			record.SolverRewardCoins*handler.cfg.CoinValueCents,
+			fmt.Sprintf("owner-solve:%s:%s", puzzle.ID, solverUserID),
+			map[string]any{
+				"action":        "owner_solve_reward",
+				"puzzle_id":     puzzle.ID,
+				"used_hint":     req.UsedHint,
+				"used_reveal":   req.UsedReveal,
+				"base_coins":    record.OwnerBaseRewardCoins,
+				"no_hint_coins": record.OwnerNoHintBonusCoins,
+				"daily_bonus":   record.OwnerDailyBonusCoins,
+			},
+		); grantErr != nil {
+			return nil, http.StatusBadGateway, grantErr
+		}
+	} else {
+		stats, statsErr := handler.store.GetPuzzleRewardStats(puzzle.ID, puzzle.UserID, dayStart, dayEnd)
+		if statsErr != nil {
+			return nil, http.StatusInternalServerError, statsErr
+		}
+		switch {
+		case stats.CreatorCreditsEarned >= handler.cfg.CreatorSharedPerPuzzleCap:
+			record.IneligibilityReason = "creator_puzzle_cap_reached"
+		case stats.CreatorCreditsEarnedToday >= handler.cfg.CreatorSharedDailyCap:
+			record.IneligibilityReason = "creator_daily_cap_reached"
+		default:
+			record.CreatorRewardCoins = handler.cfg.CreatorSharedSolveCoins
+			if _, grantErr := handler.ensureGrant(
+				ctx,
+				puzzle.UserID,
+				record.CreatorRewardCoins*handler.cfg.CoinValueCents,
+				fmt.Sprintf("shared-solve:%s:%s", puzzle.ID, solverUserID),
+				map[string]any{
+					"action":      "shared_creator_reward",
+					"puzzle_id":   puzzle.ID,
+					"solver_id":   solverUserID,
+					"used_hint":   req.UsedHint,
+					"used_reveal": req.UsedReveal,
+				},
+			); grantErr != nil {
+				return nil, http.StatusBadGateway, grantErr
+			}
+			response.CreatorRewarded = true
+			response.CreatorCoins = record.CreatorRewardCoins
+		}
+		response.Reason = record.IneligibilityReason
+	}
+
+	if err := handler.store.CreatePuzzleSolveRecord(record); err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+
+	if isOwner {
+		balance, balanceErr := handler.fetchBalance(ctx, solverUserID)
+		if balanceErr != nil {
+			return nil, http.StatusBadGateway, balanceErr
+		}
+		response.Balance = balance
+		summary, summaryErr := handler.buildRewardSummary(puzzle, solverUserID, now)
+		if summaryErr != nil {
+			return nil, http.StatusInternalServerError, summaryErr
+		}
+		response.RewardSummary = summary
+	}
+
+	return response, http.StatusOK, nil
 }
 
 func (handler *httpHandler) handleAdminListUsers(ctx *gin.Context) {
@@ -688,7 +1243,7 @@ func (handler *httpHandler) handleAdminGrant(ctx *gin.Context) {
 	}
 	targetEmail = strings.TrimSpace(req.UserEmail)
 
-	amountCents := req.AmountCoins * CoinValueCents()
+	amountCents := req.AmountCoins * handler.cfg.CoinValueCents
 	requestCtx, cancel := context.WithTimeout(ctx.Request.Context(), handler.cfg.LedgerTimeout)
 	defer cancel()
 

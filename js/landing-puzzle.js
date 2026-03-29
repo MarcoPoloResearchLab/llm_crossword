@@ -75,7 +75,7 @@
         var subtitle = puzzle.subtitle || "";
         var payload = createWidgetPayload(puzzle.items, title, subtitle);
 
-        applySharedPuzzleCopy(title);
+        applySharedPuzzleCopy(puzzle.title);
         renderWidget(payload, true);
       })
       .catch(function (error) {

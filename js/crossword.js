@@ -60,8 +60,8 @@
     activePuzzleIndex: -1,
     allPuzzles: [],
     lastLayout: {
-      footerHeight: readCssPixelValue(cssFooterHeightProperty, defaultFooterHeight),
-      headerHeight: readCssPixelValue(cssHeaderHeightProperty, defaultHeaderHeight),
+      footerHeight: 0,
+      headerHeight: 0,
       viewportHeight: window.innerHeight,
     },
     layoutObserver: null,
@@ -561,7 +561,7 @@
         }
 
         if (state.activePuzzleIndex >= 0) {
-          renderPuzzle(state.allPuzzles[state.activePuzzleIndex]);
+          selectPuzzle(state.activePuzzleIndex);
         }
 
         return state.allPuzzles;
@@ -687,6 +687,21 @@
     renderMiniGrid: renderMiniGrid,
     setActiveCard: setActiveCard,
     setSidebarCollapsed: setSidebarCollapsed,
+  };
+
+  (window.__LLM_CROSSWORD_TEST__ || (window.__LLM_CROSSWORD_TEST__ = {})).crossword = {
+    addGeneratedPuzzle: addGeneratedPuzzle,
+    applySidebarState: applySidebarState,
+    buildSharedPuzzleFromResponse: buildSharedPuzzleFromResponse,
+    handleCardListClick: handleCardListClick,
+    readSharedPuzzleToken: readSharedPuzzleToken,
+    refreshObservedShellElements: refreshObservedShellElements,
+    setDescriptionExpanded: setDescriptionExpanded,
+    setState: function (nextState) {
+      Object.assign(state, nextState || {});
+    },
+    updatePuzzleDescription: updatePuzzleDescription,
+    validatePuzzleSpecification: validatePuzzleSpecification,
   };
 
   startLayoutObservers();

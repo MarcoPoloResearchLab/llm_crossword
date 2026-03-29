@@ -9,12 +9,13 @@ module.exports = defineConfig({
   fullyParallel: true,
   retries: 0,
   use: {
+    headless: true,
     baseURL: BASE_URL,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "node scripts/test-server.js",
+    command: "bash scripts/render-runtime-auth-config.sh && node scripts/test-server.js",
     port: 8111,
     reuseExistingServer: !process.env.CI,
   },

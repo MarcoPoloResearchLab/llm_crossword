@@ -1,10 +1,17 @@
 // @ts-check
 
 const { test, expect } = require("./coverage-fixture");
+const { setupLoggedOutRoutes } = require("./route-helpers");
 
 test.describe("Landing page", () => {
   test.beforeEach(async ({ page }) => {
+    await setupLoggedOutRoutes(page);
     await page.goto("/");
+  });
+
+  test("logged-out user sees the landing page and not the puzzle view", async ({ page }) => {
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeHidden();
   });
 
   test("shows the hero title", async ({ page }) => {

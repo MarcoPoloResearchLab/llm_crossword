@@ -46,10 +46,19 @@ test.describe("Config — YAML environment matching", () => {
   });
 
   test("handles multi-environment YAML — page renders without errors", async ({ page }) => {
-    // mpr-ui-config.js handles multi-environment selection internally.
-    // Verify the page loads and the header renders.
+    var yamlText = [
+      "environments:",
+      "  - description: local",
+      "    - \"http://localhost:8111\"",
+      "    tauthUrl: \"http://localhost:8111\"",
+      "  - description: production",
+      "    - \"https://prod.example.com\"",
+      "    tauthUrl: \"https://prod-tauth.example.com\"",
+    ].join("\n");
+    await setupLoggedOutRoutes(page, { configYaml: yamlText });
     await page.goto("/");
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(500);
+    await expect(page.locator("#app-header")).toHaveAttribute("tauth-url", "http://localhost:8111");
     await expect(page.locator("header.mpr-header")).toBeVisible();
   });
 
@@ -119,13 +128,13 @@ test.describe("App — generate while not logged in (lines 149-150)", () => {
     await page.evaluate(() => {
       document.dispatchEvent(new Event("mpr-ui:auth:unauthenticated"));
     });
-    // After logout, user is on landing and generate form is hidden.
-    // Force puzzle view and generate panel visible, enable button
-    // to test the loggedIn guard in the generate handler.
+    await expect(page.locator("#landingPage")).toBeVisible({ timeout: 5000 });
+    // After logout settles, reopen the generator through the public test
+    // surface so the handler can be exercised without racing onLogout().
     await page.evaluate(() => {
-      document.getElementById("landingPage").style.display = "none";
-      document.getElementById("puzzleView").style.display = "";
-      document.getElementById("generatePanel").style.display = "";
+      var app = window.__LLM_CROSSWORD_TEST__.app;
+      app.showPuzzle();
+      app.showGenerateForm();
       document.getElementById("generateBtn").disabled = false;
     });
     await page.fill("#topicInput", "test topic");

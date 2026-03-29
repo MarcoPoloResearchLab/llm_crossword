@@ -103,10 +103,7 @@ func (handler *httpHandler) callLLMProxy(ctx context.Context, topic string, word
 }
 
 func (handler *httpHandler) callPuzzleMetadataLLMProxy(ctx context.Context, topic string, items []WordItem) (*PuzzleMetadata, error) {
-	itemsJSON, err := json.Marshal(items)
-	if err != nil {
-		return nil, fmt.Errorf("marshal metadata items: %w", err)
-	}
+	itemsJSON, _ := json.Marshal(items)
 
 	userPrompt := fmt.Sprintf(
 		"Write metadata for a generated puzzle.\nTopic: %q\nFinal word list JSON:\n%s\nReturn the JSON object now.",

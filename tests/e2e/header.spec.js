@@ -1,9 +1,11 @@
 // @ts-check
 
 const { test, expect } = require("./coverage-fixture");
+const { setupLoggedOutRoutes } = require("./route-helpers");
 
 test.describe("Header — rendered content", () => {
   test.beforeEach(async ({ page }) => {
+    await setupLoggedOutRoutes(page);
     await page.goto("/", { waitUntil: "networkidle" });
     // Wait for mpr-ui orchestration to complete.
     await page.waitForTimeout(2000);
@@ -51,6 +53,7 @@ test.describe("Header — rendered content", () => {
 
 test.describe("Footer — rendered content", () => {
   test.beforeEach(async ({ page }) => {
+    await setupLoggedOutRoutes(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.waitForTimeout(2000);
   });
