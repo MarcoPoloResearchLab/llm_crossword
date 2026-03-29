@@ -723,7 +723,7 @@ test.describe("App coverage", () => {
     await openGenerateForm(page);
     await page.fill("#topicInput", "server credits");
     await page.click("#generateBtn");
-    await expect(page.locator("#generateStatus")).toContainText("Not enough credits. You need 5 credits per puzzle.");
+    await expect(page.locator("#generateStatus")).toContainText("Not enough credits. You need 4 credits per puzzle.");
   });
 
   test("covers refund refresh failures after llm timeouts", async ({ page }) => {
@@ -1532,7 +1532,7 @@ test.describe("Isolated script coverage", () => {
       <html>
         <body>
           <div id="puzzleView">
-            <div id="descriptionPanel" hidden><button id="descriptionToggle" type="button"></button><p id="descriptionContent" hidden></p></div>
+            <div id="descriptionPanel" hidden><p id="descriptionContent" hidden></p></div>
             <h1 id="title"></h1>
             <div id="subtitle"></div>
             <div id="status"></div>

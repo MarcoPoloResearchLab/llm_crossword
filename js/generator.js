@@ -6,6 +6,8 @@
 
 function generateCrossword(items, opts = {}) {
   var _random = (opts && opts.random) || Math.random;
+  const BOUNDING_BOX_IMBALANCE_WEIGHT = 4;
+  const CANDIDATE_CROSSING_WEIGHT = 100;
 
   const o = {
     title: opts.title ?? "Mini Crossword — Generated",
@@ -35,17 +37,100 @@ function generateCrossword(items, opts = {}) {
   // ---------- helpers to copy/reset state ----------
   const dirs = ["across", "down"];
 
+  function scoreShapeMetrics(metrics) {
+    return metrics.area + metrics.imbalance * BOUNDING_BOX_IMBALANCE_WEIGHT;
+  }
+
+  function measurePayloadLayout(payload) {
+    let totalLetters = 0;
+    let minRow = Infinity;
+    let maxRow = -Infinity;
+    let minCol = Infinity;
+    let maxCol = -Infinity;
+    const uniqueCells = new Set();
+
+    for (const entry of payload.entries) {
+      totalLetters += entry.answer.length;
+      for (let index = 0; index < entry.answer.length; index++) {
+        const row = entry.dir === "across" ? entry.row : entry.row + index;
+        const col = entry.dir === "across" ? entry.col + index : entry.col;
+        uniqueCells.add(`${row}:${col}`);
+        if (row < minRow) minRow = row;
+        if (row > maxRow) maxRow = row;
+        if (col < minCol) minCol = col;
+        if (col > maxCol) maxCol = col;
+      }
+    }
+
+    const rows = maxRow - minRow + 1;
+    const cols = maxCol - minCol + 1;
+    const area = rows * cols;
+    const uniqueCellCount = uniqueCells.size;
+
+    return {
+      rows,
+      cols,
+      area,
+      uniqueCellCount,
+      density: uniqueCellCount / area,
+      crossings: totalLetters - uniqueCellCount,
+      imbalance: Math.abs(rows - cols),
+      longestSide: Math.max(rows, cols),
+    };
+  }
+
+  function isBetterLayout(candidateLayout, bestLayout) {
+    if (!bestLayout) return true;
+
+    if (candidateLayout.metrics.crossings !== bestLayout.metrics.crossings) {
+      return candidateLayout.metrics.crossings > bestLayout.metrics.crossings;
+    }
+
+    const candidateShapeScore = scoreShapeMetrics(candidateLayout.metrics);
+    const bestShapeScore = scoreShapeMetrics(bestLayout.metrics);
+    if (candidateShapeScore !== bestShapeScore) {
+      return candidateShapeScore < bestShapeScore;
+    }
+
+    if (candidateLayout.metrics.density !== bestLayout.metrics.density) {
+      return candidateLayout.metrics.density > bestLayout.metrics.density;
+    }
+
+    if (candidateLayout.metrics.longestSide !== bestLayout.metrics.longestSide) {
+      return candidateLayout.metrics.longestSide < bestLayout.metrics.longestSide;
+    }
+
+    return candidateLayout.metrics.area < bestLayout.metrics.area;
+  }
+
+  generateCrossword.__test = {
+    compareLayoutMetrics(candidateMetrics, bestMetrics) {
+      return isBetterLayout(
+        { metrics: candidateMetrics },
+        bestMetrics ? { metrics: bestMetrics } : null
+      );
+    },
+    measurePayloadLayout,
+    scoreShapeMetrics,
+  };
+
   function tryBuild(words) {
     // sparse grid (normalized integer coords)
-    const grid = new Map(); // "r:c" -> 'A'
-    const placed = [];      // { id, dir, row, col, answer, clue }
-    const overlaps = [];    // { a, aIndex, b, bIndex }
+    let grid = new Map();   // "r:c" -> 'A'
+    let placed = [];        // { id, dir, row, col, answer, clue }
+    let overlaps = [];      // { a, aIndex, b, bIndex }
     let attemptBudget = o.maxAttempts;
 
     const key = (r, c) => `${r}:${c}`;
     const get = (r, c) => grid.get(key(r, c));
     const set = (r, c, ch) => grid.set(key(r, c), ch);
     const del = (r, c) => grid.delete(key(r, c));
+
+    function resetPlacementState() {
+      grid = new Map();
+      placed = [];
+      overlaps = [];
+    }
 
     function canPlace(answer, row, col, dir) {
       for (let i = 0; i < answer.length; i++) {
@@ -130,25 +215,41 @@ function generateCrossword(items, opts = {}) {
       return count;
     }
 
-    function bboxAfter(wordObj, cand) {
-      // approximate area after placing candidate
-      let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
+    function measureBoundingBoxAfter(wordObj, cand) {
+      let minRow = Infinity;
+      let minCol = Infinity;
+      let maxRow = -Infinity;
+      let maxCol = -Infinity;
+
       for (const k of grid.keys()) {
-        const [rs, cs] = k.split(":"); const r = +rs, c = +cs;
-        if (r < minR) minR = r;
-        if (r > maxR) maxR = r;
-        if (c < minC) minC = c;
-        if (c > maxC) maxC = c;
+        const [rowText, colText] = k.split(":");
+        const row = Number(rowText);
+        const col = Number(colText);
+        if (row < minRow) minRow = row;
+        if (row > maxRow) maxRow = row;
+        if (col < minCol) minCol = col;
+        if (col > maxCol) maxCol = col;
       }
+
       for (let i = 0; i < wordObj.answer.length; i++) {
-        const r = cand.dir === "across" ? cand.row : cand.row + i;
-        const c = cand.dir === "across" ? cand.col + i : cand.col;
-        if (r < minR) minR = r;
-        if (r > maxR) maxR = r;
-        if (c < minC) minC = c;
-        if (c > maxC) maxC = c;
+        const row = cand.dir === "across" ? cand.row : cand.row + i;
+        const col = cand.dir === "across" ? cand.col + i : cand.col;
+        if (row < minRow) minRow = row;
+        if (row > maxRow) maxRow = row;
+        if (col < minCol) minCol = col;
+        if (col > maxCol) maxCol = col;
       }
-      return (maxR - minR + 1) * (maxC - minC + 1);
+
+      const rows = maxRow - minRow + 1;
+      const cols = maxCol - minCol + 1;
+
+      return {
+        rows,
+        cols,
+        area: rows * cols,
+        imbalance: Math.abs(rows - cols),
+        longestSide: Math.max(rows, cols),
+      };
     }
 
     function candidatesFor(wordObj) {
@@ -164,16 +265,29 @@ function generateCrossword(items, opts = {}) {
             const row = dir === "across" ? crossR : crossR - iNew;
             const col = dir === "across" ? crossC - iNew : crossC;
             const test = canPlace(wordObj.answer, row, col, dir);
-            if (test.ok) out.push({ row, col, dir, anchor: { otherId: other.id, iNew, iOld } });
+            if (test.ok) {
+              out.push({
+                row,
+                col,
+                dir,
+                anchor: { otherId: other.id, iNew, iOld },
+                crossingCount: scoreCrossings(wordObj, { row, col, dir }),
+                bbox: measureBoundingBoxAfter(wordObj, { row, col, dir }),
+              });
+            }
           }
         }
       }
-      // Combined score: crossings matter, but bbox also matters.
-      // Use crossing count * 100 - bbox area to balance both goals.
       out.sort((a, b) => {
-        var scoreA = scoreCrossings(wordObj, a) * 100 - bboxAfter(wordObj, a);
-        var scoreB = scoreCrossings(wordObj, b) * 100 - bboxAfter(wordObj, b);
-        return scoreB - scoreA;
+        const candidateScoreA = a.crossingCount * CANDIDATE_CROSSING_WEIGHT - scoreShapeMetrics(a.bbox);
+        const candidateScoreB = b.crossingCount * CANDIDATE_CROSSING_WEIGHT - scoreShapeMetrics(b.bbox);
+        if (candidateScoreA !== candidateScoreB) {
+          return candidateScoreB - candidateScoreA;
+        }
+        if (a.bbox.longestSide !== b.bbox.longestSide) {
+          return a.bbox.longestSide - b.bbox.longestSide;
+        }
+        return a.bbox.area - b.bbox.area;
       });
       return out;
     }
@@ -205,9 +319,32 @@ function generateCrossword(items, opts = {}) {
       return false;
     }
 
+    function buildPayload() {
+      return {
+        title: o.title,
+        subtitle: o.subtitle,
+        description: o.description,
+        entries: placed.map(entry => ({
+          id: entry.id,
+          dir: entry.dir,
+          row: entry.row,
+          col: entry.col,
+          answer: entry.answer,
+          clue: entry.clue,
+          hint: entry.hint,
+        })),
+        overlaps: overlaps.slice()
+      };
+    }
+
     // caller seeds the first word
     return {
       seed(wordIdx, dir) {
+        if (attemptBudget <= 0) {
+          return null;
+        }
+
+        resetPlacementState();
         const wordsCopy = words.slice(); // local copy
         // put chosen seed at index 0
         if (wordIdx !== 0) {
@@ -220,25 +357,8 @@ function generateCrossword(items, opts = {}) {
         // The first seed always fits on an empty grid at (0, 0).
         place(seedWord, 0, 0, dir, null);
         if (backtrack(1, wordsCopy)) {
-          // build payload
-          return {
-            title: o.title,
-            subtitle: o.subtitle,
-            description: o.description,
-            entries: placed.map(entry => ({
-              id: entry.id,
-              dir: entry.dir,
-              row: entry.row,
-              col: entry.col,
-              answer: entry.answer,
-              clue: entry.clue,
-              hint: entry.hint,
-            })),
-            overlaps: overlaps.slice()
-          };
+          return buildPayload();
         }
-        // undo seed and fail
-        unplace(seedWord, 0, 0, dir);
         return null;
       }
     };
@@ -256,16 +376,30 @@ function generateCrossword(items, opts = {}) {
   }
 
   let tries = 0;
+  let bestLayout = null;
   while (tries < o.seedTries) {
     const words = (tries === 0) ? baseWords : shuffled(baseWords);
     const engine = tryBuild(words);
     for (let wi = 0; wi < words.length; wi++) {
       for (const d of dirs) {
         const payload = engine.seed(wi, d);
-        if (payload) return payload;
+        if (!payload) continue;
+
+        const candidateLayout = {
+          payload,
+          metrics: measurePayloadLayout(payload),
+        };
+
+        if (isBetterLayout(candidateLayout, bestLayout)) {
+          bestLayout = candidateLayout;
+        }
       }
     }
     tries++;
+  }
+
+  if (bestLayout) {
+    return bestLayout.payload;
   }
 
   throw new Error("Failed to generate a valid crossword for all words within attempt budget.");

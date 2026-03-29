@@ -13,6 +13,7 @@
   var SECTION_AUTH = "auth";
   var SECTION_AUTH_BUTTON = "authButton";
   var SECTION_ORIGINS = "origins";
+  var GOOGLE_CLIENT_ID_PLACEHOLDER = "__GOOGLE_CLIENT_ID__";
   var BUNDLE_MARKER_SELECTOR = "script[data-mpr-ui-bundle-src]";
   var EVENT_CONFIG_APPLIED = "mpr-ui:config:applied";
   var EVENT_BUNDLE_LOADED = "mpr-ui:bundle:loaded";
@@ -64,6 +65,41 @@
       throw new Error("config.yaml missing " + scope + "." + key);
     }
     return value.trim();
+  }
+
+  function readRuntimeGoogleClientId() {
+    var runtimeConfig = global.LLMCrosswordRuntimeConfig;
+
+    if (!isPlainObject(runtimeConfig) || typeof runtimeConfig.googleClientId !== "string") {
+      return "";
+    }
+
+    return runtimeConfig.googleClientId.trim();
+  }
+
+  function resolveGoogleClientId(rawGoogleClientId) {
+    var normalizedGoogleClientId = "";
+
+    if (typeof rawGoogleClientId !== "string") {
+      throw new Error("config.yaml missing auth.googleClientId");
+    }
+
+    normalizedGoogleClientId = rawGoogleClientId.trim();
+
+    if (normalizedGoogleClientId.length === 0) {
+      throw new Error("config.yaml missing auth.googleClientId");
+    }
+
+    if (normalizedGoogleClientId !== GOOGLE_CLIENT_ID_PLACEHOLDER) {
+      return normalizedGoogleClientId;
+    }
+
+    normalizedGoogleClientId = readRuntimeGoogleClientId();
+    if (normalizedGoogleClientId.length === 0) {
+      throw new Error("runtime auth config missing googleClientId");
+    }
+
+    return normalizedGoogleClientId;
   }
 
   function requireObject(source, key, scope) {
@@ -137,7 +173,7 @@
     var authPayload = requireObject(environment, SECTION_AUTH, SECTION_AUTH);
     return Object.freeze({
       tauthUrl: requireStringAllowEmpty(authPayload, "tauthUrl", SECTION_AUTH),
-      googleClientId: requireString(authPayload, "googleClientId", SECTION_AUTH),
+      googleClientId: resolveGoogleClientId(authPayload.googleClientId),
       tenantId: requireString(authPayload, "tenantId", SECTION_AUTH),
       loginPath: requireString(authPayload, "loginPath", SECTION_AUTH),
       logoutPath: requireString(authPayload, "logoutPath", SECTION_AUTH),

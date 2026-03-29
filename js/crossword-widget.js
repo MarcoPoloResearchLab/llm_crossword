@@ -553,6 +553,12 @@
     var rows = built.rows;
     var cols = built.cols;
     var getCell = built.getCell;
+    var solveSession = {
+      completionEmitted: false,
+      revealNotified: false,
+      usedHint: false,
+      usedReveal: false,
+    };
 
     // Set grid template
     gridEl.style.gridTemplateColumns = "repeat(" + cols + ", var(" + cssCellSizeProperty + "))";
@@ -634,6 +640,40 @@
       }
     }
 
+    function isPuzzleSolved() {
+      var i;
+      for (i = 0; i < allEntries.length; i++) {
+        if (!isEntrySolved(allEntries[i].id)) return false;
+      }
+      return allEntries.length > 0;
+    }
+
+    function dispatchWidgetEvent(eventName, detail) {
+      window.dispatchEvent(new CustomEvent(eventName, {
+        detail: detail,
+      }));
+    }
+
+    function emitCompletionIfNeeded(trigger) {
+      if (solveSession.completionEmitted || solveSession.usedReveal || !isPuzzleSolved()) return;
+      solveSession.completionEmitted = true;
+      dispatchWidgetEvent("crossword:completed", {
+        trigger: trigger,
+        usedHint: solveSession.usedHint,
+        usedReveal: solveSession.usedReveal,
+      });
+    }
+
+    function emitRevealIfNeeded() {
+      if (solveSession.revealNotified) return;
+      solveSession.usedReveal = true;
+      solveSession.revealNotified = true;
+      dispatchWidgetEvent("crossword:reveal-used", {
+        usedHint: solveSession.usedHint,
+        usedReveal: true,
+      });
+    }
+
     /* Hint helpers */
 
     function revealLetter(entryIdentifier) {
@@ -682,12 +722,14 @@
 
       hintButton.addEventListener("click", function (event) {
         event.preventDefault();
+        solveSession.usedHint = true;
         if (hintStage === hintStageInitial) {
           verbalSpan.style.display = emptyString;
           hintStage = hintStageVerbal;
         } else if (hintStage === hintStageVerbal) {
           revealedCellInfo = revealLetter(entry.id);
           hintStage = hintStageLetter;
+          emitCompletionIfNeeded("hint");
         } else {
           resetHints();
           hintStage = hintStageInitial;
@@ -727,6 +769,7 @@
       updateEntrySolvedState: updateEntrySolvedState,
       updateSolvedStateForCell: updateSolvedStateForCell,
       revealLetter: revealLetter,
+      solveSession: solveSession,
     };
 
     /* Draw grid cells */
@@ -775,6 +818,7 @@
             e.target.value = v;
             cellDiv.classList.remove("correct", "wrong");
             updateSolvedStateForCell(d);
+            emitCompletionIfNeeded("input");
             if (v) {
               var nxt = step(d, activeDir, true);
               if (nxt) focusCell(nxt.r, nxt.c);
@@ -795,6 +839,7 @@
               updateSolvedStateForCell(cur);
               cur = step(cur, activeDir, true);
             }
+            emitCompletionIfNeeded("paste");
             if (cur) focusCell(cur.r, cur.c);
           });
 
@@ -923,6 +968,7 @@
         if (allCorrect) {
           statusEl.classList.add("ok");
           launchConfetti(gridEl.parentElement);
+          emitCompletionIfNeeded("check");
         } else {
           statusEl.classList.remove("ok");
         }
@@ -935,7 +981,7 @@
       revealBtnRef.textContent = "Reveal";
       revealBtnRef.onclick = function () {
         revealed = !revealed;
-        if (revealed) { revealAll(); revealBtnRef.textContent = "Hide"; }
+        if (revealed) { emitRevealIfNeeded(); revealAll(); revealBtnRef.textContent = "Hide"; }
         else { hideAll(); revealBtnRef.textContent = "Reveal"; }
       };
     }

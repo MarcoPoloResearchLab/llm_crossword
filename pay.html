@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width,initial-scale=1" name="viewport"/>
+  <title>LLM Crossword Checkout</title>
+  <meta name="description" content="Secure credit-pack checkout for LLM Crossword."/>
+  <script src="./js/runtime-auth-config.js"></script>
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at top left, rgba(59, 130, 246, .28), transparent 34%),
+        radial-gradient(circle at bottom right, rgba(52, 211, 153, .18), transparent 32%),
+        #020617;
+      color: #e2e8f0;
+    }
+
+    .pay-shell {
+      width: min(32rem, calc(100vw - 2rem));
+      padding: 1rem;
+    }
+
+    .pay-card {
+      padding: 2rem;
+      border-radius: 1.5rem;
+      border: 1px solid rgba(148, 163, 184, .2);
+      background: rgba(15, 23, 42, .88);
+      box-shadow: 0 2rem 5rem rgba(2, 6, 23, .45);
+      backdrop-filter: blur(18px);
+    }
+
+    .pay-eyebrow {
+      margin: 0 0 .75rem;
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: #93c5fd;
+    }
+
+    .pay-title {
+      margin: 0 0 .75rem;
+      font-size: clamp(2rem, 5vw, 2.8rem);
+      line-height: 1.05;
+    }
+
+    .pay-copy {
+      margin: 0;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+
+    .pay-link {
+      display: inline-flex;
+      align-items: center;
+      margin-top: 1.5rem;
+      color: #34d399;
+      font-weight: 700;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+<main class="pay-shell">
+  <section class="pay-card" aria-live="polite">
+    <p class="pay-eyebrow">LLM Crossword Billing</p>
+    <h1 class="pay-title">Secure checkout</h1>
+    <p id="payStatus" class="pay-copy">Preparing your Paddle checkout...</p>
+    <a id="payReturnLink" class="pay-link" href="/">Return to crossword</a>
+  </section>
+</main>
+
+<script>
+  (function initPaddleCheckoutPage() {
+    "use strict";
+
+    var billingConfig = window.LLMCrosswordRuntimeConfig && window.LLMCrosswordRuntimeConfig.billing
+      ? window.LLMCrosswordRuntimeConfig.billing
+      : {};
+    var currentURL = new URL(window.location.href);
+    var returnTo = currentURL.searchParams.get("return_to") || (window.location.origin + "/");
+    var returnLink = document.getElementById("payReturnLink");
+    var statusElement = document.getElementById("payStatus");
+    var transactionID = currentURL.searchParams.get("_ptxn") || currentURL.searchParams.get("transaction_id") || "";
+    var hasCompletedCheckout = false;
+
+    function setStatus(message) {
+      statusElement.textContent = message;
+    }
+
+    function redirectBack() {
+      window.location.replace(returnTo);
+    }
+
+    function fail(message) {
+      setStatus(message);
+    }
+
+    returnLink.href = returnTo;
+
+    if (!transactionID) {
+      fail("Missing Paddle transaction id. Return to LLM Crossword and start checkout again.");
+      return;
+    }
+    if (!billingConfig || billingConfig.enabled !== true || !billingConfig.clientToken) {
+      fail("Billing is not configured for browser checkout on this deployment.");
+      return;
+    }
+    if (!window.Paddle) {
+      fail("Paddle checkout could not load. Check your network connection and try again.");
+      return;
+    }
+
+    try {
+      if (billingConfig.environment === "sandbox" && window.Paddle.Environment && typeof window.Paddle.Environment.set === "function") {
+        window.Paddle.Environment.set("sandbox");
+      }
+
+      window.Paddle.Initialize({
+        token: billingConfig.clientToken,
+        checkout: {
+          settings: {
+            displayMode: "overlay",
+            locale: "en",
+            theme: "light",
+          },
+        },
+        eventCallback: function (event) {
+          if (!event || !event.name) return;
+
+          if (event.name === "checkout.loaded") {
+            setStatus("Checkout ready. Complete payment to unlock your credits.");
+            return;
+          }
+          if (event.name === "checkout.completed") {
+            hasCompletedCheckout = true;
+            setStatus("Payment confirmed. Returning to LLM Crossword...");
+            window.setTimeout(redirectBack, 500);
+            return;
+          }
+          if (event.name === "checkout.closed" && !hasCompletedCheckout) {
+            setStatus("Checkout closed. Returning to LLM Crossword...");
+            window.setTimeout(redirectBack, 300);
+          }
+        },
+      });
+
+      window.Paddle.Checkout.open({
+        transactionId: transactionID,
+        settings: {
+          displayMode: "overlay",
+          locale: "en",
+          successUrl: returnTo,
+          theme: "light",
+        },
+      });
+    } catch (error) {
+      fail(error && error.message ? error.message : "Unable to open Paddle checkout.");
+    }
+  })();
+</script>
+</body>
+</html>
