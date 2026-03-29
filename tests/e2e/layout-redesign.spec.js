@@ -1,8 +1,8 @@
 // @ts-check
 // Tests for the redesigned layout:
 // 1. No container-in-a-page — content fills full page width
-// 2. Clues take ~25% of page width, always on the right
-// 3. Grid takes ~75%, scrolls/pans if needed
+// 2. Sidebar and clues each take about a quarter of the page width
+// 3. Crossword grid is centered within its middle track
 // 4. Cell size never changes (always --cell-size = 44px)
 // 5. Clue text wraps — never truncated
 
@@ -50,6 +50,53 @@ test.describe("Layout — no container-in-a-page", () => {
     expect(layout).not.toBeNull();
     // Puzzle view should use most of the viewport width (within padding)
     expect(layout.pvWidth).toBeGreaterThanOrEqual(layout.viewportWidth * 0.9);
+  });
+});
+
+test.describe("Layout — quarter side regions and centered grid", () => {
+  test("sidebar and clues each take roughly one quarter of the puzzle view width", async ({ page }) => {
+    await goToPuzzle(page);
+
+    var layout = await page.evaluate(() => {
+      var puzzleView = document.getElementById("puzzleView");
+      var sidebar = puzzleView ? puzzleView.querySelector(".puzzle-sidebar") : null;
+      var clues = puzzleView ? puzzleView.querySelector(".clues") : null;
+      if (!puzzleView || !sidebar || !clues) return null;
+      return {
+        puzzleViewWidth: puzzleView.getBoundingClientRect().width,
+        sidebarWidth: sidebar.getBoundingClientRect().width,
+        cluesWidth: clues.getBoundingClientRect().width,
+      };
+    });
+
+    expect(layout).not.toBeNull();
+    expect(layout.sidebarWidth / layout.puzzleViewWidth).toBeGreaterThanOrEqual(0.22);
+    expect(layout.sidebarWidth / layout.puzzleViewWidth).toBeLessThanOrEqual(0.28);
+    expect(layout.cluesWidth / layout.puzzleViewWidth).toBeGreaterThanOrEqual(0.20);
+    expect(layout.cluesWidth / layout.puzzleViewWidth).toBeLessThanOrEqual(0.28);
+  });
+
+  test("grid is horizontally centered within its viewport", async ({ page }) => {
+    await goToPuzzle(page);
+
+    var layout = await page.evaluate(() => {
+      var puzzleView = document.getElementById("puzzleView");
+      var gridViewport = puzzleView ? puzzleView.querySelector(".gridViewport") : null;
+      var grid = puzzleView ? puzzleView.querySelector(".grid") : null;
+      if (!gridViewport || !grid) return null;
+      var gridViewportRect = gridViewport.getBoundingClientRect();
+      var gridRect = grid.getBoundingClientRect();
+      return {
+        gridViewportWidth: gridViewportRect.width,
+        gridWidth: gridRect.width,
+        gridViewportCenter: gridViewportRect.left + (gridViewportRect.width / 2),
+        gridCenter: gridRect.left + (gridRect.width / 2),
+      };
+    });
+
+    expect(layout).not.toBeNull();
+    expect(layout.gridViewportWidth).toBeGreaterThan(layout.gridWidth);
+    expect(Math.abs(layout.gridViewportCenter - layout.gridCenter)).toBeLessThanOrEqual(20);
   });
 });
 

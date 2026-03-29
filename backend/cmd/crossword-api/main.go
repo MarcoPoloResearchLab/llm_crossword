@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -29,8 +30,21 @@ const (
 	flagLLMProxyTimeout = "llm-proxy-timeout"
 	flagDatabaseDSN     = "database-dsn"
 	flagAdminEmails     = "admin-emails"
+	flagBillingProvider = "billing-provider"
+	flagPaddleEnv       = "paddle-environment"
+	flagPaddleAPIKey    = "paddle-api-key"
+	flagPaddleAPIBase   = "paddle-api-base-url"
+	flagPaddleClientTok = "paddle-client-token"
+	flagPaddleWebhook   = "paddle-webhook-secret"
 	envPrefix           = "CROSSWORDAPI"
 )
+
+var defaultAdminConfigPaths = []string{
+	"/config.yaml",
+	"config.yaml",
+}
+
+var exitFunc = os.Exit
 
 // run executes the root command and returns the exit code.
 func run() int {
@@ -43,7 +57,7 @@ func run() int {
 }
 
 func main() {
-	os.Exit(run())
+	exitFunc(run())
 }
 
 func newRootCommand() *cobra.Command {
@@ -79,6 +93,12 @@ func newRootCommand() *cobra.Command {
 	cmd.Flags().Duration(flagLLMProxyTimeout, 0, "LLM proxy request timeout")
 	cmd.Flags().String(flagDatabaseDSN, "crosswords.db", "SQLite database path")
 	cmd.Flags().String(flagAdminEmails, "", "comma-separated list of administrator emails")
+	cmd.Flags().String(flagBillingProvider, "", "billing provider code")
+	cmd.Flags().String(flagPaddleEnv, "", "Paddle environment (sandbox or production)")
+	cmd.Flags().String(flagPaddleAPIKey, "", "Paddle API key")
+	cmd.Flags().String(flagPaddleAPIBase, "", "Paddle API base URL override")
+	cmd.Flags().String(flagPaddleClientTok, "", "Paddle client token")
+	cmd.Flags().String(flagPaddleWebhook, "", "Paddle webhook secret")
 
 	return cmd
 }
@@ -96,6 +116,7 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 		flagLLMProxyURL, flagLLMProxyKey, flagLLMProxyTimeout,
 		flagDatabaseDSN,
 		flagAdminEmails,
+		flagBillingProvider, flagPaddleEnv, flagPaddleAPIKey, flagPaddleAPIBase, flagPaddleClientTok, flagPaddleWebhook,
 	}
 	for _, flagName := range allFlags {
 		if err := v.BindPFlag(flagName, cmd.Flags().Lookup(flagName)); err != nil {
@@ -131,6 +152,70 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	cfg.LLMProxyTimeout = v.GetDuration(flagLLMProxyTimeout)
 	cfg.DatabaseDSN = v.GetString(flagDatabaseDSN)
 	cfg.AdminEmails = crosswordapi.ParseAdminEmails(v.GetString(flagAdminEmails))
+	cfg.BillingProvider = strings.TrimSpace(v.GetString(flagBillingProvider))
+	cfg.PaddleEnvironment = strings.TrimSpace(v.GetString(flagPaddleEnv))
+	cfg.PaddleAPIKey = v.GetString(flagPaddleAPIKey)
+	cfg.PaddleAPIBaseURL = strings.TrimSpace(v.GetString(flagPaddleAPIBase))
+	cfg.PaddleClientToken = v.GetString(flagPaddleClientTok)
+	cfg.PaddleWebhookSecret = v.GetString(flagPaddleWebhook)
+	cfg.PaddlePackPriceIDs = loadPaddlePackPriceIDsFromEnv(os.Environ())
+
+	configFile, err := loadAppConfigFromPaths(defaultAdminConfigPaths)
+	if err != nil {
+		return err
+	}
+	cfg.AdminEmails = crosswordapi.MergeAdminEmails(cfg.AdminEmails, crosswordapi.ParseAdminEmails(strings.Join(configFile.Administrators, ",")))
+	cfg.BillingPacks = configFile.Billing.Packs
 
 	return cfg.Validate()
+}
+
+func loadAppConfigFromPaths(paths []string) (*crosswordapi.AppConfigFile, error) {
+	for _, path := range paths {
+		trimmedPath := strings.TrimSpace(path)
+		if trimmedPath == "" {
+			continue
+		}
+
+		configFile, err := crosswordapi.LoadAppConfigFile(trimmedPath)
+		if err == nil {
+			return configFile, nil
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		return nil, fmt.Errorf("load admin config %s: %w", trimmedPath, err)
+	}
+	return &crosswordapi.AppConfigFile{}, nil
+}
+
+func loadAdminEmailsFromConfigPaths(paths []string) ([]string, error) {
+	configFile, err := loadAppConfigFromPaths(paths)
+	if err != nil {
+		return nil, err
+	}
+	return crosswordapi.ParseAdminEmails(strings.Join(configFile.Administrators, ",")), nil
+}
+
+func loadPaddlePackPriceIDsFromEnv(environment []string) map[string]string {
+	const envPrefixPackPriceID = "CROSSWORDAPI_PADDLE_PRICE_ID_PACK_"
+
+	packPriceIDs := make(map[string]string)
+	for _, rawEntry := range environment {
+		key, value, ok := strings.Cut(rawEntry, "=")
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(key, envPrefixPackPriceID) {
+			continue
+		}
+		packCode := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(key, envPrefixPackPriceID)))
+		packCode = strings.ReplaceAll(packCode, "__", "-")
+		packCode = strings.ReplaceAll(packCode, "_", "-")
+		if packCode == "" {
+			continue
+		}
+		packPriceIDs[strings.ReplaceAll(packCode, "-", "_")] = strings.TrimSpace(value)
+	}
+	return packPriceIDs
 }

@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 )
 
 // --- mock ledger client ---
@@ -109,6 +110,9 @@ func testHandlerWithConfig(ledger *mockLedgerClient, llmServer *httptest.Server,
 	if llmServer != nil {
 		cfg.LLMProxyURL = llmServer.URL
 	}
+	if err := cfg.Validate(); err != nil {
+		panic(err)
+	}
 	if s == nil {
 		s, _ = OpenDatabase(":memory:")
 	}
@@ -145,16 +149,23 @@ func testRouterWithClaims(handler *httpHandler, claims *sessionvalidator.Claims)
 	router.GET("/api/session", handler.handleSession)
 	router.POST("/api/bootstrap", handler.handleBootstrap)
 	router.GET("/api/balance", handler.handleBalance)
+	router.GET("/api/billing/summary", handler.handleBillingSummary)
+	router.POST("/api/billing/checkout", handler.handleBillingCheckout)
+	router.POST("/api/billing/portal", handler.handleBillingPortal)
+	router.POST("/api/billing/paddle/webhook", handler.handleBillingWebhook)
 	router.POST("/api/generate", handler.handleGenerate)
 	router.GET("/api/puzzles", handler.handleListPuzzles)
 	router.GET("/api/puzzles/:id", handler.handleGetPuzzle)
+	router.POST("/api/puzzles/:id/complete", handler.handleCompletePuzzle)
 	router.DELETE("/api/puzzles/:id", handler.handleDeletePuzzle)
 	router.GET("/api/shared/:token", handler.handleGetSharedPuzzle)
+	router.POST("/api/shared/:token/complete", handler.handleCompleteSharedPuzzle)
 
 	admin := router.Group("/api/admin")
 	admin.Use(handler.requireAdmin)
 	admin.GET("/users", handler.handleAdminListUsers)
 	admin.GET("/balance", handler.handleAdminBalance)
+	admin.GET("/grants", handler.handleAdminGrantHistory)
 	admin.POST("/grant", handler.handleAdminGrant)
 
 	return router
@@ -182,6 +193,35 @@ func doRequest(router *gin.Engine, method, path string, body string) *httptest.R
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
+}
+
+func testLLMResponseServer(t *testing.T, responses ...string) *httptest.Server {
+	t.Helper()
+
+	callIndex := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if callIndex >= len(responses) {
+			http.Error(w, "unexpected extra llm call", http.StatusInternalServerError)
+			return
+		}
+
+		response := llmProxyResponse{
+			Request:  "test",
+			Response: responses[callIndex],
+		}
+		callIndex++
+		json.NewEncoder(w).Encode(response)
+	}))
+}
+
+func decodeJSONMap(t *testing.T, body string) map[string]any {
+	t.Helper()
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	return payload
 }
 
 // --- tests ---
@@ -241,6 +281,83 @@ func TestHandleBootstrap_Success(t *testing.T) {
 	}
 }
 
+func TestHandleBootstrap_GrantSummaryIncludesBootstrapAndDailyLogin(t *testing.T) {
+	var availableCents int64
+	var grantKeys []string
+
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantKeys = append(grantKeys, in.GetIdempotencyKey())
+			availableCents += in.GetAmountCents()
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: availableCents, AvailableCents: availableCents}, nil
+		},
+	}
+
+	handler := testHandler(ledger, nil)
+	router := testRouterWithClaims(handler, testClaims())
+	response := doRequest(router, "POST", "/api/bootstrap", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	grants := body["grants"].(map[string]any)
+	balance := body["balance"].(map[string]any)
+
+	if grants["bootstrap_coins"].(float64) != 30 {
+		t.Fatalf("expected bootstrap grant of 30, got %v", grants["bootstrap_coins"])
+	}
+	if grants["daily_login_coins"].(float64) != 8 {
+		t.Fatalf("expected daily grant of 8, got %v", grants["daily_login_coins"])
+	}
+	if grants["low_balance_coins"].(float64) != 0 {
+		t.Fatalf("expected no low-balance grant, got %v", grants["low_balance_coins"])
+	}
+	if balance["coins"].(float64) != 38 {
+		t.Fatalf("expected 38 coins after grants, got %v", balance["coins"])
+	}
+	if len(grantKeys) != 2 {
+		t.Fatalf("expected 2 grant calls, got %d", len(grantKeys))
+	}
+}
+
+func TestHandleBootstrap_LowBalanceTopUp(t *testing.T) {
+	var availableCents int64 = 100
+
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			availableCents += in.GetAmountCents()
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: availableCents, AvailableCents: availableCents}, nil
+		},
+	}
+
+	handler := testHandler(ledger, nil)
+	handler.cfg.BootstrapCoins = 0
+	handler.cfg.DailyLoginCoins = 0
+	router := testRouterWithClaims(handler, testClaims())
+	response := doRequest(router, "POST", "/api/bootstrap", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	grants := body["grants"].(map[string]any)
+	balance := body["balance"].(map[string]any)
+
+	if grants["low_balance_coins"].(float64) != 3 {
+		t.Fatalf("expected 3 low-balance coins, got %v", grants["low_balance_coins"])
+	}
+	if balance["coins"].(float64) != 4 {
+		t.Fatalf("expected balance to top up to 4 coins, got %v", balance["coins"])
+	}
+}
+
 func TestHandleBootstrap_AlreadyExists(t *testing.T) {
 	ledger := &mockLedgerClient{
 		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
@@ -259,6 +376,28 @@ func TestHandleBootstrap_GrantError(t *testing.T) {
 	ledger := &mockLedgerClient{
 		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
 			return nil, status.Error(codes.Internal, "db down")
+		},
+	}
+	handler := testHandler(ledger, nil)
+	router := testRouterWithClaims(handler, testClaims())
+	w := doRequest(router, "POST", "/api/bootstrap", "")
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+}
+
+func TestHandleBootstrap_BalanceError(t *testing.T) {
+	var balanceCalls int
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			balanceCalls++
+			if balanceCalls == 1 {
+				return &creditv1.BalanceResponse{TotalCents: 3800, AvailableCents: 3800}, nil
+			}
+			return nil, errors.New("balance failed")
 		},
 	}
 	handler := testHandler(ledger, nil)
@@ -400,13 +539,12 @@ func TestHandleGenerate_Success(t *testing.T) {
 		{Word: "ZEUS", Definition: "King of gods", Hint: "Lightning thrower"},
 		{Word: "HERA", Definition: "Queen of gods", Hint: "Wife of Zeus"},
 	}
-	wrapper := llmProxyResponse{
-		Request:  "test",
-		Response: mustMarshalJSON(items),
+	metadata := PuzzleMetadata{
+		Title:       "Olympian Power Network",
+		Subtitle:    "Zeus and Hera anchor a tightly focused set of Olympian deity answers.",
+		Description: "This puzzle centers on prominent Olympian figures and the shared mythology that connects their roles, symbols, and relationships.",
 	}
-	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(wrapper)
-	}))
+	llmServer := testLLMResponseServer(t, mustMarshalJSON(items), mustMarshalJSON(metadata))
 	defer llmServer.Close()
 
 	handler := testHandler(ledger, llmServer)
@@ -420,6 +558,81 @@ func TestHandleGenerate_Success(t *testing.T) {
 	respItems, ok := resp["items"].([]any)
 	if !ok || len(respItems) != 2 {
 		t.Fatalf("expected 2 items, got %v", resp["items"])
+	}
+	if resp["title"] != metadata.Title {
+		t.Fatalf("expected title %q, got %v", metadata.Title, resp["title"])
+	}
+	if resp["subtitle"] != metadata.Subtitle {
+		t.Fatalf("expected subtitle %q, got %v", metadata.Subtitle, resp["subtitle"])
+	}
+	if resp["description"] != metadata.Description {
+		t.Fatalf("expected description %q, got %v", metadata.Description, resp["description"])
+	}
+}
+
+func TestHandleGenerate_MetadataRetrySucceeds(t *testing.T) {
+	items := []WordItem{
+		{Word: "FORUM", Definition: "Public square", Hint: "civic center"},
+	}
+	metadata := PuzzleMetadata{
+		Title:       "Roman Civic Core",
+		Subtitle:    "The forum-focused answer set highlights the political and commercial heart of the city.",
+		Description: "This puzzle emphasizes the public institutions and shared spaces that structured Roman urban life.",
+	}
+	llmServer := testLLMResponseServer(t, mustMarshalJSON(items), "not json", mustMarshalJSON(metadata))
+	defer llmServer.Close()
+
+	handler := testHandler(&mockLedgerClient{}, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/generate", `{"topic":"Roman city","word_count":8}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	if body["title"] != metadata.Title {
+		t.Fatalf("expected metadata retry title %q, got %v", metadata.Title, body["title"])
+	}
+	if body["description"] != metadata.Description {
+		t.Fatalf("expected metadata retry description %q, got %v", metadata.Description, body["description"])
+	}
+}
+
+func TestHandleGenerate_MetadataFailureFallsBackWithoutRefund(t *testing.T) {
+	items := []WordItem{
+		{Word: "FORUM", Definition: "Public square", Hint: "civic center"},
+	}
+	var grantCalls int
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantCalls++
+			return &creditv1.Empty{}, nil
+		},
+	}
+	llmServer := testLLMResponseServer(t, mustMarshalJSON(items), "not json", `{"title":"still wrong"}`)
+	defer llmServer.Close()
+
+	handler := testHandler(ledger, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/generate", `{"topic":"Crossword city","word_count":8}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if grantCalls != 0 {
+		t.Fatalf("expected no refund for metadata-only failure, got %d grant calls", grantCalls)
+	}
+
+	var body map[string]any
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	if body["title"] != "city" {
+		t.Fatalf("expected fallback title %q, got %v", "city", body["title"])
+	}
+	if body["subtitle"] != "" {
+		t.Fatalf("expected empty fallback subtitle, got %v", body["subtitle"])
+	}
+	if body["description"] != "" {
+		t.Fatalf("expected empty fallback description, got %v", body["description"])
 	}
 }
 
@@ -479,6 +692,798 @@ func TestHandleGenerate_BalanceFetchFailsGracefully(t *testing.T) {
 	}
 }
 
+func TestHandleListAndGetPuzzle_IncludeRewardSummary(t *testing.T) {
+	puzzle := &Puzzle{
+		ID:          "puzzle-1",
+		UserID:      "user-123",
+		Title:       "Owned puzzle",
+		Subtitle:    "Stored",
+		Description: "Stored puzzle description",
+		Words: []PuzzleWord{
+			{Word: "ORBIT", Clue: "Path", Hint: "ellipse"},
+		},
+	}
+	store := &mockStore{
+		listFunc: func(userID string) ([]Puzzle, error) {
+			return []Puzzle{*puzzle}, nil
+		},
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return &PuzzleSolveRecord{
+				PuzzleID:          puzzleID,
+				PuzzleOwnerUserID: solverUserID,
+				SolverUserID:      solverUserID,
+				Source:            "owner",
+				SolverRewardCoins: 4,
+			}, nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return &PuzzleRewardStats{
+				SharedUniqueSolves:        2,
+				CreatorCreditsEarned:      3,
+				CreatorCreditsEarnedToday: 1,
+			}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, store)
+	router := testRouterWithClaims(handler, testClaims())
+
+	listResponse := doRequest(router, "GET", "/api/puzzles", "")
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", listResponse.Code, listResponse.Body.String())
+	}
+	listBody := decodeJSONMap(t, listResponse.Body.String())
+	puzzles := listBody["puzzles"].([]any)
+	firstPuzzle := puzzles[0].(map[string]any)
+	listRewardSummary := firstPuzzle["reward_summary"].(map[string]any)
+
+	if firstPuzzle["source"] != "owned" {
+		t.Fatalf("expected owned source, got %v", firstPuzzle["source"])
+	}
+	if listRewardSummary["owner_reward_status"] != "claimed" {
+		t.Fatalf("expected claimed owner reward status, got %v", listRewardSummary["owner_reward_status"])
+	}
+	if listRewardSummary["shared_unique_solves"].(float64) != 2 {
+		t.Fatalf("expected 2 shared solves, got %v", listRewardSummary["shared_unique_solves"])
+	}
+	if listRewardSummary["creator_credits_earned"].(float64) != 3 {
+		t.Fatalf("expected 3 creator credits earned, got %v", listRewardSummary["creator_credits_earned"])
+	}
+
+	getResponse := doRequest(router, "GET", "/api/puzzles/puzzle-1", "")
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("expected get 200, got %d: %s", getResponse.Code, getResponse.Body.String())
+	}
+	getBody := decodeJSONMap(t, getResponse.Body.String())
+	detailRewardSummary := getBody["reward_summary"].(map[string]any)
+	if detailRewardSummary["creator_daily_cap_remaining"].(float64) != 19 {
+		t.Fatalf("expected 19 creator daily credits remaining, got %v", detailRewardSummary["creator_daily_cap_remaining"])
+	}
+	if detailRewardSummary["creator_puzzle_cap_remaining"].(float64) != 7 {
+		t.Fatalf("expected 7 creator puzzle cap remaining, got %v", detailRewardSummary["creator_puzzle_cap_remaining"])
+	}
+}
+
+func TestHandleCompletePuzzle_OwnerRewardBreakdown(t *testing.T) {
+	var availableCents int64 = 2000
+	var recordedSolve *PuzzleSolveRecord
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "user-123", Title: "Owned"}
+	store := &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			if recordedSolve == nil {
+				return nil, gorm.ErrRecordNotFound
+			}
+			return recordedSolve, nil
+		},
+		createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+			copy := *record
+			recordedSolve = &copy
+			return nil
+		},
+		countOwnerSolvesFunc: func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+			return 0, nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return &PuzzleRewardStats{}, nil
+		},
+	}
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			availableCents += in.GetAmountCents()
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: availableCents, AvailableCents: availableCents}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(ledger, nil, store)
+	router := testRouterWithClaims(handler, testClaims())
+	response := doRequest(router, "POST", "/api/puzzles/puzzle-1/complete", `{"used_hint":false,"used_reveal":false}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	reward := body["reward"].(map[string]any)
+	rewardSummary := body["reward_summary"].(map[string]any)
+
+	if body["mode"] != "owner" {
+		t.Fatalf("expected owner mode, got %v", body["mode"])
+	}
+	if reward["base"].(float64) != 3 || reward["no_hint_bonus"].(float64) != 1 || reward["daily_bonus"].(float64) != 1 {
+		t.Fatalf("unexpected reward breakdown: %#v", reward)
+	}
+	if reward["total"].(float64) != 5 {
+		t.Fatalf("expected 5 total credits, got %v", reward["total"])
+	}
+	if body["balance"].(map[string]any)["coins"].(float64) != 25 {
+		t.Fatalf("expected updated balance of 25, got %v", body["balance"].(map[string]any)["coins"])
+	}
+	if recordedSolve == nil {
+		t.Fatal("expected solve record to be stored")
+	}
+	if recordedSolve.SolverRewardCoins != 5 {
+		t.Fatalf("expected stored solve reward of 5, got %d", recordedSolve.SolverRewardCoins)
+	}
+	if rewardSummary["owner_reward_status"] != "claimed" {
+		t.Fatalf("expected claimed reward summary, got %v", rewardSummary["owner_reward_status"])
+	}
+}
+
+func TestHandleCompletePuzzle_OwnerHintUsedGetsBaseOnly(t *testing.T) {
+	var availableCents int64 = 1000
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "user-123", Title: "Owned"}
+	store := &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		createSolveRecordFunc: func(record *PuzzleSolveRecord) error { return nil },
+		countOwnerSolvesFunc: func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+			return 3, nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return &PuzzleRewardStats{}, nil
+		},
+	}
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			availableCents += in.GetAmountCents()
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: availableCents, AvailableCents: availableCents}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(ledger, nil, store)
+	router := testRouterWithClaims(handler, testClaims())
+	response := doRequest(router, "POST", "/api/puzzles/puzzle-1/complete", `{"used_hint":true,"used_reveal":false}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	reward := body["reward"].(map[string]any)
+	if reward["base"].(float64) != 3 {
+		t.Fatalf("expected base reward 3, got %v", reward["base"])
+	}
+	if reward["no_hint_bonus"].(float64) != 0 || reward["daily_bonus"].(float64) != 0 {
+		t.Fatalf("expected no bonus credits, got %#v", reward)
+	}
+	if reward["total"].(float64) != 3 {
+		t.Fatalf("expected total reward 3, got %v", reward["total"])
+	}
+}
+
+func TestHandleCompletePuzzle_RevealCreatesIneligibleRecord(t *testing.T) {
+	var grantCalls int
+	var recordedSolve *PuzzleSolveRecord
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "user-123", Title: "Owned"}
+	store := &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			if recordedSolve == nil {
+				return nil, gorm.ErrRecordNotFound
+			}
+			return recordedSolve, nil
+		},
+		createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+			copy := *record
+			recordedSolve = &copy
+			return nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return &PuzzleRewardStats{}, nil
+		},
+	}
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantCalls++
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: 1200, AvailableCents: 1200}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(ledger, nil, store)
+	router := testRouterWithClaims(handler, testClaims())
+	response := doRequest(router, "POST", "/api/puzzles/puzzle-1/complete", `{"used_hint":false,"used_reveal":true}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	if body["reason"] != "revealed" {
+		t.Fatalf("expected revealed reason, got %v", body["reason"])
+	}
+	if grantCalls != 0 {
+		t.Fatalf("expected no grant calls after reveal, got %d", grantCalls)
+	}
+	if recordedSolve == nil || recordedSolve.IneligibilityReason != "revealed" {
+		t.Fatalf("expected revealed solve record, got %#v", recordedSolve)
+	}
+	if body["reward_summary"].(map[string]any)["owner_reward_status"] != "ineligible" {
+		t.Fatalf("expected ineligible reward summary, got %v", body["reward_summary"].(map[string]any)["owner_reward_status"])
+	}
+}
+
+func TestHandleCompletePuzzle_DuplicateDoesNotGrantTwice(t *testing.T) {
+	var grantCalls int
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "user-123", Title: "Owned"}
+	store := &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return &PuzzleSolveRecord{
+				PuzzleID:              puzzleID,
+				PuzzleOwnerUserID:     solverUserID,
+				SolverUserID:          solverUserID,
+				Source:                "owner",
+				OwnerBaseRewardCoins:  3,
+				OwnerNoHintBonusCoins: 1,
+				OwnerDailyBonusCoins:  0,
+				SolverRewardCoins:     4,
+				IneligibilityReason:   "",
+			}, nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return &PuzzleRewardStats{}, nil
+		},
+	}
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantCalls++
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: 2400, AvailableCents: 2400}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(ledger, nil, store)
+	router := testRouterWithClaims(handler, testClaims())
+	response := doRequest(router, "POST", "/api/puzzles/puzzle-1/complete", `{"used_hint":false,"used_reveal":false}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	if body["reason"] != "already_recorded" {
+		t.Fatalf("expected already_recorded reason, got %v", body["reason"])
+	}
+	if grantCalls != 0 {
+		t.Fatalf("expected duplicate completion to skip grants, got %d grant calls", grantCalls)
+	}
+}
+
+func TestHandleCompleteSharedPuzzle_AnonymousSolverDoesNotAffectCredits(t *testing.T) {
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", ShareToken: "shared-token", Title: "Shared"}
+	store := &mockStore{
+		getByShareFunc: func(token string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+	}
+
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, store)
+	router := testRouterWithClaims(handler, nil)
+	response := doRequest(router, "POST", "/api/shared/shared-token/complete", `{"used_hint":false,"used_reveal":false}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	if body["reason"] != "anonymous_solver" {
+		t.Fatalf("expected anonymous_solver reason, got %v", body["reason"])
+	}
+}
+
+func TestHandleCompleteSharedPuzzle_PaysCreatorOnce(t *testing.T) {
+	var grantUserID string
+	var grantAmount int64
+	var recordedSolve *PuzzleSolveRecord
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", ShareToken: "shared-token", Title: "Shared"}
+	solverClaims := &sessionvalidator.Claims{UserID: "solver-1"}
+	store := &mockStore{
+		getByShareFunc: func(token string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+			copy := *record
+			recordedSolve = &copy
+			return nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return &PuzzleRewardStats{}, nil
+		},
+	}
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantUserID = in.GetUserId()
+			grantAmount = in.GetAmountCents()
+			return &creditv1.Empty{}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(ledger, nil, store)
+	router := testRouterWithClaims(handler, solverClaims)
+	response := doRequest(router, "POST", "/api/shared/shared-token/complete", `{"used_hint":false,"used_reveal":false}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	if body["mode"] != "shared" {
+		t.Fatalf("expected shared mode, got %v", body["mode"])
+	}
+	if body["creator_rewarded"] != true {
+		t.Fatalf("expected creator_rewarded true, got %v", body["creator_rewarded"])
+	}
+	if body["creator_coins"].(float64) != 1 {
+		t.Fatalf("expected creator reward of 1 coin, got %v", body["creator_coins"])
+	}
+	if grantUserID != "owner-1" || grantAmount != 100 {
+		t.Fatalf("expected creator grant to owner-1 for 100 cents, got user=%q amount=%d", grantUserID, grantAmount)
+	}
+	if recordedSolve == nil || recordedSolve.CreatorRewardCoins != 1 {
+		t.Fatalf("expected creator reward record, got %#v", recordedSolve)
+	}
+}
+
+func TestHandleCompleteSharedPuzzle_SelfSolveFallsBackToOwnerReward(t *testing.T) {
+	var recordedSolve *PuzzleSolveRecord
+	var availableCents int64 = 1500
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "user-123", ShareToken: "shared-token", Title: "Shared"}
+	store := &mockStore{
+		getByShareFunc: func(token string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			if recordedSolve == nil {
+				return nil, gorm.ErrRecordNotFound
+			}
+			return recordedSolve, nil
+		},
+		createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+			copy := *record
+			recordedSolve = &copy
+			return nil
+		},
+		countOwnerSolvesFunc: func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+			return 3, nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return &PuzzleRewardStats{}, nil
+		},
+	}
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			availableCents += in.GetAmountCents()
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: availableCents, AvailableCents: availableCents}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(ledger, nil, store)
+	router := testRouterWithClaims(handler, testClaims())
+	response := doRequest(router, "POST", "/api/shared/shared-token/complete", `{"used_hint":false,"used_reveal":false}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	reward := body["reward"].(map[string]any)
+	if body["mode"] != "owner" {
+		t.Fatalf("expected owner mode for self-solve, got %v", body["mode"])
+	}
+	if reward["total"].(float64) != 4 {
+		t.Fatalf("expected self-solve reward of 4, got %v", reward["total"])
+	}
+	if body["creator_rewarded"] != false {
+		t.Fatalf("expected no creator reward on self-solve, got %v", body["creator_rewarded"])
+	}
+}
+
+func TestHandleCompleteSharedPuzzle_NoPayoutReasons(t *testing.T) {
+	tests := []struct {
+		name           string
+		requestBody    string
+		existingRecord *PuzzleSolveRecord
+		rewardStats    *PuzzleRewardStats
+		wantReason     string
+	}{
+		{
+			name:        "duplicate solver",
+			requestBody: `{"used_hint":false,"used_reveal":false}`,
+			existingRecord: &PuzzleSolveRecord{
+				PuzzleID:           "puzzle-1",
+				PuzzleOwnerUserID:  "owner-1",
+				SolverUserID:       "solver-1",
+				Source:             "shared",
+				CreatorRewardCoins: 1,
+			},
+			wantReason: "already_recorded",
+		},
+		{
+			name:        "reveal used",
+			requestBody: `{"used_hint":false,"used_reveal":true}`,
+			wantReason:  "revealed",
+		},
+		{
+			name:        "puzzle cap reached",
+			requestBody: `{"used_hint":false,"used_reveal":false}`,
+			rewardStats: &PuzzleRewardStats{CreatorCreditsEarned: 10},
+			wantReason:  "creator_puzzle_cap_reached",
+		},
+		{
+			name:        "daily cap reached",
+			requestBody: `{"used_hint":false,"used_reveal":false}`,
+			rewardStats: &PuzzleRewardStats{CreatorCreditsEarnedToday: 20},
+			wantReason:  "creator_daily_cap_reached",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var grantCalls int
+			puzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", ShareToken: "shared-token", Title: "Shared"}
+			var recordedSolve *PuzzleSolveRecord
+			store := &mockStore{
+				getByShareFunc: func(token string) (*Puzzle, error) {
+					return puzzle, nil
+				},
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					if tt.existingRecord != nil {
+						return tt.existingRecord, nil
+					}
+					if recordedSolve == nil {
+						return nil, gorm.ErrRecordNotFound
+					}
+					return recordedSolve, nil
+				},
+				createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+					copy := *record
+					recordedSolve = &copy
+					return nil
+				},
+				getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+					if tt.rewardStats != nil {
+						return tt.rewardStats, nil
+					}
+					return &PuzzleRewardStats{}, nil
+				},
+			}
+			ledger := &mockLedgerClient{
+				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+					grantCalls++
+					return &creditv1.Empty{}, nil
+				},
+			}
+
+			handler := testHandlerWithStore(ledger, nil, store)
+			router := testRouterWithClaims(handler, &sessionvalidator.Claims{UserID: "solver-1"})
+			response := doRequest(router, "POST", "/api/shared/shared-token/complete", tt.requestBody)
+			if response.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+			}
+
+			body := decodeJSONMap(t, response.Body.String())
+			if body["reason"] != tt.wantReason {
+				t.Fatalf("expected reason %q, got %v", tt.wantReason, body["reason"])
+			}
+			if tt.wantReason != "" && grantCalls != 0 {
+				t.Fatalf("expected no creator grants for %s, got %d", tt.name, grantCalls)
+			}
+		})
+	}
+}
+
+func TestCompletePuzzleSolve_ErrorPaths(t *testing.T) {
+	ownerPuzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", Title: "Owned"}
+	sharedPuzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", Title: "Shared"}
+
+	tests := []struct {
+		name       string
+		handler    *httpHandler
+		puzzle     *Puzzle
+		solverUser string
+		req        completionRequest
+		wantStatus int
+	}{
+		{
+			name: "get solve record error",
+			handler: testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, errors.New("lookup failed")
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "existing owner record balance error",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+					return nil, errors.New("balance failed")
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return &PuzzleSolveRecord{PuzzleID: puzzleID, PuzzleOwnerUserID: solverUserID, SolverUserID: solverUserID, Source: "owner", SolverRewardCoins: 3}, nil
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name: "existing owner record summary error",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+					return &creditv1.BalanceResponse{TotalCents: 1000, AvailableCents: 1000}, nil
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return &PuzzleSolveRecord{PuzzleID: puzzleID, PuzzleOwnerUserID: solverUserID, SolverUserID: solverUserID, Source: "owner", SolverRewardCoins: 3}, nil
+				},
+				getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+					return nil, errors.New("stats failed")
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "reveal create record error",
+			handler: testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+					return errors.New("create failed")
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{UsedReveal: true},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "reveal owner balance error",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+					return nil, errors.New("balance failed")
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				createSolveRecordFunc: func(record *PuzzleSolveRecord) error { return nil },
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{UsedReveal: true},
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name: "reveal owner summary error",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+					return &creditv1.BalanceResponse{TotalCents: 1000, AvailableCents: 1000}, nil
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				createSolveRecordFunc: func(record *PuzzleSolveRecord) error { return nil },
+				getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+					return nil, errors.New("stats failed")
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{UsedReveal: true},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "owner count error",
+			handler: testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				countOwnerSolvesFunc: func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+					return 0, errors.New("count failed")
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "owner grant error",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+					return nil, errors.New("grant failed")
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				countOwnerSolvesFunc: func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+					return 0, nil
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name: "shared stats error",
+			handler: testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+					return nil, errors.New("stats failed")
+				},
+			}),
+			puzzle:     sharedPuzzle,
+			solverUser: "solver-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "shared grant error",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+					return nil, errors.New("grant failed")
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+					return &PuzzleRewardStats{}, nil
+				},
+			}),
+			puzzle:     sharedPuzzle,
+			solverUser: "solver-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name: "create record error after shared reward",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+					return &creditv1.Empty{}, nil
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+					return &PuzzleRewardStats{}, nil
+				},
+				createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+					return errors.New("create failed")
+				},
+			}),
+			puzzle:     sharedPuzzle,
+			solverUser: "solver-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "owner final balance error",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+					return &creditv1.Empty{}, nil
+				},
+				getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+					return nil, errors.New("balance failed")
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				countOwnerSolvesFunc: func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+					return 0, nil
+				},
+				createSolveRecordFunc: func(record *PuzzleSolveRecord) error { return nil },
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name: "owner final summary error",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+					return &creditv1.Empty{}, nil
+				},
+				getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+					return &creditv1.BalanceResponse{TotalCents: 1000, AvailableCents: 1000}, nil
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				countOwnerSolvesFunc: func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+					return 0, nil
+				},
+				createSolveRecordFunc: func(record *PuzzleSolveRecord) error { return nil },
+				getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+					return nil, errors.New("stats failed")
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response, statusCode, err := tt.handler.completePuzzleSolve(context.Background(), tt.puzzle, tt.solverUser, tt.req)
+			if err == nil {
+				t.Fatalf("expected error for %s", tt.name)
+			}
+			if statusCode != tt.wantStatus {
+				t.Fatalf("statusCode = %d, want %d", statusCode, tt.wantStatus)
+			}
+			if response != nil {
+				t.Fatalf("expected nil response on error, got %#v", response)
+			}
+		})
+	}
+}
+
 // --- helper tests ---
 
 func TestSanitizeTopic(t *testing.T) {
@@ -518,6 +1523,160 @@ func TestGetClaims_WrongType(t *testing.T) {
 	ctx.Set("auth_claims", "not-a-claims-struct")
 	if getClaims(ctx) != nil {
 		t.Fatal("expected nil claims for wrong type")
+	}
+}
+
+func TestClampNonNegative(t *testing.T) {
+	if got := clampNonNegative(-3); got != 0 {
+		t.Fatalf("clampNonNegative(-3) = %d, want 0", got)
+	}
+	if got := clampNonNegative(5); got != 5 {
+		t.Fatalf("clampNonNegative(5) = %d, want 5", got)
+	}
+}
+
+func TestEnsureBootstrapAndDailyGrants_GrantError(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			return nil, errors.New("grant failed")
+		},
+	}, nil)
+
+	if _, err := handler.ensureBootstrapAndDailyGrants(context.Background(), "user-1"); err == nil {
+		t.Fatal("expected bootstrap grant error")
+	}
+}
+
+func TestEnsureBootstrapAndDailyGrants_BalanceError(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return nil, errors.New("balance failed")
+		},
+	}, nil)
+
+	if _, err := handler.ensureBootstrapAndDailyGrants(context.Background(), "user-1"); err == nil {
+		t.Fatal("expected balance error")
+	}
+}
+
+func TestEnsureBootstrapAndDailyGrants_DailyGrantError(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			if strings.HasPrefix(in.GetIdempotencyKey(), "daily-login:") {
+				return nil, errors.New("daily grant failed")
+			}
+			return &creditv1.Empty{}, nil
+		},
+	}, nil)
+
+	if _, err := handler.ensureBootstrapAndDailyGrants(context.Background(), "user-1"); err == nil {
+		t.Fatal("expected daily-login grant error")
+	}
+}
+
+func TestEnsureBootstrapAndDailyGrants_LowBalanceGrantError(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			if strings.HasPrefix(in.GetIdempotencyKey(), "low-balance:") {
+				return nil, errors.New("top-up failed")
+			}
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: 100, AvailableCents: 100}, nil
+		},
+	}, nil)
+	handler.cfg.BootstrapCoins = 0
+	handler.cfg.DailyLoginCoins = 0
+
+	if _, err := handler.ensureBootstrapAndDailyGrants(context.Background(), "user-1"); err == nil {
+		t.Fatal("expected low-balance grant error")
+	}
+}
+
+func TestEnsureBootstrapAndDailyGrants_LowBalanceAlreadyExists(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			if strings.HasPrefix(in.GetIdempotencyKey(), "low-balance:") {
+				return nil, status.Error(codes.AlreadyExists, "already granted")
+			}
+			return &creditv1.Empty{}, nil
+		},
+		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
+			return &creditv1.BalanceResponse{TotalCents: 100, AvailableCents: 100}, nil
+		},
+	}, nil)
+	handler.cfg.BootstrapCoins = 0
+	handler.cfg.DailyLoginCoins = 0
+
+	grants, err := handler.ensureBootstrapAndDailyGrants(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if grants.LowBalanceCoins != 0 {
+		t.Fatalf("expected no low-balance coins after already-exists, got %d", grants.LowBalanceCoins)
+	}
+}
+
+func TestBuildRewardSummary_NilPuzzle(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	summary, err := handler.buildRewardSummary(nil, "user-1", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if summary != nil {
+		t.Fatalf("expected nil summary, got %#v", summary)
+	}
+}
+
+func TestBuildRewardSummary_GetSolveRecordError(t *testing.T) {
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "user-1"}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, errors.New("lookup failed")
+		},
+	})
+
+	if _, err := handler.buildRewardSummary(puzzle, "user-1", time.Now().UTC()); err == nil {
+		t.Fatal("expected get-solve-record error")
+	}
+}
+
+func TestBuildRewardSummary_GetRewardStatsError(t *testing.T) {
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "user-1"}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return nil, errors.New("stats failed")
+		},
+	})
+
+	if _, err := handler.buildRewardSummary(puzzle, "user-1", time.Now().UTC()); err == nil {
+		t.Fatal("expected reward-stats error")
+	}
+}
+
+func TestDecorateOwnedPuzzle_NilPuzzle(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	if err := handler.decorateOwnedPuzzle(nil, "user-1", time.Now().UTC()); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
+func TestDecorateOwnedPuzzle_Error(t *testing.T) {
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, errors.New("lookup failed")
+		},
+	})
+
+	if err := handler.decorateOwnedPuzzle(&Puzzle{ID: "puzzle-1", UserID: "user-1"}, "user-1", time.Now().UTC()); err == nil {
+		t.Fatal("expected decorate error")
 	}
 }
 
@@ -612,7 +1771,7 @@ func TestHandleListPuzzles_Empty(t *testing.T) {
 func TestHandleListPuzzles_WithPuzzles(t *testing.T) {
 	s := &mockStore{
 		listFunc: func(userID string) ([]Puzzle, error) {
-			return []Puzzle{{ID: "p1", Title: "Test", Words: []PuzzleWord{{Word: "HI", Clue: "Greeting", Hint: "hey"}}}}, nil
+			return []Puzzle{{ID: "p1", Title: "Test", Description: "Stored detail", Words: []PuzzleWord{{Word: "HI", Clue: "Greeting", Hint: "hey"}}}}, nil
 		},
 	}
 	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
@@ -625,6 +1784,9 @@ func TestHandleListPuzzles_WithPuzzles(t *testing.T) {
 	json.Unmarshal(resp.Body.Bytes(), &body)
 	if len(body["puzzles"]) != 1 {
 		t.Errorf("expected 1 puzzle, got %d", len(body["puzzles"]))
+	}
+	if body["puzzles"][0].Description != "Stored detail" {
+		t.Errorf("expected description 'Stored detail', got %q", body["puzzles"][0].Description)
 	}
 }
 
@@ -654,7 +1816,7 @@ func TestHandleGetPuzzle_NoClaims(t *testing.T) {
 func TestHandleGetPuzzle_Found(t *testing.T) {
 	s := &mockStore{
 		getFunc: func(id, userID string) (*Puzzle, error) {
-			return &Puzzle{ID: id, Title: "Found It"}, nil
+			return &Puzzle{ID: id, Title: "Found It", Description: "Stored detail"}, nil
 		},
 	}
 	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
@@ -667,6 +1829,9 @@ func TestHandleGetPuzzle_Found(t *testing.T) {
 	json.Unmarshal(resp.Body.Bytes(), &body)
 	if body.Title != "Found It" {
 		t.Errorf("expected title 'Found It', got %q", body.Title)
+	}
+	if body.Description != "Stored detail" {
+		t.Errorf("expected description 'Stored detail', got %q", body.Description)
 	}
 }
 
@@ -681,6 +1846,125 @@ func TestHandleGetPuzzle_NotFound(t *testing.T) {
 	resp := doRequest(router, "GET", "/api/puzzles/missing", "")
 	if resp.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.Code)
+	}
+}
+
+func TestHandleListPuzzles_DecorateError(t *testing.T) {
+	s := &mockStore{
+		listFunc: func(userID string) ([]Puzzle, error) {
+			return []Puzzle{{ID: "puzzle-1", UserID: userID, Title: "Broken"}}, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, errors.New("lookup failed")
+		},
+	}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "GET", "/api/puzzles", "")
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.Code)
+	}
+}
+
+func TestHandleGetPuzzle_DecorateError(t *testing.T) {
+	s := &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return &Puzzle{ID: id, UserID: userID, Title: "Broken"}, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, errors.New("lookup failed")
+		},
+	}
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, s)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "GET", "/api/puzzles/abc", "")
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.Code)
+	}
+}
+
+func TestHandleCompletePuzzle_NoClaims(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, nil)
+	resp := doRequest(router, "POST", "/api/puzzles/p1/complete", `{"used_hint":false,"used_reveal":false}`)
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.Code)
+	}
+}
+
+func TestHandleCompletePuzzle_InvalidJSON(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/puzzles/p1/complete", `{`)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestHandleCompletePuzzle_NotFound(t *testing.T) {
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return nil, errors.New("not found")
+		},
+	})
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/puzzles/p1/complete", `{"used_hint":false,"used_reveal":false}`)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.Code)
+	}
+}
+
+func TestHandleCompletePuzzle_CompletionError(t *testing.T) {
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+		getFunc: func(id, userID string) (*Puzzle, error) {
+			return &Puzzle{ID: id, UserID: userID, Title: "Broken"}, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, errors.New("completion failed")
+		},
+	})
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/puzzles/p1/complete", `{"used_hint":false,"used_reveal":false}`)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.Code)
+	}
+}
+
+func TestHandleCompleteSharedPuzzle_InvalidJSON(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/shared/token/complete", `{`)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestHandleCompleteSharedPuzzle_NotFound(t *testing.T) {
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+		getByShareFunc: func(token string) (*Puzzle, error) {
+			return nil, errors.New("not found")
+		},
+	})
+	router := testRouterWithClaims(handler, testClaims())
+	resp := doRequest(router, "POST", "/api/shared/token/complete", `{"used_hint":false,"used_reveal":false}`)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.Code)
+	}
+}
+
+func TestHandleCompleteSharedPuzzle_CompletionError(t *testing.T) {
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+		getByShareFunc: func(token string) (*Puzzle, error) {
+			return &Puzzle{ID: "p1", UserID: "owner-1", ShareToken: token, Title: "Broken"}, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, errors.New("completion failed")
+		},
+	})
+	router := testRouterWithClaims(handler, &sessionvalidator.Claims{UserID: "solver-1"})
+	resp := doRequest(router, "POST", "/api/shared/token/complete", `{"used_hint":false,"used_reveal":false}`)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.Code)
 	}
 }
 
@@ -735,11 +2019,16 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 			return nil
 		},
 	}
-	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
-			"response": `[{"word":"CAT","definition":"Animal","hint":"meow"}]`,
-		})
-	}))
+	metadata := PuzzleMetadata{
+		Title:       "Cat Life",
+		Subtitle:    "Animal-focused answers keep the generated puzzle tight and familiar.",
+		Description: "This puzzle concentrates on simple animal vocabulary and clueing that stays approachable.",
+	}
+	llmServer := testLLMResponseServer(
+		t,
+		`[{"word":"CAT","definition":"Animal","hint":"meow"}]`,
+		mustMarshalJSON(metadata),
+	)
 	defer llmServer.Close()
 
 	ledger := &mockLedgerClient{
@@ -762,6 +2051,15 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 	if savedPuzzle.Topic != "cats" {
 		t.Errorf("expected topic 'cats', got %q", savedPuzzle.Topic)
 	}
+	if savedPuzzle.Title != metadata.Title {
+		t.Errorf("expected title %q, got %q", metadata.Title, savedPuzzle.Title)
+	}
+	if savedPuzzle.Subtitle != metadata.Subtitle {
+		t.Errorf("expected subtitle %q, got %q", metadata.Subtitle, savedPuzzle.Subtitle)
+	}
+	if savedPuzzle.Description != metadata.Description {
+		t.Errorf("expected description %q, got %q", metadata.Description, savedPuzzle.Description)
+	}
 	if len(savedPuzzle.Words) != 1 {
 		t.Errorf("expected 1 word, got %d", len(savedPuzzle.Words))
 	}
@@ -770,14 +2068,21 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 	if body["id"] != "saved-id" {
 		t.Errorf("expected id 'saved-id' in response, got %v", body["id"])
 	}
+	if body["title"] != metadata.Title {
+		t.Errorf("expected title %q in response, got %v", metadata.Title, body["title"])
+	}
+	if body["description"] != metadata.Description {
+		t.Errorf("expected description %q in response, got %v", metadata.Description, body["description"])
+	}
 }
 
 func TestHandleGetSharedPuzzle_Success(t *testing.T) {
 	s, _ := OpenDatabase(":memory:")
 	puzzle := &Puzzle{
-		UserID: "user-1",
-		Title:  "Shared Test",
-		Words:  []PuzzleWord{{Word: "SHARE", Clue: "Give", Hint: "distribute"}},
+		UserID:      "user-1",
+		Title:       "Shared Test",
+		Description: "Shared detail",
+		Words:       []PuzzleWord{{Word: "SHARE", Clue: "Give", Hint: "distribute"}},
 	}
 	if err := s.CreatePuzzle(puzzle); err != nil {
 		t.Fatalf("CreatePuzzle: %v", err)
@@ -793,6 +2098,9 @@ func TestHandleGetSharedPuzzle_Success(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Title != "Shared Test" {
 		t.Errorf("expected title 'Shared Test', got %q", resp.Title)
+	}
+	if resp.Description != "Shared detail" {
+		t.Errorf("expected description 'Shared detail', got %q", resp.Description)
 	}
 	if len(resp.Words) != 1 {
 		t.Errorf("expected 1 word, got %d", len(resp.Words))
@@ -901,17 +2209,19 @@ func adminConfig() Config {
 func TestAdminGrant_Success(t *testing.T) {
 	var grantedAmount int64
 	var grantedUserID string
+	var grantedMetadata string
 	ledger := &mockLedgerClient{
 		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
 			grantedAmount = in.AmountCents
 			grantedUserID = in.UserId
+			grantedMetadata = in.MetadataJson
 			return &creditv1.Empty{}, nil
 		},
 	}
 	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
 	router := testRouterWithClaims(handler, adminClaims())
 
-	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","user_email":"target@example.com","amount_coins":10,"reason":"support follow-up"}`)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -922,6 +2232,16 @@ func TestAdminGrant_Success(t *testing.T) {
 	if grantedAmount != expectedCents {
 		t.Errorf("expected %d cents, got %d", expectedCents, grantedAmount)
 	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(grantedMetadata), &metadata); err != nil {
+		t.Fatalf("grant metadata: %v", err)
+	}
+	if metadata["reason"] != "support follow-up" {
+		t.Errorf("expected reason in metadata, got %v", metadata["reason"])
+	}
+	if metadata["target_email"] != "target@example.com" {
+		t.Errorf("expected target_email in metadata, got %v", metadata["target_email"])
+	}
 
 	var body map[string]any
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
@@ -929,6 +2249,13 @@ func TestAdminGrant_Success(t *testing.T) {
 	}
 	if body["granted"] != true {
 		t.Errorf("expected granted=true, got %v", body["granted"])
+	}
+	grant, ok := body["grant"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected grant object, got %T", body["grant"])
+	}
+	if grant["reason"] != "support follow-up" {
+		t.Errorf("expected response reason, got %v", grant["reason"])
 	}
 }
 
@@ -938,7 +2265,7 @@ func TestAdminGrant_NonAdminForbidden(t *testing.T) {
 	// Use regular (non-admin) claims.
 	router := testRouterWithClaims(handler, testClaims())
 
-	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10,"reason":"manual grant"}`)
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -949,7 +2276,7 @@ func TestAdminGrant_NoAuth(t *testing.T) {
 	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
 	router := testRouterWithClaims(handler, nil)
 
-	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10}`)
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":10,"reason":"manual grant"}`)
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -965,10 +2292,11 @@ func TestAdminGrant_InvalidPayload(t *testing.T) {
 		body string
 		code int
 	}{
-		{"missing user_id", `{"amount_coins":10}`, http.StatusBadRequest},
-		{"missing amount", `{"user_id":"user-1"}`, http.StatusBadRequest},
-		{"zero amount", `{"user_id":"user-1","amount_coins":0}`, http.StatusBadRequest},
-		{"negative amount", `{"user_id":"user-1","amount_coins":-5}`, http.StatusBadRequest},
+		{"missing user_id", `{"amount_coins":10,"reason":"test"}`, http.StatusBadRequest},
+		{"missing amount", `{"user_id":"user-1","reason":"test"}`, http.StatusBadRequest},
+		{"missing reason", `{"user_id":"user-1","amount_coins":1}`, http.StatusBadRequest},
+		{"zero amount", `{"user_id":"user-1","amount_coins":0,"reason":"test"}`, http.StatusBadRequest},
+		{"negative amount", `{"user_id":"user-1","amount_coins":-5,"reason":"test"}`, http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -989,7 +2317,7 @@ func TestAdminGrant_LedgerError(t *testing.T) {
 	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
 	router := testRouterWithClaims(handler, adminClaims())
 
-	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":5}`)
+	resp := doRequest(router, "POST", "/api/admin/grant", `{"user_id":"target-user","amount_coins":5,"reason":"manual grant"}`)
 	if resp.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -1009,6 +2337,13 @@ func TestSessionReturnsIsAdmin(t *testing.T) {
 	if body["is_admin"] != true {
 		t.Errorf("expected is_admin=true for admin, got %v", body["is_admin"])
 	}
+	roles, ok := body["roles"].([]any)
+	if !ok {
+		t.Fatalf("expected roles array, got %T", body["roles"])
+	}
+	if len(roles) == 0 || roles[len(roles)-1] != "admin" {
+		t.Errorf("expected admin role in session response, got %v", body["roles"])
+	}
 
 	// Regular user.
 	handler2 := testHandlerWithConfig(ledger, nil, nil, adminConfig())
@@ -1023,11 +2358,42 @@ func TestSessionReturnsIsAdmin(t *testing.T) {
 	}
 }
 
+func TestSessionReturnsRoleBasedAdmin(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	roleClaims := &sessionvalidator.Claims{
+		UserID:          "role-admin-1",
+		UserEmail:       "roleuser@example.com",
+		UserDisplayName: "Role Admin",
+		UserRoles:       []string{"user", "admin"},
+	}
+	handler := testHandlerWithConfig(ledger, nil, nil, testConfig())
+	router := testRouterWithClaims(handler, roleClaims)
+	resp := doRequest(router, "GET", "/api/session", "")
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["is_admin"] != true {
+		t.Errorf("expected is_admin=true for role-based admin, got %v", body["is_admin"])
+	}
+	roles, ok := body["roles"].([]any)
+	if !ok {
+		t.Fatalf("expected roles array, got %T", body["roles"])
+	}
+	if len(roles) != 2 || roles[0] != "user" || roles[1] != "admin" {
+		t.Errorf("expected original admin roles in session response, got %v", body["roles"])
+	}
+}
+
 func TestAdminListUsers(t *testing.T) {
 	ledger := &mockLedgerClient{}
 	s := &mockStore{
-		listUsersFunc: func() ([]string, error) {
-			return []string{"user-1", "user-2", "user-3"}, nil
+		listUsersFunc: func() ([]AdminUser, error) {
+			return []AdminUser{
+				{UserID: "user-1", Email: "alpha@example.com"},
+				{UserID: "user-2", Email: "beta@example.com"},
+				{UserID: "user-3"},
+			}, nil
 		},
 	}
 	handler := testHandlerWithConfig(ledger, nil, s, adminConfig())
@@ -1044,6 +2410,40 @@ func TestAdminListUsers(t *testing.T) {
 	users, ok := body["users"].([]any)
 	if !ok || len(users) != 3 {
 		t.Fatalf("expected 3 users, got %v", body["users"])
+	}
+	firstUser, ok := users[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected object user entry, got %T", users[0])
+	}
+	if firstUser["email"] != "alpha@example.com" {
+		t.Fatalf("expected first email, got %v", firstUser["email"])
+	}
+}
+
+func TestAdminListUsers_StoreErrorReturnsEmptyList(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	s := &mockStore{
+		listUsersFunc: func() ([]AdminUser, error) {
+			return nil, errors.New("db down")
+		},
+	}
+	handler := testHandlerWithConfig(ledger, nil, s, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/users", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	users, ok := body["users"].([]any)
+	if !ok {
+		t.Fatalf("expected users array, got %v", body["users"])
+	}
+	if len(users) != 0 {
+		t.Fatalf("expected empty users list, got %v", users)
 	}
 }
 
@@ -1088,6 +2488,107 @@ func TestAdminBalance_MissingUserID(t *testing.T) {
 	resp := doRequest(router, "GET", "/api/admin/balance", "")
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAdminGrantHistory(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	s := &mockStore{
+		listGrantRecordsFunc: func(targetUserID string, limit int) ([]AdminGrantRecord, error) {
+			if targetUserID != "target-user" {
+				t.Fatalf("expected target-user, got %s", targetUserID)
+			}
+			if limit != adminGrantHistoryLimit {
+				t.Fatalf("expected limit %d, got %d", adminGrantHistoryLimit, limit)
+			}
+			return []AdminGrantRecord{
+				{
+					ID:           "grant-1",
+					AdminUserID:  "admin-1",
+					AdminEmail:   "admin@example.com",
+					TargetUserID: "target-user",
+					TargetEmail:  "target@example.com",
+					AmountCoins:  5,
+					Reason:       "support follow-up",
+				},
+			}, nil
+		},
+	}
+	handler := testHandlerWithConfig(ledger, nil, s, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/grants?user_id=target-user", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	grants, ok := body["grants"].([]any)
+	if !ok || len(grants) != 1 {
+		t.Fatalf("expected 1 grant, got %v", body["grants"])
+	}
+	grant, ok := grants[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected grant object, got %T", grants[0])
+	}
+	if grant["reason"] != "support follow-up" {
+		t.Fatalf("expected reason, got %v", grant["reason"])
+	}
+}
+
+func TestAdminGrantHistory_MissingUserID(t *testing.T) {
+	ledger := &mockLedgerClient{}
+	handler := testHandlerWithConfig(ledger, nil, nil, adminConfig())
+	router := testRouterWithClaims(handler, adminClaims())
+
+	resp := doRequest(router, "GET", "/api/admin/grants", "")
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestHandleSession_SyncsUserProfileForAdminLookup(t *testing.T) {
+	store := testStore(t)
+	userHandler := testHandlerWithStore(&mockLedgerClient{}, nil, store)
+	userRouter := testRouterWithClaims(userHandler, testClaims())
+
+	resp := doRequest(userRouter, "GET", "/api/session", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	adminHandler := testHandlerWithConfig(&mockLedgerClient{}, nil, store, adminConfig())
+	adminRouter := testRouterWithClaims(adminHandler, adminClaims())
+	adminResp := doRequest(adminRouter, "GET", "/api/admin/users", "")
+	if adminResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", adminResp.Code, adminResp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(adminResp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	users, ok := body["users"].([]any)
+	if !ok || len(users) == 0 {
+		t.Fatalf("expected users, got %v", body["users"])
+	}
+
+	found := false
+	for _, rawUser := range users {
+		user, ok := rawUser.(map[string]any)
+		if !ok {
+			continue
+		}
+		if user["user_id"] == "user-123" && user["email"] == "user@example.com" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected synced user profile in admin list, got %v", users)
 	}
 }
 

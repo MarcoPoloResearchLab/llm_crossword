@@ -115,6 +115,83 @@ func TestCallLLMProxy_Success(t *testing.T) {
 	}
 }
 
+func TestCallPuzzleMetadataLLMProxy_Success(t *testing.T) {
+	metadata := PuzzleMetadata{
+		Title:       "Roman Urban Systems",
+		Subtitle:    "Forums, baths, basilicas, and streets shape the final Roman city word list.",
+		Description: "This puzzle highlights the civic, commercial, and social structures that organized daily life in a Roman city.",
+	}
+	wrapper := llmProxyResponse{
+		Request:  "test",
+		Response: mustMarshal(t, metadata),
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(wrapper)
+	}))
+	defer server.Close()
+
+	handler := newTestHandler(server)
+	result, err := handler.callPuzzleMetadataLLMProxy(context.Background(), "Roman city", []WordItem{
+		{Word: "FORUM", Definition: "Civic center", Hint: "public square"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Title != metadata.Title {
+		t.Fatalf("expected title %q, got %q", metadata.Title, result.Title)
+	}
+	if result.Subtitle != metadata.Subtitle {
+		t.Fatalf("expected subtitle %q, got %q", metadata.Subtitle, result.Subtitle)
+	}
+	if result.Description != metadata.Description {
+		t.Fatalf("expected description %q, got %q", metadata.Description, result.Description)
+	}
+}
+
+func TestParsePuzzleMetadata_NormalizesTitleAndWhitespace(t *testing.T) {
+	metadata, err := parsePuzzleMetadata(`{
+		"title":"  Crossword — The organization of a roman city, the main parts and functions of a roman city and its forum  ",
+		"subtitle":"  The forum, basilica, and baths anchor the final Roman vocabulary.  ",
+		"description":"  A detailed paragraph about Roman streets, markets, baths, and civic spaces.  "
+	}`, "Roman city")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(strings.ToLower(metadata.Title), "crossword") {
+		t.Fatalf("expected title without forbidden word, got %q", metadata.Title)
+	}
+	if len([]rune(metadata.Title)) > maxGeneratedTitleLength {
+		t.Fatalf("expected title length <= %d, got %d", maxGeneratedTitleLength, len([]rune(metadata.Title)))
+	}
+	if metadata.Subtitle != "The forum, basilica, and baths anchor the final Roman vocabulary." {
+		t.Fatalf("unexpected subtitle normalization: %q", metadata.Subtitle)
+	}
+	if metadata.Description != "A detailed paragraph about Roman streets, markets, baths, and civic spaces." {
+		t.Fatalf("unexpected description normalization: %q", metadata.Description)
+	}
+}
+
+func TestParsePuzzleMetadata_RejectsMissingField(t *testing.T) {
+	_, err := parsePuzzleMetadata(`{"title":"Roman city","subtitle":"Specific civic spaces"}`, "Roman city")
+	if err == nil {
+		t.Fatal("expected error for missing description")
+	}
+}
+
+func TestParsePuzzleMetadata_RejectsExtraField(t *testing.T) {
+	_, err := parsePuzzleMetadata(`{
+		"title":"Roman city",
+		"subtitle":"Specific civic spaces",
+		"description":"Detailed paragraph",
+		"extra":"not allowed"
+	}`, "Roman city")
+	if err == nil {
+		t.Fatal("expected error for extra field")
+	}
+}
+
 func TestCallLLMProxy_WithMarkdownFences(t *testing.T) {
 	items := []WordItem{
 		{Word: "APOLLO", Definition: "God of sun", Hint: "Musical deity"},

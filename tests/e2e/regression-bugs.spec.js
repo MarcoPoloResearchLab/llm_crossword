@@ -61,6 +61,36 @@ test.describe("Session persistence on refresh", () => {
     await expect(badge).toContainText("credits", { timeout: 5000 });
   });
 
+  test("user stays logged in after page reload when /me requires /auth/refresh", async ({ page }) => {
+    let meCallCount = 0;
+
+    await setupLoggedInRoutes(page, {
+      puzzles: puzzlePayload,
+      extra: {
+        "**/me": async (route) => {
+          meCallCount += 1;
+          if (meCallCount === 2) {
+            await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "expired" }) });
+            return;
+          }
+          await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+        },
+        "**/auth/refresh": async (route) => {
+          await route.fulfill({ status: 204, body: "" });
+        },
+      },
+    });
+
+    await page.goto("/");
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    await page.reload();
+
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
+    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+  });
+
   test("landing page stays hidden after session-confirmed login", async ({ page }) => {
     await setupLoggedInRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
@@ -76,6 +106,63 @@ test.describe("Session persistence on refresh", () => {
 
     await expect(page.locator("#landingPage")).toBeHidden({ timeout: 2000 });
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 2000 });
+  });
+
+  test("shared puzzle URL opens the shared crossword for logged-in users", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      puzzles: puzzlePayload,
+      extra: {
+        "**/api/shared/shared-ok": async (route) => {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              title: "Shared Space",
+              subtitle: "Shared with you",
+              items: puzzlePayload[0].items,
+              share_token: "shared-ok",
+            }),
+          });
+        },
+      },
+    });
+
+    await page.goto("/?puzzle=shared-ok");
+
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#title")).toHaveText("Shared Space");
+    await expect(page.locator("#subtitle")).toHaveText("Shared with you");
+    await expect(page.locator("#shareBtn")).toBeVisible();
+  });
+
+  test("shared puzzle URL stays on the shared crossword after a logged-out user opens puzzle view", async ({ page }) => {
+    await setupLoggedOutRoutes(page, {
+      puzzles: puzzlePayload,
+      extra: {
+        "**/api/shared/shared-ok": async (route) => {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              title: "Shared Space",
+              subtitle: "Shared with you",
+              items: puzzlePayload[0].items,
+              share_token: "shared-ok",
+            }),
+          });
+        },
+      },
+    });
+
+    await page.goto("/?puzzle=shared-ok");
+    await expect(page.locator(".landing__title")).toHaveText("Shared Space");
+
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#title")).toHaveText("Shared Space");
+    await expect(page.locator("#subtitle")).toHaveText("Shared with you");
+    await expect(page.locator("#shareBtn")).toBeVisible();
   });
 });
 
@@ -203,6 +290,52 @@ test.describe("Layout — no excessive empty space", () => {
     expect(layout).not.toBeNull();
     // Puzzle view should use most of the viewport width
     expect(layout.pvWidth).toBeGreaterThanOrEqual(layout.viewportWidth * 0.9);
+  });
+
+  test("solver controls stay above the sticky footer", async ({ page }) => {
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
+
+    const layout = await page.evaluate(() => {
+      var controls = document.querySelector("#puzzleView .controls");
+      var footer = document.querySelector("footer.mpr-footer");
+      if (!controls || !footer) return null;
+      var controlsRect = controls.getBoundingClientRect();
+      var footerRect = footer.getBoundingClientRect();
+      return {
+        controlsBottom: controlsRect.bottom,
+        footerTop: footerRect.top,
+      };
+    });
+
+    expect(layout).not.toBeNull();
+    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.footerTop + 1);
+  });
+
+  test("solver controls stay above the sticky footer on a short viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 2048, height: 300 });
+    await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
+    await page.waitForTimeout(500);
+
+    const layout = await page.evaluate(() => {
+      var controls = document.querySelector("#puzzleView .controls");
+      var footer = document.querySelector("footer.mpr-footer");
+      if (!controls || !footer) return null;
+      var controlsRect = controls.getBoundingClientRect();
+      var footerRect = footer.getBoundingClientRect();
+      return {
+        controlsBottom: controlsRect.bottom,
+        footerTop: footerRect.top,
+      };
+    });
+
+    expect(layout).not.toBeNull();
+    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.footerTop + 1);
   });
 });
 
