@@ -978,11 +978,13 @@
 
     if (this._revealBtn) {
       var revealBtnRef = this._revealBtn;
-      revealBtnRef.textContent = "Reveal";
+      var revealButtonLabel = revealBtnRef.getAttribute("data-label-reveal") || "Reveal";
+      var hideButtonLabel = revealBtnRef.getAttribute("data-label-hide") || "Hide";
+      revealBtnRef.textContent = revealButtonLabel;
       revealBtnRef.onclick = function () {
         revealed = !revealed;
-        if (revealed) { emitRevealIfNeeded(); revealAll(); revealBtnRef.textContent = "Hide"; }
-        else { hideAll(); revealBtnRef.textContent = "Reveal"; }
+        if (revealed) { emitRevealIfNeeded(); revealAll(); revealBtnRef.textContent = hideButtonLabel; }
+        else { hideAll(); revealBtnRef.textContent = revealButtonLabel; }
       };
     }
   };

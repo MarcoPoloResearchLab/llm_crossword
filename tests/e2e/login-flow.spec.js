@@ -65,11 +65,12 @@ test.describe("Login flow — pre-built puzzles", () => {
     await expect(page.locator("#puzzleView").getByText("Down")).toBeVisible();
   });
 
-  test("pre-built puzzle shows Check and Reveal buttons", async ({ page }) => {
+  test("pre-built puzzle shows Check and Review buttons in the header", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.getByRole("button", { name: "Check" })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole("button", { name: "Reveal" })).toBeVisible();
+    await expect(page.locator("#headerPuzzleTabs")).toBeVisible();
+    await expect(page.locator("#reveal")).toHaveText("Review");
   });
 
   test("puzzle sidebar has cards populated", async ({ page }) => {

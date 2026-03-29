@@ -1,7 +1,7 @@
 :root {
     --cell-size: 44px;
     --clues-panel-offset: 0px;
-    --controls-dock-height: 76px;
+    --controls-dock-height: 0px;
     --footer-height: 40px;
     --gap-size: 4px;
     --header-height: 56px;
@@ -46,6 +46,16 @@
     --cw-modal-divider: rgba(255, 255, 255, .14);
     --cw-modal-card-border: rgba(148, 163, 184, .2);
     --cw-modal-card-bg: rgba(15, 23, 42, .76);
+    --cw-prism-shell-from: rgba(11, 18, 37, .96);
+    --cw-prism-shell-to: rgba(6, 10, 24, .98);
+    --cw-prism-border: rgba(124, 144, 196, .34);
+    --cw-prism-highlight: rgba(255, 255, 255, .08);
+    --cw-prism-separator: rgba(148, 163, 184, .26);
+    --cw-prism-tab-text: #e6edff;
+    --cw-prism-tab-muted: rgba(214, 226, 255, .82);
+    --cw-prism-tab-hover: rgba(96, 165, 250, .16);
+    --cw-prism-tab-active-from: #4f8df9;
+    --cw-prism-tab-active-to: #2563eb;
 }
 
 /* Light theme overrides — mpr-ui sets data-mpr-theme on <html> */
@@ -78,6 +88,16 @@
     --cw-modal-divider: rgba(15, 23, 42, .12);
     --cw-modal-card-border: rgba(15, 23, 42, .12);
     --cw-modal-card-bg: rgba(255, 255, 255, .88);
+    --cw-prism-shell-from: rgba(255, 255, 255, .98);
+    --cw-prism-shell-to: rgba(229, 236, 246, .98);
+    --cw-prism-border: rgba(88, 104, 145, .22);
+    --cw-prism-highlight: rgba(255, 255, 255, .74);
+    --cw-prism-separator: rgba(88, 104, 145, .18);
+    --cw-prism-tab-text: #16203e;
+    --cw-prism-tab-muted: rgba(22, 32, 62, .72);
+    --cw-prism-tab-hover: rgba(59, 130, 246, .12);
+    --cw-prism-tab-active-from: #2563eb;
+    --cw-prism-tab-active-to: #1d4ed8;
 }
 
 * {
@@ -661,22 +681,110 @@ li {
 }
 
 .controls__actions {
-    position: fixed;
-    left: calc(var(--sidebar-width) + var(--pane-gap));
-    bottom: calc(var(--footer-height) + var(--pane-gap));
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    display: inline-flex;
     align-items: center;
-    width: max-content;
-    max-width: calc(100vw - var(--sidebar-width) - (var(--pane-gap) * 2));
-    padding: 10px;
-    border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, .14);
-    background: rgba(11, 16, 34, .9);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, .34);
-    backdrop-filter: blur(16px);
-    z-index: 20;
+    gap: 0;
+}
+
+.header-puzzle-tabs[hidden] {
+    display: none !important;
+}
+
+.mpr-header .mpr-header__nav {
+    min-width: 0;
+}
+
+.header-puzzle-tabs {
+    position: relative;
+    isolation: isolate;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    padding: 4px;
+    border: 1px solid var(--cw-prism-border);
+    background: linear-gradient(180deg, var(--cw-prism-shell-from) 0%, var(--cw-prism-shell-to) 100%);
+    box-shadow:
+        0 14px 28px rgba(0, 0, 0, .24),
+        inset 0 1px 0 var(--cw-prism-highlight);
+    backdrop-filter: blur(14px);
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 14px 100%, 0 50%);
+    overflow: hidden;
+}
+
+.header-puzzle-tabs::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, .14) 0%, rgba(255, 255, 255, 0) 36%),
+        linear-gradient(180deg, rgba(255, 255, 255, .04) 0%, rgba(255, 255, 255, 0) 100%);
+    pointer-events: none;
+    clip-path: polygon(13px 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 13px 100%, 0 50%);
+}
+
+.header-puzzle-tabs__tab {
+    position: relative;
+    z-index: 1;
+    min-width: 96px;
+    padding: 11px 18px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--cw-prism-tab-muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    box-shadow: none;
+    transition: color .14s ease, background .14s ease, transform .14s ease;
+}
+
+.header-puzzle-tabs__tab + .header-puzzle-tabs__tab::before {
+    content: "";
+    position: absolute;
+    top: 18%;
+    bottom: 18%;
+    left: 0;
+    width: 1px;
+    background: var(--cw-prism-separator);
+    transform: skewX(-24deg);
+    transform-origin: center;
+}
+
+.header-puzzle-tabs__tab:hover:not(:disabled) {
+    color: var(--cw-prism-tab-text);
+    background: linear-gradient(180deg, var(--cw-prism-tab-hover) 0%, rgba(255, 255, 255, .03) 100%);
+}
+
+.header-puzzle-tabs__tab:focus-visible {
+    outline: 2px solid rgba(96, 165, 250, .56);
+    outline-offset: -2px;
+}
+
+.header-puzzle-tabs__tab--check {
+    color: #f7fbff;
+    background: linear-gradient(180deg, var(--cw-prism-tab-active-from) 0%, var(--cw-prism-tab-active-to) 100%);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, .28);
+}
+
+.header-puzzle-tabs__tab--check:hover:not(:disabled) {
+    color: #fff;
+    background: linear-gradient(180deg, #63a1ff 0%, #2d6bf1 100%);
+}
+
+.header-puzzle-tabs__tab--review,
+.header-puzzle-tabs__tab--share {
+    color: var(--cw-prism-tab-text);
+}
+
+.header-puzzle-tabs__tab--share:disabled {
+    color: var(--cw-prism-tab-muted);
+    background: transparent;
+}
+
+.header-puzzle-tabs__tab:disabled {
+    opacity: .72;
+    cursor: not-allowed;
 }
 
 .share-hint {
@@ -714,7 +822,7 @@ button:disabled {
 
 @media (max-width: var(--phone-screen-width)) {
     :root {
-        --controls-dock-height: 172px;
+        --controls-dock-height: 0px;
         --wrap-offset: 24px;
         --pane-gap: 12px;
     }
@@ -723,18 +831,12 @@ button:disabled {
         padding: 12px;
     }
 
-    .controls__actions {
-        left: var(--pane-gap);
-        right: var(--pane-gap);
-        bottom: calc(var(--footer-height) + var(--pane-gap));
-        flex-direction: column;
-        align-items: stretch;
-        width: auto;
-        max-width: none;
-    }
-
     button {
         width: 100%;
+    }
+
+    .header-puzzle-tabs__tab {
+        width: auto;
     }
 }
 
@@ -1685,6 +1787,29 @@ button:disabled {
 /* --- Push header actions (sign-in, avatar) to the right --- */
 .mpr-header .mpr-header__actions {
     margin-left: auto;
+}
+
+@media (max-width: 860px) {
+    .mpr-header .mpr-header__inner {
+        flex-wrap: wrap;
+        row-gap: 10px;
+    }
+
+    .mpr-header .mpr-header__nav {
+        order: 3;
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .header-puzzle-tabs {
+        width: 100%;
+    }
+
+    .header-puzzle-tabs__tab {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-inline: 14px;
+    }
 }
 
 /* --- Credit badge (in header) --- */

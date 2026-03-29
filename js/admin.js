@@ -963,6 +963,7 @@
 
   (window.__LLM_CROSSWORD_TEST__ || (window.__LLM_CROSSWORD_TEST__ = {})).admin = {
     checkAdminStatus: checkAdminStatus,
+    clearPendingBillingRestore: clearPendingBillingRestore,
     formatExpiresValue: formatExpiresValue,
     formatBillingTimestamp: formatBillingTimestamp,
     formatRolesValue: formatRolesValue,
@@ -971,6 +972,7 @@
     getUserPrimaryLabel: getUserPrimaryLabel,
     getUserSearchText: getUserSearchText,
     getUserSecondaryLabel: getUserSecondaryLabel,
+    hasPendingBillingReturn: hasPendingBillingReturn,
     hasDisplayValue: hasDisplayValue,
     hasAdminRole: hasAdminRole,
     isSameUser: isSameUser,
@@ -996,11 +998,13 @@
       renderBillingSummary();
     },
     setMenuItems: setMenuItems,
+    shouldRestoreBillingDrawer: shouldRestoreBillingDrawer,
     setStatus: setStatus,
     setSessionData: function (data) {
       sessionData = data;
     },
     switchTab: switchTab,
+    syncBillingStatusFromCoordinator: syncBillingStatusFromCoordinator,
     setSelectedUser: function (user) {
       selectedUser = user;
     },

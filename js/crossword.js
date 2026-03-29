@@ -38,6 +38,7 @@
     gridEl: document.getElementById("grid"),
     gridViewport: document.getElementById("gridViewport"),
     header: document.getElementById("app-header"),
+    headerPuzzleTabs: document.getElementById("headerPuzzleTabs"),
     puzzleControls: document.querySelector("#puzzleView .controls"),
     puzzleHeader: document.querySelector("#puzzleView .hdr"),
     puzzlePane: document.querySelector("#puzzleView .pane"),
@@ -632,6 +633,9 @@
   function showPuzzleBoard() {
     if (elements.generatePanel) {
       elements.generatePanel.style.display = "none";
+    }
+    if (elements.headerPuzzleTabs) {
+      elements.headerPuzzleTabs.hidden = false;
     }
     if (elements.puzzlePane) {
       elements.puzzlePane.style.display = "";
