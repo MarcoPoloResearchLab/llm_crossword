@@ -5,9 +5,12 @@
 */
 
 function generateCrossword(items, opts = {}) {
+  var _random = (opts && opts.random) || Math.random;
+
   const o = {
     title: opts.title ?? "Mini Crossword — Generated",
     subtitle: opts.subtitle ?? "Auto-generated from word list.",
+    description: opts.description ?? "",
     maxAttempts: opts.maxAttempts ?? 4000,  // global backtracking budget per try
     seedTries: opts.seedTries ?? 24,        // how many distinct seed choices (word+dir+shuffles)
   };
@@ -45,7 +48,6 @@ function generateCrossword(items, opts = {}) {
     const del = (r, c) => grid.delete(key(r, c));
 
     function canPlace(answer, row, col, dir) {
-      let crosses = 0;
       for (let i = 0; i < answer.length; i++) {
         const r = dir === "across" ? row : row + i;
         const c = dir === "across" ? col + i : col;
@@ -61,8 +63,6 @@ function generateCrossword(items, opts = {}) {
           } else {
             if (get(r, c - 1) || get(r, c + 1)) return { ok: false };
           }
-        } else {
-          crosses++;
         }
 
         // forbid touching at ends (caps)
@@ -77,9 +77,6 @@ function generateCrossword(items, opts = {}) {
           if (get(nr, nc)) return { ok: false };
         }
       }
-
-      // require ≥1 crossing except for very first word
-      if (grid.size > 0 && crosses === 0) return { ok: false };
       return { ok: true };
     }
 
@@ -116,7 +113,7 @@ function generateCrossword(items, opts = {}) {
       }
       // remove placed record
       const idx = placed.findIndex(e => e.id === wordObj.id);
-      if (idx >= 0) placed.splice(idx, 1);
+      placed.splice(idx, 1);
       // remove overlaps mentioning this id
       for (let k = overlaps.length - 1; k >= 0; k--) {
         if (overlaps[k].a === wordObj.id || overlaps[k].b === wordObj.id) overlaps.splice(k, 1);
@@ -135,28 +132,27 @@ function generateCrossword(items, opts = {}) {
 
     function bboxAfter(wordObj, cand) {
       // approximate area after placing candidate
-      let minR = 0, minC = 0, maxR = 0, maxC = 0;
-      let first = true;
+      let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
       for (const k of grid.keys()) {
         const [rs, cs] = k.split(":"); const r = +rs, c = +cs;
-        if (first) { minR = maxR = r; minC = maxC = c; first = false; }
-        else { if (r < minR) minR = r; if (r > maxR) maxR = r; if (c < minC) minC = c; if (c > maxC) maxC = c; }
+        if (r < minR) minR = r;
+        if (r > maxR) maxR = r;
+        if (c < minC) minC = c;
+        if (c > maxC) maxC = c;
       }
       for (let i = 0; i < wordObj.answer.length; i++) {
         const r = cand.dir === "across" ? cand.row : cand.row + i;
         const c = cand.dir === "across" ? cand.col + i : cand.col;
-        if (first) { minR = maxR = r; minC = maxC = c; first = false; }
-        else { if (r < minR) minR = r; if (r > maxR) maxR = r; if (c < minC) minC = c; if (c > maxC) maxC = c; }
+        if (r < minR) minR = r;
+        if (r > maxR) maxR = r;
+        if (c < minC) minC = c;
+        if (c > maxC) maxC = c;
       }
       return (maxR - minR + 1) * (maxC - minC + 1);
     }
 
     function candidatesFor(wordObj) {
       const out = [];
-      if (grid.size === 0) {
-        // seeding handled by caller
-        return out;
-      }
       for (const other of placed) {
         for (let iOld = 0; iOld < other.answer.length; iOld++) {
           const letter = other.answer[iOld];
@@ -172,11 +168,12 @@ function generateCrossword(items, opts = {}) {
           }
         }
       }
-      // prefer more crossings, then smaller box
+      // Combined score: crossings matter, but bbox also matters.
+      // Use crossing count * 100 - bbox area to balance both goals.
       out.sort((a, b) => {
-        const dx = scoreCrossings(wordObj, b) - scoreCrossings(wordObj, a);
-        if (dx) return dx;
-        return bboxAfter(wordObj, a) - bboxAfter(wordObj, b);
+        var scoreA = scoreCrossings(wordObj, a) * 100 - bboxAfter(wordObj, a);
+        var scoreB = scoreCrossings(wordObj, b) * 100 - bboxAfter(wordObj, b);
+        return scoreB - scoreA;
       });
       return out;
     }
@@ -187,7 +184,7 @@ function generateCrossword(items, opts = {}) {
         counts.set(o.a, (counts.get(o.a) || 0) + 1);
         counts.set(o.b, (counts.get(o.b) || 0) + 1);
       }
-      return placed.every(p => (counts.get(p.id) || 0) > 0);
+      return placed.every(p => counts.get(p.id) > 0);
     }
 
     // backtracking
@@ -197,9 +194,7 @@ function generateCrossword(items, opts = {}) {
       }
       const w = words[idx];
 
-      const cands = grid.size === 0
-        ? [] // seed placement is handled before calling backtrack
-        : candidatesFor(w);
+      const cands = candidatesFor(w);
 
       for (const c of cands) {
         if (attemptBudget-- <= 0) return false;
@@ -222,15 +217,14 @@ function generateCrossword(items, opts = {}) {
         }
 
         const seedWord = wordsCopy[0];
-        // try the seed at (0,0) in desired dir
-        const ok = canPlace(seedWord.answer, 0, 0, dir).ok;
-        if (!ok) return null;
+        // The first seed always fits on an empty grid at (0, 0).
         place(seedWord, 0, 0, dir, null);
         if (backtrack(1, wordsCopy)) {
           // build payload
           return {
             title: o.title,
             subtitle: o.subtitle,
+            description: o.description,
             entries: placed.map(entry => ({
               id: entry.id,
               dir: entry.dir,
@@ -255,7 +249,7 @@ function generateCrossword(items, opts = {}) {
   function shuffled(arr) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(_random() * (i + 1));
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
@@ -268,7 +262,7 @@ function generateCrossword(items, opts = {}) {
     for (let wi = 0; wi < words.length; wi++) {
       for (const d of dirs) {
         const payload = engine.seed(wi, d);
-        if (payload) return payload; // success: all words placed
+        if (payload) return payload;
       }
     }
     tries++;

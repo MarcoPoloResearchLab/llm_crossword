@@ -10,58 +10,349 @@
   <meta property="og:description" content="Interactive crossword puzzle generator and solver powered by large language models."/>
   <meta property="og:url" content="https://llm-crossword.mprlab.com/"/>
 
-  <!-- load order matters: generator -> renderer -->
+  <!-- load order matters: generator -> renderer -> app -->
   <link as="script" href="js/generator.js" rel="preload">
+  <link as="script" href="js/crossword-widget.js" rel="preload">
   <link as="script" href="js/crossword.js" rel="preload">
 
+  <script>
+    try {
+      var rootElement = document.documentElement;
+      var authPendingStorageKey = "llm-crossword-auth-pending";
+      var postLoginViewStorageKey = "llm-crossword-post-login-view";
+      var pendingAuth = window.sessionStorage.getItem(authPendingStorageKey) === "1";
+      var postLoginView = window.sessionStorage.getItem(postLoginViewStorageKey);
+
+      if (pendingAuth) {
+        rootElement.setAttribute("data-auth-pending", "true");
+      } else {
+        rootElement.setAttribute("data-auth-check", "pending");
+      }
+
+      if (postLoginView) {
+        rootElement.setAttribute("data-post-login-view", postLoginView);
+      }
+    } catch {}
+  </script>
+  <style>
+    html[data-auth-check="pending"] #landingPage,
+    html[data-auth-check="pending"] #puzzleView {
+      display: none !important;
+    }
+  </style>
+
+  <!-- mpr-ui components -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@latest/mpr-ui.css"/>
   <link rel="stylesheet" href="css/crossword.css">
+
+  <!-- TAuth + Google Identity Services -->
+  <script defer src="/tauth.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <script src="./mpr-ui-config.js" defer></script>
+  <script id="mpr-ui-bundle" type="application/json" data-mpr-ui-bundle-src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@latest/mpr-ui.js"></script>
 </head>
-  
+<body>
+<mpr-header
+  id="app-header"
+  brand-label="LLM Crossword"
+  brand-href="/"
+  data-config-url="/config.yaml"
+  user-menu-display-mode="avatar"
+  logout-url="/"
+  sign-out-label="Log out"
+>
+  <span id="headerCreditBadge" slot="aux" class="header-credit-badge" style="display:none;"></span>
+  <mpr-user
+    id="userMenu"
+    slot="aux"
+    display-mode="avatar"
+    logout-url="/"
+    logout-label="Log out"
+  ></mpr-user>
+</mpr-header>
+<script>
+  // Set base-url to current origin before mpr-ui initializes.
+  document.getElementById('app-header').setAttribute('base-url', window.location.origin);
+</script>
+
+<!-- ========== Landing page (shown when no puzzle is active) ========== -->
+<section id="landingPage" class="landing" aria-label="Welcome">
+  <div class="landing__hero">
+    <h1 class="landing__title">Create crossword puzzles with AI</h1>
+    <p class="landing__subtitle">
+      Enter any topic and let a large language model generate a unique
+      crossword puzzle for you. Try pre-built puzzles or sign in to create your own.
+    </p>
+    <div class="landing__actions">
+      <button id="landingTryPrebuilt" class="landing__btn landing__btn--primary">Try a pre-built puzzle</button>
+      <button id="landingSignIn" class="landing__btn landing__btn--secondary">Sign in to generate</button>
+    </div>
+  </div>
+
+  <div class="landing__features" aria-label="Features">
+    <div class="landing__feature">
+      <div class="landing__feature-icon" aria-hidden="true">&#x1F9E9;</div>
+      <h2 class="landing__feature-title">Any topic</h2>
+      <p class="landing__feature-desc">Greek gods, space exploration, cooking terms &mdash; name it and the AI builds the puzzle.</p>
+    </div>
+    <div class="landing__feature">
+      <div class="landing__feature-icon" aria-hidden="true">&#x26A1;</div>
+      <h2 class="landing__feature-title">Instant generation</h2>
+      <p class="landing__feature-desc">Puzzles are generated in seconds using a large language model and our crossword engine.</p>
+    </div>
+    <div class="landing__feature">
+      <div class="landing__feature-icon" aria-hidden="true">&#x1F3AE;</div>
+      <h2 class="landing__feature-title">Interactive solving</h2>
+      <p class="landing__feature-desc">Type answers directly, get hints, check your progress, and reveal solutions.</p>
+    </div>
+  </div>
+
+  <!-- Sample crossword puzzle (moon-themed, rendered by CrosswordWidget) -->
+  <div id="landingSamplePuzzle" class="landing__sample" aria-label="Try a sample crossword"></div>
+</section>
+
+<!-- ========== Puzzle view (hidden until a puzzle is loaded) ========== -->
+<div id="puzzleView" class="puzzle-layout" style="display:none;">
+
+  <!-- Left sidebar with puzzle cards -->
+  <aside id="puzzleSidebar" class="puzzle-sidebar">
+    <div id="puzzleSidebarContent" class="puzzle-sidebar__content">
+      <div id="newCrosswordCard" class="puzzle-card puzzle-card--new">
+        <div class="puzzle-card__icon">+</div>
+        <div class="puzzle-card__title">New Crossword</div>
+      </div>
+      <div id="puzzleCardList" class="puzzle-card-list"></div>
+    </div>
+    <button
+      id="puzzleSidebarToggle"
+      class="puzzle-sidebar__toggle"
+      type="button"
+      aria-controls="puzzleSidebar"
+      aria-expanded="true"
+      aria-label="Collapse puzzle list"
+      title="Collapse puzzle list"
+    >
+      <span class="puzzle-sidebar__toggle-icon" aria-hidden="true">&#x2039;</span>
+    </button>
+  </aside>
+
+  <!-- Right main area -->
+  <div id="puzzleMain" class="puzzle-main">
+    <div class="hdr">
+      <div class="hdr__copy">
+        <h1 id="title">Crossword Puzzle</h1>
+        <div class="sub" id="subtitle">Loading...</div>
+        <div id="descriptionPanel" class="hdr__details" hidden>
+          <button
+            id="descriptionToggle"
+            class="hdr__details-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="descriptionContent"
+          >Show details</button>
+          <p id="descriptionContent" class="hdr__details-copy" hidden></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Generate form (shown when "New Crossword" card is selected) -->
+    <div id="generatePanel" class="panel-bar" style="display:none;">
+      <div class="generate-form">
+        <input type="text" id="topicInput" placeholder="Enter a topic (e.g. Greek mythology)" maxlength="200"/>
+        <label class="word-count-label">
+          Words:
+          <select id="wordCount" title="More words = larger puzzle, longer generation time">
+            <option value="5">5</option>
+            <option value="8" selected>8</option>
+            <option value="10">10</option>
+            <option value="12">12</option>
+          </select>
+        </label>
+        <button id="generateBtn" disabled>Generate (5 credits)</button>
+      </div>
+      <div id="generateStatus" class="generate-status"></div>
+    </div>
+
+    <div class="pane">
+      <!-- Scrollable + draggable viewport -->
+      <div id="gridViewport" class="gridViewport">
+        <div class="grid" id="grid"></div>
+      </div>
+      <div class="clues">
+        <div class="cluegrp"><h3>Across</h3>
+          <ol id="across"></ol>
+        </div>
+        <div class="cluegrp"><h3>Down</h3>
+          <ol id="down"></ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="check">Check</button>
+      <button class="secondary" id="reveal">Reveal</button>
+      <button id="shareBtn" class="secondary" style="display:none;">Share</button>
+      <button id="backToLanding" class="secondary">Back</button>
+      <div class="status" id="status"></div>
+      <div class="error" id="errorBox"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== Settings modal ========== -->
+<dialog id="settingsDrawer" class="settings-modal" aria-labelledby="settingsTitle" aria-describedby="settingsSubtitle">
+  <div class="settings-modal__surface">
+    <div class="settings-modal__header">
+      <div>
+        <h2 id="settingsTitle" class="settings-modal__title">Settings</h2>
+        <p id="settingsSubtitle" class="settings-modal__subtitle">Account and admin access</p>
+      </div>
+      <button id="settingsCloseButton" class="settings-modal__close" type="button">Close</button>
+    </div>
+
+    <div class="settings-modal__body">
+      <!-- Tab nav -->
+      <div class="settings-tabs">
+        <button id="settingsTabAccount" class="settings-tabs__btn settings-tabs__btn--active" data-tab="account" type="button">Account</button>
+        <button id="settingsTabAdmin" class="settings-tabs__btn" data-tab="admin" type="button" style="display:none;">Admin</button>
+      </div>
+
+      <!-- ===== Account section ===== -->
+      <div id="settingsAccountTab" class="settings-section">
+        <div class="settings-account-card">
+          <div class="settings-account-card__row">
+            <img id="settingsAvatar" class="settings-account-card__avatar" src="" alt="" />
+            <div class="settings-account-card__info">
+              <div id="settingsName" class="settings-account-card__name">—</div>
+              <div id="settingsEmail" class="settings-account-card__email">—</div>
+            </div>
+          </div>
+          <div class="settings-account-card__details">
+            <div class="settings-account-card__details-header">Session details</div>
+            <dl id="settingsAccountDetails" class="settings-account-details"></dl>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Admin section ===== -->
+      <div id="settingsAdminTab" class="settings-section" style="display:none;">
+        <div class="admin-panel__body">
+          <!-- User list -->
+          <div class="admin-panel__users">
+            <div class="admin-panel__section-header">
+              <h3 class="admin-panel__section-title">Users</h3>
+              <button id="adminRefreshUsers" class="admin-panel__btn-sm secondary" type="button">Refresh</button>
+            </div>
+            <input type="search" id="adminUserSearch" class="admin-panel__search" placeholder="Filter users..." />
+            <div id="adminUserList" class="admin-panel__user-list"></div>
+            <div id="adminUsersStatus" class="admin-panel__status"></div>
+          </div>
+
+          <!-- Selected user details -->
+          <div class="admin-panel__details">
+            <div id="adminNoSelection" class="admin-panel__placeholder">Select a user to view balance and grant credits.</div>
+
+            <div id="adminUserDetails" style="display:none;">
+              <div class="admin-panel__user-header">
+                <div class="admin-panel__selected-user">
+                  <span id="adminSelectedUser" class="admin-panel__selected-label"></span>
+                  <span id="adminSelectedUserMeta" class="admin-panel__selected-meta"></span>
+                </div>
+                <button id="adminRefreshUser" class="admin-panel__btn-sm secondary" type="button">Refresh</button>
+              </div>
+
+              <!-- Balance -->
+              <div class="admin-panel__balance-card">
+                <div class="admin-panel__balance-row">
+                  <span class="admin-panel__balance-label">Available</span>
+                  <span id="adminBalanceCoins" class="admin-panel__balance-value">-</span>
+                </div>
+                <div class="admin-panel__balance-row">
+                  <span class="admin-panel__balance-label">Total (cents)</span>
+                  <span id="adminBalanceTotal" class="admin-panel__balance-value">-</span>
+                </div>
+                <div id="adminBalanceStatus" class="admin-panel__status"></div>
+              </div>
+
+              <!-- Grant form -->
+              <h3 class="admin-panel__section-title">Grant credits</h3>
+              <form id="adminGrantForm" class="admin-panel__grant-form">
+                <label class="admin-panel__label">
+                  Credits
+                  <input type="number" id="adminGrantCoins" min="1" step="1" required class="admin-panel__input" />
+                </label>
+                <label class="admin-panel__label">
+                  Reason
+                  <textarea id="adminGrantReason" required maxlength="240" rows="3" class="admin-panel__input admin-panel__textarea"></textarea>
+                </label>
+                <button type="submit" id="adminGrantBtn">Grant</button>
+              </form>
+              <div class="admin-panel__hint">Successful grants apply immediately and are recorded below with the reason and admin email.</div>
+              <div id="adminGrantStatus" class="admin-panel__status"></div>
+
+              <h3 class="admin-panel__section-title">Grant history</h3>
+              <div id="adminGrantHistoryStatus" class="admin-panel__status"></div>
+              <div id="adminGrantHistoryList" class="admin-panel__history-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<mpr-footer
+  id="page-footer"
+  sticky="true"
+  size="small"
+  privacy-link-label="Privacy &amp; Terms"
+  privacy-link-href="#privacy"
+  privacy-modal-content="
+    <h1>Privacy Policy — LLM Crossword</h1>
+    <p><strong>Effective Date:</strong> 2025-10-11</p>
+    <p>LLM Crossword uses Google Identity Services to authenticate users. We receive your Google profile
+       information (name, email, profile image) only to sign you in. We do not sell or share your data,
+       and we only store your credits so the service functions.</p>
+    <p>To request deletion of your data, contact
+       <a href='mailto:support@mprlab.com'>support@mprlab.com</a>.</p>
+  "
+  horizontal-links='{
+    "alignment": "center",
+    "links": [
+      { "label": "GitHub", "href": "https://github.com/MarcoPoloResearchLab/llm_crossword", "target": "_blank" },
+      { "label": "Support", "href": "mailto:support@mprlab.com" }
+    ]
+  }'
+  links-collection='{
+    "style": "drop-up",
+    "text": "Built by Marco Polo Research Lab",
+    "links": [
+      { "label": "Marco Polo Research Lab", "url": "https://mprlab.com" },
+      { "label": "Gravity Notes", "url": "https://gravity.mprlab.com" },
+      { "label": "LoopAware", "url": "https://loopaware.mprlab.com" },
+      { "label": "LLM Crossword", "url": "https://llm-crossword.mprlab.com" }
+    ]
+  }'
+  theme-switcher="toggle"
+></mpr-footer>
+
+<script src="js/auth-fetch.js"></script>
+<script src="js/config.js"></script>
+<script src="js/generator.js"></script>
+<script src="js/crossword-widget.js"></script>
+<script src="js/landing-puzzle.js"></script>
+<script src="js/crossword.js"></script>
+<script src="js/app.js"></script>
+<script src="js/admin.js"></script>
+
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-7TXFH9TLQB"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
-
   gtag('config', 'G-7TXFH9TLQB');
 </script>
-
-<body>
-<div class="wrap">
-  <div class="hdr">
-    <h1 id="title"></h1>
-    <div class="sub" id="subtitle"></div>
-    <label style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-      <span style="opacity:.85;font-size:13px;">Choose puzzle:</span>
-      <select id="puzzleSelect"></select>
-    </label>
-  </div>
-
-  <div class="pane">
-    <!-- Scrollable + draggable viewport -->
-    <div id="gridViewport" class="gridViewport">
-      <div class="grid" id="grid"></div>
-    </div>
-    <div class="clues">
-      <div class="cluegrp"><h3>Across</h3>
-        <ol id="across"></ol>
-      </div>
-      <div class="cluegrp"><h3>Down</h3>
-        <ol id="down"></ol>
-      </div>
-    </div>
-  </div>
-
-  <div class="controls">
-    <button id="check">Check</button>
-    <button class="secondary" id="reveal">Reveal</button>
-    <div class="status" id="status"></div>
-    <div class="error" id="errorBox"></div>
-  </div>
-</div>
-
-<script src="js/generator.js"></script>
-<script src="js/crossword.js"></script>
 </body>
 </html>
