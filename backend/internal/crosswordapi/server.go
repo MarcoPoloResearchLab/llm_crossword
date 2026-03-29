@@ -345,7 +345,6 @@ func (handler *httpHandler) handleBillingCheckout(ctx *gin.Context) {
 		return
 	}
 
-	checkoutSession.CheckoutURL = strings.ReplaceAll(checkoutSession.CheckoutURL, "{transaction_id}", checkoutSession.TransactionID)
 	ctx.JSON(http.StatusOK, checkoutSession)
 }
 

@@ -33,8 +33,9 @@ const (
 	paddleMetadataPackCodeKey  = "pack_code"
 	paddleMetadataCreditsKey   = "credits"
 
-	paddleCollectionModeAutomatic = "automatic"
-	paddleCheckoutURLMissingCode  = "transaction_default_checkout_url_not_set"
+	paddleCollectionModeAutomatic    = "automatic"
+	paddleCheckoutURLMissingCode     = "transaction_default_checkout_url_not_set"
+	checkoutTransactionIDPlaceholder = "{transaction_id}"
 
 	paddleSignatureTimestampKey = "ts"
 	paddleSignatureHashKey      = "h1"
@@ -392,10 +393,12 @@ func (provider *paddleBillingProvider) CreateCheckout(ctx context.Context, userI
 		return billingCheckoutSession{}, err
 	}
 
+	resolvedReturnURL := replaceCheckoutTransactionPlaceholder(returnURL, transactionID)
+
 	return billingCheckoutSession{
 		ProviderCode:  provider.Code(),
 		TransactionID: transactionID,
-		CheckoutURL:   appendCheckoutReturnURL(checkoutURL, returnURL),
+		CheckoutURL:   appendCheckoutReturnURL(checkoutURL, resolvedReturnURL),
 	}, nil
 }
 
@@ -426,6 +429,14 @@ func appendCheckoutReturnURL(checkoutURL string, returnURL string) string {
 	query.Set("return_to", returnURL)
 	parsedURL.RawQuery = query.Encode()
 	return parsedURL.String()
+}
+
+func replaceCheckoutTransactionPlaceholder(returnURL string, transactionID string) string {
+	trimmedTransactionID := strings.TrimSpace(transactionID)
+	if strings.TrimSpace(returnURL) == "" || trimmedTransactionID == "" {
+		return returnURL
+	}
+	return strings.ReplaceAll(returnURL, checkoutTransactionIDPlaceholder, trimmedTransactionID)
 }
 
 func (client *paddleAPIClient) ResolveCustomerID(ctx context.Context, userEmail string) (string, error) {
