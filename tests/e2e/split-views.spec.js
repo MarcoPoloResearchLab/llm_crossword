@@ -97,13 +97,14 @@ test.describe("Solver view — no tabs", () => {
     await expect(page.locator("#descriptionPanel")).toBeHidden();
   });
 
-  test("solver view keeps Check, Reveal, and Share visible", async ({ page }) => {
+  test("solver view keeps Check, Review, and Share visible in the header", async ({ page }) => {
     await setupLoggedOutRoutes(page, { puzzles: testPuzzleData });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#headerPuzzleTabs")).toBeVisible();
     await expect(page.getByRole("button", { name: "Check" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reveal" })).toBeVisible();
+    await expect(page.locator("#reveal")).toHaveText("Review");
     await expect(page.getByRole("button", { name: "Share" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
   });

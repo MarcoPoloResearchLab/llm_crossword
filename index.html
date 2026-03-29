@@ -67,6 +67,24 @@
   logout-url="/"
   sign-out-label="Log out"
 >
+  <div
+    id="headerPuzzleTabs"
+    slot="nav-right"
+    class="controls__actions header-puzzle-tabs"
+    role="group"
+    aria-label="Puzzle actions"
+    hidden
+  >
+    <button id="check" class="header-puzzle-tabs__tab header-puzzle-tabs__tab--check" type="button">Check</button>
+    <button
+      id="reveal"
+      class="header-puzzle-tabs__tab header-puzzle-tabs__tab--review"
+      type="button"
+      data-label-reveal="Review"
+      data-label-hide="Hide"
+    >Review</button>
+    <button id="shareBtn" class="header-puzzle-tabs__tab header-puzzle-tabs__tab--share" type="button" disabled>Share</button>
+  </div>
   <button id="headerCreditBadge" slot="aux" class="header-credit-badge" type="button" style="display:none;" aria-label="Open billing"></button>
   <mpr-user
     id="userMenu"
@@ -203,11 +221,6 @@
     </div>
 
     <div class="controls">
-      <div class="controls__actions">
-        <button id="check">Check</button>
-        <button class="secondary" id="reveal">Reveal</button>
-        <button id="shareBtn" class="secondary" disabled>Share</button>
-      </div>
       <div class="status" id="status"></div>
       <div id="rewardStrip" class="reward-strip" hidden>
         <div id="rewardStripLabel" class="reward-strip__label"></div>

@@ -31,6 +31,10 @@
       },
     }),
   });
+  var generationCostCredits = 4;
+  var generateButtonLabel = "Generate (" + generationCostCredits + " credits)";
+  var insufficientCreditsCardMessage = "Not enough credits. You need " + generationCostCredits + " credits to generate a puzzle.";
+  var insufficientCreditsGenerateMessage = "Not enough credits. You need " + generationCostCredits + " credits per puzzle.";
 
   function requireElement(id) {
     var element = document.getElementById(id);
@@ -64,6 +68,7 @@
     generateBuyCreditsButton: document.getElementById("generateBuyCreditsButton"),
     generatePanel: requireElement("generatePanel"),
     generateStatus: requireElement("generateStatus"),
+    headerPuzzleTabs: document.getElementById("headerPuzzleTabs"),
     landingPage: requireElement("landingPage"),
     landingSignIn: requireElement("landingSignIn"),
     landingTryBtn: requireElement("landingTryPrebuilt"),
@@ -172,6 +177,13 @@
     var showLandingView = state.currentView === "landing";
     elements.landingPage.style.display = showLandingView ? "" : "none";
     elements.puzzleView.style.display = showLandingView ? "none" : "";
+    syncHeaderPuzzleTabsVisibility();
+  }
+
+  function syncHeaderPuzzleTabsVisibility() {
+    if (!elements.headerPuzzleTabs) return;
+    var shouldShowTabs = state.currentView === "puzzle" && elements.generatePanel.style.display === "none";
+    elements.headerPuzzleTabs.hidden = !shouldShowTabs;
   }
 
   function setPuzzleContentVisible(isVisible) {
@@ -203,6 +215,7 @@
     var shareHint = document.getElementById("shareHint");
 
     elements.generatePanel.style.display = "";
+    syncHeaderPuzzleTabsVisibility();
     setPuzzleContentVisible(false);
     elements.title.textContent = "Generate a New Crossword";
     elements.subtitle.textContent = "Enter a topic and choose the number of words.";
@@ -228,6 +241,7 @@
 
   function hideGenerateForm() {
     elements.generatePanel.style.display = "none";
+    syncHeaderPuzzleTabsVisibility();
     setPuzzleContentVisible(true);
   }
 
@@ -358,7 +372,7 @@
       return;
     }
 
-    elements.generateBtn.textContent = "Generate (4 credits)";
+    elements.generateBtn.textContent = generateButtonLabel;
     elements.creditBadge.style.display = "";
     elements.creditBadge.disabled = false;
     elements.creditBadge.classList.remove("logged-out");
@@ -378,7 +392,7 @@
     if (previousCoins !== null && coins > previousCoins) {
       pulseCreditBadge();
     }
-    if (state.loggedIn && coins >= 4) {
+    if (state.loggedIn && coins >= generationCostCredits) {
       setGenerateBuyCreditsVisible(false);
       if (elements.generatePanel.style.display !== "none" && elements.generateStatus.textContent.indexOf("Not enough credits") === 0) {
         elements.generateStatus.textContent = "Credits updated. You can generate a new puzzle.";
@@ -662,10 +676,10 @@
   }
 
   elements.newCrosswordCard.addEventListener("click", function () {
-    if (state.currentCoins !== null && state.currentCoins < 4) {
+    if (state.currentCoins !== null && state.currentCoins < generationCostCredits) {
       showGenerateForm();
       elements.generateBtn.disabled = true;
-      showInsufficientCreditsMessage("Not enough credits. You need 4 credits to generate a puzzle.");
+      showInsufficientCreditsMessage(insufficientCreditsCardMessage);
       return;
     }
 
@@ -786,7 +800,7 @@
       .then(function (result) {
         if (!result.ok) {
           if (result.data.error === "insufficient_credits") {
-            showInsufficientCreditsMessage("Not enough credits. You need 4 credits per puzzle.");
+            showInsufficientCreditsMessage(insufficientCreditsGenerateMessage);
           } else if (result.data.error === "llm_timeout") {
             elements.generateStatus.textContent = "The AI model timed out. Your credits have been refunded — please try again.";
             setGenerateBuyCreditsVisible(false);
@@ -934,7 +948,7 @@
       setGenerateBuyCreditsVisible(false);
       return;
     }
-    if (state.loggedIn && state.currentCoins !== null && state.currentCoins < 4) {
+    if (state.loggedIn && state.currentCoins !== null && state.currentCoins < generationCostCredits) {
       setGenerateBuyCreditsVisible(true);
     }
   });
@@ -964,6 +978,7 @@
       };
     },
     isAuthPending: isAuthPending,
+    openBillingDrawer: openBillingDrawer,
     requireChild: requireChild,
     requireElement: requireElement,
     schedulePendingAuthRestoreRetry: schedulePendingAuthRestoreRetry,

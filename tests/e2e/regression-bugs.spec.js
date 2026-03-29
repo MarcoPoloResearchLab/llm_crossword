@@ -292,29 +292,36 @@ test.describe("Layout — no excessive empty space", () => {
     expect(layout.pvWidth).toBeGreaterThanOrEqual(layout.viewportWidth * 0.9);
   });
 
-  test("solver controls stay above the sticky footer", async ({ page }) => {
+  test("solver prism stays inside the header and above the grid", async ({ page }) => {
     await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     const layout = await page.evaluate(() => {
-      var controls = document.querySelector("#puzzleView .controls__actions");
-      var footer = document.querySelector("footer.mpr-footer");
-      if (!controls || !footer) return null;
+      var controls = document.querySelector("#headerPuzzleTabs");
+      var header = document.querySelector("header.mpr-header");
+      var firstCell = document.querySelector("#puzzleView .cell");
+      if (!controls || !header || !firstCell) return null;
       var controlsRect = controls.getBoundingClientRect();
-      var footerRect = footer.getBoundingClientRect();
+      var headerRect = header.getBoundingClientRect();
+      var firstCellRect = firstCell.getBoundingClientRect();
       return {
         controlsBottom: controlsRect.bottom,
-        footerTop: footerRect.top,
+        controlsTop: controlsRect.top,
+        headerBottom: headerRect.bottom,
+        headerTop: headerRect.top,
+        firstCellTop: firstCellRect.top,
       };
     });
 
     expect(layout).not.toBeNull();
-    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.footerTop + 1);
+    expect(layout.controlsTop).toBeGreaterThanOrEqual(layout.headerTop - 1);
+    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.headerBottom + 1);
+    expect(layout.controlsBottom).toBeLessThan(layout.firstCellTop);
   });
 
-  test("solver controls stay above the sticky footer on a short viewport", async ({ page }) => {
+  test("solver prism stays in the header on a short viewport", async ({ page }) => {
     await page.setViewportSize({ width: 2048, height: 300 });
     await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
@@ -323,19 +330,22 @@ test.describe("Layout — no excessive empty space", () => {
     await page.waitForTimeout(500);
 
     const layout = await page.evaluate(() => {
-      var controls = document.querySelector("#puzzleView .controls__actions");
-      var footer = document.querySelector("footer.mpr-footer");
-      if (!controls || !footer) return null;
+      var controls = document.querySelector("#headerPuzzleTabs");
+      var header = document.querySelector("header.mpr-header");
+      if (!controls || !header) return null;
       var controlsRect = controls.getBoundingClientRect();
-      var footerRect = footer.getBoundingClientRect();
+      var headerRect = header.getBoundingClientRect();
       return {
         controlsBottom: controlsRect.bottom,
-        footerTop: footerRect.top,
+        controlsTop: controlsRect.top,
+        headerBottom: headerRect.bottom,
+        headerTop: headerRect.top,
       };
     });
 
     expect(layout).not.toBeNull();
-    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.footerTop + 1);
+    expect(layout.controlsTop).toBeGreaterThanOrEqual(layout.headerTop - 1);
+    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.headerBottom + 1);
   });
 });
 

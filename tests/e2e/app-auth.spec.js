@@ -25,6 +25,47 @@ test.describe("App auth — logged in state", () => {
     await expect(genBtn).toContainText("(4 credits)");
   });
 
+  test("user with exactly four credits can still generate a puzzle", async ({ page }) => {
+    var generateCalls = 0;
+
+    await setupLoggedInRoutes(page, {
+      coins: 4,
+      extra: {
+        "**/api/generate": (route) => {
+          generateCalls += 1;
+          return route.fulfill(
+            json(200, {
+              title: "Four Credit Puzzle",
+              subtitle: "Exact-cost generation still works.",
+              balance: { coins: 0 },
+              items: [
+                { word: "orbit", definition: "Path around Earth", hint: "route" },
+                { word: "mare", definition: "Lunar sea", hint: "horse" },
+                { word: "tides", definition: "Ocean rise-and-fall", hint: "shifts" },
+                { word: "lunar", definition: "Relating to Moon", hint: "companion" },
+                { word: "apollo", definition: "Moon program", hint: "missions" },
+              ],
+            })
+          );
+        },
+      },
+    });
+
+    await page.goto("/");
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
+    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    await expect(page.locator("#generateStatus")).toHaveText("");
+
+    await page.fill("#topicInput", "moon");
+    await page.locator("#generateBtn").click();
+
+    expect(generateCalls).toBe(1);
+    await expect(page.locator("#title")).toContainText("Four Credit Puzzle", { timeout: 5000 });
+    await expect(page.getByText("Not enough credits")).toHaveCount(0);
+  });
+
   test("credit badge shows balance after login", async ({ page }) => {
     await setupLoggedInRoutes(page);
     await page.goto("/");
