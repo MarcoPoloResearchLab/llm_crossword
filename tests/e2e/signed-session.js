@@ -6,12 +6,21 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "../..");
+const RUNTIME_ROOT = path.join(ROOT, ".runtime");
 const DEFAULT_INTEGRATION_USER_ID = "integration-user";
 const DEFAULT_INTEGRATION_USER_EMAIL = "integration-user@example.com";
 const DEFAULT_INTEGRATION_USER_NAME = "Integration User";
 const DEFAULT_INTEGRATION_USER_AVATAR = "https://example.com/avatar.png";
 const DEFAULT_SESSION_LIFETIME_SECONDS = 3600;
 const CLOCK_SKEW_SECONDS = 30;
+
+function resolveConfigPath(fileName) {
+  const runtimePath = path.join(RUNTIME_ROOT, fileName);
+  if (fs.existsSync(runtimePath)) {
+    return runtimePath;
+  }
+  return path.join(ROOT, fileName);
+}
 
 function parseEnvFile(filePath) {
   const fileText = fs.readFileSync(filePath, "utf8");
@@ -60,7 +69,7 @@ function assertMatchingValue(actualValue, expectedValue, description) {
 
 function getSignedSessionConfig() {
   const crosswordApiEnvPath = path.join(ROOT, ".env.crosswordapi");
-  const tauthConfigPath = path.join(ROOT, "tauth.config.yaml");
+  const tauthConfigPath = resolveConfigPath("tauth.config.yaml");
   const crosswordApiEnv = parseEnvFile(crosswordApiEnvPath);
 
   const signingKey = readRequiredValue(
