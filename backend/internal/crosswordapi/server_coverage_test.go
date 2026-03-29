@@ -102,6 +102,25 @@ func TestRun_DatabaseOpenError(t *testing.T) {
 	}
 }
 
+func TestRun_BillingInitError(t *testing.T) {
+	addr, stopLedger := startFakeLedger(t)
+	defer stopLedger()
+
+	cfg := validBillingConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	cfg.LedgerAddress = addr
+	cfg.LedgerInsecure = true
+	cfg.PaddleAPIKey = ""
+
+	err := Run(context.Background(), cfg, WithStore(&mockStore{}))
+	if err == nil {
+		t.Fatal("expected billing init error")
+	}
+	if !strings.Contains(err.Error(), "billing init") {
+		t.Fatalf("expected billing init error, got %v", err)
+	}
+}
+
 func TestGeneratePuzzleMetadata_ReturnsLastError(t *testing.T) {
 	llmServer := testLLMResponseServer(t, `{"title":1}`, `{"title":2}`)
 	defer llmServer.Close()
