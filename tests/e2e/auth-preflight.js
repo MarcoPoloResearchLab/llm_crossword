@@ -12,11 +12,20 @@ const {
 } = require("./signed-session");
 
 const ROOT = path.join(__dirname, "../..");
+const RUNTIME_ROOT = path.join(ROOT, ".runtime");
 const DEFAULT_SITE_ORIGIN = "http://localhost:8000";
 const DEFAULT_TAUTH_ORIGIN = "http://localhost:8081";
 const DEFAULT_API_ORIGIN = "http://localhost:9090";
 const DEFAULT_WAIT_TIMEOUT_MS = 60000;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
+
+function resolveConfigPath(fileName) {
+  const runtimePath = path.join(RUNTIME_ROOT, fileName);
+  if (fs.existsSync(runtimePath)) {
+    return runtimePath;
+  }
+  return path.join(ROOT, fileName);
+}
 
 function normalizeOrigin(value, fallbackValue) {
   const candidate = typeof value === "string" ? value.trim() : "";
@@ -183,7 +192,7 @@ function assertHelperExports(bodyText, contextMessage) {
 }
 
 async function runAuthPreflight(environment) {
-  const configText = fs.readFileSync(path.join(ROOT, "config.yaml"), "utf8");
+  const configText = fs.readFileSync(resolveConfigPath("config.yaml"), "utf8");
   const sessionConfig = getSignedSessionConfig();
   const sessionIdentity = createSessionIdentity();
   const sessionCookieHeader = createSessionCookieHeader(sessionIdentity);

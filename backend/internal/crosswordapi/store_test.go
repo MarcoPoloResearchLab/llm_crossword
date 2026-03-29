@@ -3,6 +3,9 @@ package crosswordapi
 import (
 	"errors"
 	"testing"
+	"time"
+
+	"gorm.io/gorm"
 )
 
 func testStore(t *testing.T) Store {
@@ -414,17 +417,181 @@ func TestAdminGrantRecords_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestPuzzleSolveRecords_RoundTripAndStats(t *testing.T) {
+	s := testStore(t)
+
+	ownerPuzzle := &Puzzle{
+		UserID: "owner-1",
+		Title:  "Rewarded",
+		Words:  []PuzzleWord{{Word: "ORBIT", Clue: "Path", Hint: "ellipse"}},
+	}
+	if err := s.CreatePuzzle(ownerPuzzle); err != nil {
+		t.Fatalf("CreatePuzzle: %v", err)
+	}
+
+	now := time.Now().UTC()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	dayEnd := dayStart.Add(24 * time.Hour)
+
+	ownerSolve := &PuzzleSolveRecord{
+		PuzzleID:              ownerPuzzle.ID,
+		PuzzleOwnerUserID:     "owner-1",
+		SolverUserID:          "owner-1",
+		Source:                "owner",
+		OwnerBaseRewardCoins:  3,
+		OwnerNoHintBonusCoins: 1,
+		OwnerDailyBonusCoins:  1,
+		SolverRewardCoins:     5,
+		CreatedAt:             now,
+	}
+	if err := s.CreatePuzzleSolveRecord(ownerSolve); err != nil {
+		t.Fatalf("CreatePuzzleSolveRecord owner: %v", err)
+	}
+
+	sharedSolve := &PuzzleSolveRecord{
+		PuzzleID:           ownerPuzzle.ID,
+		PuzzleOwnerUserID:  "owner-1",
+		SolverUserID:       "solver-1",
+		Source:             "shared",
+		CreatorRewardCoins: 1,
+		CreatedAt:          now,
+	}
+	if err := s.CreatePuzzleSolveRecord(sharedSolve); err != nil {
+		t.Fatalf("CreatePuzzleSolveRecord shared: %v", err)
+	}
+
+	gotOwnerSolve, err := s.GetPuzzleSolveRecord(ownerPuzzle.ID, "owner-1")
+	if err != nil {
+		t.Fatalf("GetPuzzleSolveRecord: %v", err)
+	}
+	if gotOwnerSolve.SolverRewardCoins != 5 {
+		t.Fatalf("expected owner reward of 5, got %d", gotOwnerSolve.SolverRewardCoins)
+	}
+
+	ownerCount, err := s.CountQualifiedOwnerSolvesByDay("owner-1", dayStart, dayEnd)
+	if err != nil {
+		t.Fatalf("CountQualifiedOwnerSolvesByDay: %v", err)
+	}
+	if ownerCount != 1 {
+		t.Fatalf("expected 1 qualified owner solve, got %d", ownerCount)
+	}
+
+	stats, err := s.GetPuzzleRewardStats(ownerPuzzle.ID, "owner-1", dayStart, dayEnd)
+	if err != nil {
+		t.Fatalf("GetPuzzleRewardStats: %v", err)
+	}
+	if stats.SharedUniqueSolves != 1 {
+		t.Fatalf("expected 1 shared unique solve, got %d", stats.SharedUniqueSolves)
+	}
+	if stats.CreatorCreditsEarned != 1 {
+		t.Fatalf("expected 1 creator credit earned, got %d", stats.CreatorCreditsEarned)
+	}
+	if stats.CreatorCreditsEarnedToday != 1 {
+		t.Fatalf("expected 1 creator credit earned today, got %d", stats.CreatorCreditsEarnedToday)
+	}
+}
+
+func TestPuzzleSolveRecords_EnforceUniquePuzzleSolver(t *testing.T) {
+	s := testStore(t)
+
+	puzzle := &Puzzle{
+		UserID: "owner-1",
+		Title:  "Unique",
+		Words:  []PuzzleWord{{Word: "ATOM", Clue: "Particle", Hint: "matter"}},
+	}
+	if err := s.CreatePuzzle(puzzle); err != nil {
+		t.Fatalf("CreatePuzzle: %v", err)
+	}
+
+	firstSolve := &PuzzleSolveRecord{
+		PuzzleID:          puzzle.ID,
+		PuzzleOwnerUserID: "owner-1",
+		SolverUserID:      "solver-1",
+		Source:            "shared",
+	}
+	if err := s.CreatePuzzleSolveRecord(firstSolve); err != nil {
+		t.Fatalf("CreatePuzzleSolveRecord first: %v", err)
+	}
+
+	secondSolve := &PuzzleSolveRecord{
+		PuzzleID:          puzzle.ID,
+		PuzzleOwnerUserID: "owner-1",
+		SolverUserID:      "solver-1",
+		Source:            "shared",
+	}
+	if err := s.CreatePuzzleSolveRecord(secondSolve); err == nil {
+		t.Fatal("expected duplicate puzzle+solver solve record to fail")
+	}
+}
+
+func TestCreatePuzzleSolveRecord_NilRecord(t *testing.T) {
+	s := testStore(t)
+	if err := s.CreatePuzzleSolveRecord(nil); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
+func TestGetPuzzleRewardStats_QueryErrors(t *testing.T) {
+	for _, failQueryIndex := range []int{1, 2, 3} {
+		t.Run(string(rune('0'+failQueryIndex)), func(t *testing.T) {
+			s := testStore(t)
+			gs, ok := s.(*gormStore)
+			if !ok {
+				t.Fatal("expected gormStore")
+			}
+
+			callbackName := "test_fail_query_stats_" + string(rune('0'+failQueryIndex))
+			queryCount := 0
+			failOnNthQuery := func(db *gorm.DB) {
+				queryCount++
+				if queryCount == failQueryIndex {
+					db.AddError(errors.New("forced query failure"))
+				}
+			}
+			if err := gs.db.Callback().Query().Before("gorm:query").Register(callbackName, failOnNthQuery); err != nil {
+				t.Fatalf("register callback: %v", err)
+			}
+			if err := gs.db.Callback().Raw().Before("gorm:raw").Register(callbackName, failOnNthQuery); err != nil {
+				t.Fatalf("register raw callback: %v", err)
+			}
+			if err := gs.db.Callback().Row().Before("gorm:row").Register(callbackName, failOnNthQuery); err != nil {
+				t.Fatalf("register row callback: %v", err)
+			}
+			defer func() {
+				_ = gs.db.Callback().Query().Remove(callbackName)
+				_ = gs.db.Callback().Raw().Remove(callbackName)
+				_ = gs.db.Callback().Row().Remove(callbackName)
+			}()
+
+			_, err := gs.GetPuzzleRewardStats("puzzle-1", "owner-1", time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour))
+			if err == nil {
+				t.Fatalf("expected query %d to fail", failQueryIndex)
+			}
+		})
+	}
+}
+
 // mockStore implements Store for handler testing.
 type mockStore struct {
-	createFunc            func(puzzle *Puzzle) error
-	listFunc              func(userID string) ([]Puzzle, error)
-	getFunc               func(id, userID string) (*Puzzle, error)
-	deleteFunc            func(id, userID string) error
-	getByShareFunc        func(token string) (*Puzzle, error)
-	upsertUserProfileFunc func(profile *UserProfile) error
-	listUsersFunc         func() ([]AdminUser, error)
-	createGrantRecordFunc func(record *AdminGrantRecord) error
-	listGrantRecordsFunc  func(targetUserID string, limit int) ([]AdminGrantRecord, error)
+	createFunc                                    func(puzzle *Puzzle) error
+	listFunc                                      func(userID string) ([]Puzzle, error)
+	getFunc                                       func(id, userID string) (*Puzzle, error)
+	deleteFunc                                    func(id, userID string) error
+	getByShareFunc                                func(token string) (*Puzzle, error)
+	getSolveRecordFunc                            func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error)
+	createSolveRecordFunc                         func(record *PuzzleSolveRecord) error
+	countOwnerSolvesFunc                          func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error)
+	getRewardStatsFunc                            func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error)
+	upsertUserProfileFunc                         func(profile *UserProfile) error
+	listUsersFunc                                 func() ([]AdminUser, error)
+	createGrantRecordFunc                         func(record *AdminGrantRecord) error
+	listGrantRecordsFunc                          func(targetUserID string, limit int) ([]AdminGrantRecord, error)
+	upsertBillingCustomerLinkFunc                 func(link *BillingCustomerLink) error
+	getBillingCustomerLinkFunc                    func(userID string, provider string) (*BillingCustomerLink, error)
+	getBillingCustomerLinkByPaddleIDFunc          func(provider string, paddleCustomerID string) (*BillingCustomerLink, error)
+	createBillingEventRecordFunc                  func(record *BillingEventRecord) error
+	listBillingEventRecordsFunc                   func(userID string, provider string, limit int) ([]BillingEventRecord, error)
+	getLatestBillingEventRecordForTransactionFunc func(provider string, transactionID string) (*BillingEventRecord, error)
 }
 
 func (m *mockStore) CreatePuzzle(puzzle *Puzzle) error {
@@ -463,6 +630,34 @@ func (m *mockStore) GetPuzzleByShareToken(token string) (*Puzzle, error) {
 	return nil, errors.New("not found")
 }
 
+func (m *mockStore) GetPuzzleSolveRecord(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+	if m.getSolveRecordFunc != nil {
+		return m.getSolveRecordFunc(puzzleID, solverUserID)
+	}
+	return nil, errors.New("not found")
+}
+
+func (m *mockStore) CreatePuzzleSolveRecord(record *PuzzleSolveRecord) error {
+	if m.createSolveRecordFunc != nil {
+		return m.createSolveRecordFunc(record)
+	}
+	return nil
+}
+
+func (m *mockStore) CountQualifiedOwnerSolvesByDay(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+	if m.countOwnerSolvesFunc != nil {
+		return m.countOwnerSolvesFunc(userID, dayStart, dayEnd)
+	}
+	return 0, nil
+}
+
+func (m *mockStore) GetPuzzleRewardStats(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+	if m.getRewardStatsFunc != nil {
+		return m.getRewardStatsFunc(puzzleID, ownerUserID, dayStart, dayEnd)
+	}
+	return &PuzzleRewardStats{}, nil
+}
+
 func (m *mockStore) UpsertUserProfile(profile *UserProfile) error {
 	if m.upsertUserProfileFunc != nil {
 		return m.upsertUserProfileFunc(profile)
@@ -489,4 +684,46 @@ func (m *mockStore) ListAdminGrantRecords(targetUserID string, limit int) ([]Adm
 		return m.listGrantRecordsFunc(targetUserID, limit)
 	}
 	return nil, nil
+}
+
+func (m *mockStore) UpsertBillingCustomerLink(link *BillingCustomerLink) error {
+	if m.upsertBillingCustomerLinkFunc != nil {
+		return m.upsertBillingCustomerLinkFunc(link)
+	}
+	return nil
+}
+
+func (m *mockStore) GetBillingCustomerLink(userID string, provider string) (*BillingCustomerLink, error) {
+	if m.getBillingCustomerLinkFunc != nil {
+		return m.getBillingCustomerLinkFunc(userID, provider)
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (m *mockStore) GetBillingCustomerLinkByPaddleCustomerID(provider string, paddleCustomerID string) (*BillingCustomerLink, error) {
+	if m.getBillingCustomerLinkByPaddleIDFunc != nil {
+		return m.getBillingCustomerLinkByPaddleIDFunc(provider, paddleCustomerID)
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (m *mockStore) CreateBillingEventRecord(record *BillingEventRecord) error {
+	if m.createBillingEventRecordFunc != nil {
+		return m.createBillingEventRecordFunc(record)
+	}
+	return nil
+}
+
+func (m *mockStore) ListBillingEventRecords(userID string, provider string, limit int) ([]BillingEventRecord, error) {
+	if m.listBillingEventRecordsFunc != nil {
+		return m.listBillingEventRecordsFunc(userID, provider, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockStore) GetLatestBillingEventRecordForTransaction(provider string, transactionID string) (*BillingEventRecord, error) {
+	if m.getLatestBillingEventRecordForTransactionFunc != nil {
+		return m.getLatestBillingEventRecordForTransactionFunc(provider, transactionID)
+	}
+	return nil, gorm.ErrRecordNotFound
 }

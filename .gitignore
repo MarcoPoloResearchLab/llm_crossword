@@ -25,3 +25,7 @@ coverage/
 tools/
 .claude/
 backend/coverage.html
+js/runtime-auth-config.js
+.playwright-cli/
+client_secret_*.json
+.runtime/

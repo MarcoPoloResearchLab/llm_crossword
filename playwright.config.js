@@ -15,7 +15,7 @@ module.exports = defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "node scripts/test-server.js",
+    command: "bash scripts/render-runtime-auth-config.sh && node scripts/test-server.js",
     port: 8111,
     reuseExistingServer: !process.env.CI,
   },
