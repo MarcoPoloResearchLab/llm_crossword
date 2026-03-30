@@ -639,6 +639,29 @@ test.describe("App coverage", () => {
     expect(result.state.currentCoins).toBeNull();
   });
 
+  test("covers updateBalance generation cost updates while logged out", async ({ page }) => {
+    await setupLoggedOutRoutes(page);
+    await page.goto("/");
+
+    var result = await page.evaluate(() => {
+      var app = window.__LLM_CROSSWORD_TEST__.app;
+
+      app.updateBalance({
+        coins: 9,
+        generation_cost_coins: 6,
+      });
+
+      return {
+        buttonText: document.getElementById("generateBtn").textContent,
+        state: app.getState(),
+      };
+    });
+
+    expect(result.buttonText).toBe("Generate");
+    expect(result.state.generationCostCredits).toBe(6);
+    expect(result.state.loggedIn).toBe(false);
+  });
+
   test("covers header sign-in flow when a header button exists", async ({ page }) => {
     await setupLoggedOutRoutes(page);
     await page.goto("/");
@@ -817,7 +840,10 @@ test.describe("App coverage", () => {
       shareBtn.click();
       await Promise.resolve();
       var copiedState = {
-        text: shareBtn.textContent,
+        ariaLabel: shareBtn.getAttribute("aria-label"),
+        icon: shareBtn.querySelector("[data-share-icon]")
+          ? shareBtn.querySelector("[data-share-icon]").textContent
+          : null,
         className: shareBtn.className,
       };
       shareBtn.dispatchEvent(new Event("animationend"));
@@ -832,7 +858,10 @@ test.describe("App coverage", () => {
       return {
         calls: window.__shareCalls,
         copiedState: copiedState,
-        finalText: shareBtn.textContent,
+        finalAriaLabel: shareBtn.getAttribute("aria-label"),
+        finalIcon: shareBtn.querySelector("[data-share-icon]")
+          ? shareBtn.querySelector("[data-share-icon]").textContent
+          : null,
       };
     });
 
@@ -846,9 +875,150 @@ test.describe("App coverage", () => {
       label: "Copy this link to share:",
       value: "http://localhost:8111/?puzzle=beta",
     });
-    expect(result.copiedState.text).toBe("Copied!");
+    expect(result.copiedState.ariaLabel).toBe("Copied share link");
+    expect(result.copiedState.icon).toBe("✓");
     expect(result.copiedState.className).toContain("copied-flash");
-    expect(result.finalText).toBe("Share");
+    expect(result.finalAriaLabel).toBe("Share");
+    expect(result.finalIcon).toBe("↗");
+  });
+
+  test("covers info and credit popover interaction branches", async ({ page }) => {
+    var describedPuzzle = clonePuzzleSpec("Popover Branch Puzzle");
+    describedPuzzle.description = "Popover branch coverage description.";
+
+    await setupLoggedInRoutes(page, {
+      coins: 12,
+      puzzles: [describedPuzzle],
+    });
+
+    await page.goto("/");
+    await expect(page.locator("#puzzleInfoButton")).toBeVisible({ timeout: 5000 });
+    await page.evaluate(() => {
+      window.__billingOpenCalls = [];
+      window.CrosswordBilling = {
+        openAccountBilling: function (options) {
+          window.__billingOpenCalls.push(options);
+        },
+      };
+      document.getElementById("rewardStripLabel").textContent = "";
+      document.getElementById("rewardStripMeta").textContent = "";
+      document.getElementById("shareHint").textContent = "";
+    });
+
+    await page.locator("#headerCreditBadge").click();
+    await expect(page.locator("#creditPopoverSections")).toContainText("Generate new crosswords");
+    await page.locator("#headerCreditBadge").click();
+    await expect(page.locator("#creditDetailsPopover")).toBeHidden();
+
+    await page.locator("#puzzleInfoButton").click();
+    await expect(page.locator("#puzzleInfoPopover")).toBeVisible();
+    await page.locator("#puzzleInfoButton").click();
+    await expect(page.locator("#puzzleInfoPopover")).toBeHidden();
+
+    await page.locator("#puzzleInfoButton").click();
+    await expect(page.locator("#puzzleInfoPopover")).toBeVisible();
+    await page.locator("#puzzleInfoContent").click();
+    await expect(page.locator("#puzzleInfoPopover")).toBeVisible();
+    await page.locator("#check").click();
+    await expect(page.locator("#puzzleInfoPopover")).toBeHidden();
+
+    await page.evaluate(() => {
+      var badge = document.getElementById("headerCreditBadge");
+      var popover = document.getElementById("creditDetailsPopover");
+      var viewportHeight = window.innerHeight;
+      var originalBadgeRect = badge.getBoundingClientRect.bind(badge);
+      var originalPopoverRect = popover.getBoundingClientRect.bind(popover);
+
+      badge.getBoundingClientRect = function () {
+        return {
+          x: 0,
+          y: viewportHeight - 48,
+          top: viewportHeight - 48,
+          bottom: viewportHeight - 8,
+          left: 600,
+          right: 720,
+          width: 120,
+          height: 40,
+          toJSON: function () {
+            return this;
+          },
+        };
+      };
+
+      popover.getBoundingClientRect = function () {
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          bottom: 220,
+          left: 0,
+          right: 320,
+          width: 320,
+          height: 220,
+          toJSON: function () {
+            return this;
+          },
+        };
+      };
+
+      window.__restoreCreditRects = function () {
+        badge.getBoundingClientRect = originalBadgeRect;
+        popover.getBoundingClientRect = originalPopoverRect;
+      };
+
+      badge.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    });
+    await expect(page.locator("#creditDetailsPopover")).toBeVisible();
+    await page.evaluate(() => {
+      if (window.__restoreCreditRects) {
+        window.__restoreCreditRects();
+      }
+    });
+
+    await page.evaluate(() => {
+      var badge = document.getElementById("headerCreditBadge");
+      var popover = document.getElementById("creditDetailsPopover");
+      var outsideButton = document.getElementById("check");
+
+      badge.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true, relatedTarget: popover }));
+      popover.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true, relatedTarget: badge }));
+      popover.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true, relatedTarget: outsideButton }));
+    });
+    await page.waitForTimeout(250);
+    await expect(page.locator("#creditDetailsPopover")).toBeHidden();
+
+    await page.locator("#headerCreditBadge").focus();
+    await expect(page.locator("#creditDetailsPopover")).toBeVisible();
+    await page.locator("#creditPopoverBillingButton").focus();
+    await page.locator("#headerCreditBadge").focus();
+    await page.locator("#creditPopoverBillingButton").focus();
+    await page.locator("#check").focus();
+    await page.waitForTimeout(250);
+    await expect(page.locator("#creditDetailsPopover")).toBeHidden();
+
+    await page.locator("#headerCreditBadge").click();
+    await expect(page.locator("#creditDetailsPopover")).toBeVisible();
+    await page.locator("#creditPopoverBillingButton").click();
+    await expect(page.locator("#creditDetailsPopover")).toBeHidden();
+    expect(await page.evaluate(() => window.__billingOpenCalls.slice())).toEqual([
+      {
+        force: true,
+        message: "",
+        source: "header_credit_popover",
+      },
+    ]);
+
+    await page.evaluate(() => {
+      var app = window.__LLM_CROSSWORD_TEST__.app;
+      var creditBadge = document.getElementById("headerCreditBadge");
+      var infoButton = document.getElementById("puzzleInfoButton");
+
+      app.setLoggedIn(false);
+      infoButton.hidden = true;
+      infoButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      creditBadge.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+      creditBadge.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
   });
 
   test("covers verifySessionStillValid on non-auth failure responses", async ({ page }) => {

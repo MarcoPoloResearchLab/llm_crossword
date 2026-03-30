@@ -292,36 +292,42 @@ test.describe("Layout — no excessive empty space", () => {
     expect(layout.pvWidth).toBeGreaterThanOrEqual(layout.viewportWidth * 0.9);
   });
 
-  test("solver prism stays inside the header and above the grid", async ({ page }) => {
+  test("solver toolbar stays inside the clue rail and above the clue list", async ({ page }) => {
     await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await page.locator("#puzzleView .cell").first().waitFor({ timeout: 5000 });
 
     const layout = await page.evaluate(() => {
-      var controls = document.querySelector("#headerPuzzleTabs");
-      var header = document.querySelector("header.mpr-header");
-      var firstCell = document.querySelector("#puzzleView .cell");
-      if (!controls || !header || !firstCell) return null;
+      var controls = document.querySelector("#puzzleToolbar");
+      var clues = document.querySelector("#puzzleView .clues");
+      var firstClueGroup = document.querySelector("#puzzleView .clues .cluegrp");
+      if (!controls || !clues || !firstClueGroup) return null;
       var controlsRect = controls.getBoundingClientRect();
-      var headerRect = header.getBoundingClientRect();
-      var firstCellRect = firstCell.getBoundingClientRect();
+      var cluesRect = clues.getBoundingClientRect();
+      var firstClueGroupRect = firstClueGroup.getBoundingClientRect();
       return {
         controlsBottom: controlsRect.bottom,
         controlsTop: controlsRect.top,
-        headerBottom: headerRect.bottom,
-        headerTop: headerRect.top,
-        firstCellTop: firstCellRect.top,
+        controlsLeft: controlsRect.left,
+        controlsRight: controlsRect.right,
+        cluesLeft: cluesRect.left,
+        cluesRight: cluesRect.right,
+        cluesTop: cluesRect.top,
+        cluesBottom: cluesRect.bottom,
+        firstClueGroupTop: firstClueGroupRect.top,
       };
     });
 
     expect(layout).not.toBeNull();
-    expect(layout.controlsTop).toBeGreaterThanOrEqual(layout.headerTop - 1);
-    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.headerBottom + 1);
-    expect(layout.controlsBottom).toBeLessThan(layout.firstCellTop);
+    expect(layout.controlsTop).toBeGreaterThanOrEqual(layout.cluesTop - 1);
+    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.cluesBottom + 1);
+    expect(layout.controlsLeft).toBeGreaterThanOrEqual(layout.cluesLeft - 1);
+    expect(layout.controlsRight).toBeLessThanOrEqual(layout.cluesRight + 1);
+    expect(layout.controlsBottom).toBeLessThan(layout.firstClueGroupTop);
   });
 
-  test("solver prism stays in the header on a short viewport", async ({ page }) => {
+  test("solver toolbar stays in the clue rail on a short viewport", async ({ page }) => {
     await page.setViewportSize({ width: 2048, height: 300 });
     await setupLoggedOutRoutes(page, { puzzles: puzzlePayload });
     await page.goto("/");
@@ -330,22 +336,32 @@ test.describe("Layout — no excessive empty space", () => {
     await page.waitForTimeout(500);
 
     const layout = await page.evaluate(() => {
-      var controls = document.querySelector("#headerPuzzleTabs");
-      var header = document.querySelector("header.mpr-header");
-      if (!controls || !header) return null;
+      var controls = document.querySelector("#puzzleToolbar");
+      var clues = document.querySelector("#puzzleView .clues");
+      var firstClueGroup = document.querySelector("#puzzleView .clues .cluegrp");
+      if (!controls || !clues || !firstClueGroup) return null;
       var controlsRect = controls.getBoundingClientRect();
-      var headerRect = header.getBoundingClientRect();
+      var cluesRect = clues.getBoundingClientRect();
+      var firstClueGroupRect = firstClueGroup.getBoundingClientRect();
       return {
         controlsBottom: controlsRect.bottom,
         controlsTop: controlsRect.top,
-        headerBottom: headerRect.bottom,
-        headerTop: headerRect.top,
+        controlsLeft: controlsRect.left,
+        controlsRight: controlsRect.right,
+        cluesLeft: cluesRect.left,
+        cluesRight: cluesRect.right,
+        cluesTop: cluesRect.top,
+        cluesBottom: cluesRect.bottom,
+        firstClueGroupTop: firstClueGroupRect.top,
       };
     });
 
     expect(layout).not.toBeNull();
-    expect(layout.controlsTop).toBeGreaterThanOrEqual(layout.headerTop - 1);
-    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.headerBottom + 1);
+    expect(layout.controlsTop).toBeGreaterThanOrEqual(layout.cluesTop - 1);
+    expect(layout.controlsBottom).toBeLessThanOrEqual(layout.cluesBottom + 1);
+    expect(layout.controlsLeft).toBeGreaterThanOrEqual(layout.cluesLeft - 1);
+    expect(layout.controlsRight).toBeLessThanOrEqual(layout.cluesRight + 1);
+    expect(layout.controlsBottom).toBeLessThan(layout.firstClueGroupTop);
   });
 });
 

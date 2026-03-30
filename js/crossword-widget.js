@@ -515,7 +515,6 @@
   CrosswordWidget.prototype.render = function (p) {
     if (this._destroyed) return;
 
-    var self = this;
     var gridEl = this._gridEl;
     var acrossOl = this._acrossOl;
     var downOl = this._downOl;
