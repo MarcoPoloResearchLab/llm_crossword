@@ -55,23 +55,25 @@ test.describe("Credits gamification", () => {
     await expect(page.locator('[data-puzzle-key="owned-1"]')).toBeVisible();
   });
 
-  test("shows reward-strip states for owned and practice puzzles", async ({ page }) => {
+  test("shows credit popover states for owned and practice puzzles", async ({ page }) => {
     await setupLoggedInRoutes(page, {
       ownedPuzzles: [ownedPuzzle],
     });
 
     await page.goto("/");
     await openOwnedPuzzle(page);
-    await expect(page.locator("#rewardStripLabel")).toContainText("Solve to earn credits");
-    await expect(page.locator("#rewardStripMeta")).toContainText("Base reward: 3 credits");
-    await expect(page.locator("#shareHint")).toContainText("Share to earn up to 10 credits");
+    await page.locator("#headerCreditBadge").click();
+    await expect(page.locator("#creditDetailsPopover")).toBeVisible();
+    await expect(page.locator("#creditPopoverSections")).toContainText("Solve to earn credits");
+    await expect(page.locator("#creditPopoverSections")).toContainText("Base reward: 3 credits");
+    await expect(page.locator("#creditPopoverSections")).toContainText("Share to earn");
 
     await page.locator('[data-puzzle-key="prebuilt:0"]').click();
-    await expect(page.locator("#rewardStripLabel")).toContainText("Practice puzzle");
-    await expect(page.locator("#rewardStripMeta")).toContainText("do not affect credits");
+    await expect(page.locator("#creditPopoverSections")).toContainText("Practice puzzle");
+    await expect(page.locator("#creditPopoverSections")).toContainText("do not affect credits");
   });
 
-  test("shows shared sign-in reward strip for anonymous viewers", async ({ page }) => {
+  test("keeps reward details out of the solver body for anonymous viewers", async ({ page }) => {
     await setupLoggedOutRoutes(page, {
       extra: {
         "**/api/shared/shared-token": (route) => route.fulfill(json(200, sharedPuzzle)),
@@ -81,11 +83,11 @@ test.describe("Credits gamification", () => {
     await page.goto("/?puzzle=shared-token");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#title")).toContainText("Shared Puzzle", { timeout: 5000 });
-    await expect(page.locator("#rewardStripLabel")).toContainText("Shared puzzle");
-    await expect(page.locator("#rewardStripMeta")).toContainText("Sign in if you want your solve to support the creator");
+    await expect(page.locator("#headerCreditBadge")).toBeHidden();
+    await expect(page.locator("#rewardStrip")).toBeHidden();
   });
 
-  test("owner completion updates balance, reward strip, and completion modal", async ({ page }) => {
+  test("owner completion updates balance, credit popover details, and completion modal", async ({ page }) => {
     await setupLoggedInRoutes(page, {
       coins: 18,
       ownedPuzzles: [ownedPuzzle],
@@ -122,7 +124,10 @@ test.describe("Credits gamification", () => {
     await expect(page.locator("#completionBreakdown")).toContainText("Base reward");
     await expect(page.locator("#completionBreakdown")).toContainText("No-hint bonus");
     await expect(page.locator("#headerCreditBadge")).toContainText("23 credits");
-    await expect(page.locator("#rewardStripLabel")).toContainText("Reward claimed");
+    await page.locator("#completionCloseButton").click();
+    await expect(page.locator("#completionModal")).toBeHidden();
+    await page.locator("#headerCreditBadge").click();
+    await expect(page.locator("#creditPopoverSections")).toContainText("Reward claimed");
   });
 
   test("shared completion credits the creator without changing solver balance", async ({ page }) => {
@@ -191,7 +196,8 @@ test.describe("Credits gamification", () => {
     });
 
     await expect(page.locator("#completionModal")).toBeHidden();
-    await expect(page.locator("#rewardStripLabel")).toContainText("Reward unavailable");
     await expect(page.locator("#headerCreditBadge")).toContainText("18 credits");
+    await page.locator("#headerCreditBadge").click();
+    await expect(page.locator("#creditPopoverSections")).toContainText("Reward unavailable");
   });
 });
