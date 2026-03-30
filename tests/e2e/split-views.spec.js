@@ -67,16 +67,18 @@ test.describe("Solver view — no tabs", () => {
     await expect(page.locator("#puzzleView")).toHaveAttribute("data-sidebar-collapsed", "true");
     await expect(firstCard).toBeHidden();
 
-    const collapsedWidth = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
-    expect(collapsedWidth).toBeLessThan(40);
+    await expect
+      .poll(async () => sidebar.evaluate((element) => element.getBoundingClientRect().width))
+      .toBeLessThan(40);
 
     await page.getByRole("button", { name: "Expand puzzle list" }).click();
 
     await expect(page.locator("#puzzleView")).toHaveAttribute("data-sidebar-collapsed", "false");
     await expect(firstCard).toBeVisible();
 
-    const restoredWidth = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
-    expect(restoredWidth).toBeGreaterThan(200);
+    await expect
+      .poll(async () => sidebar.evaluate((element) => element.getBoundingClientRect().width))
+      .toBeGreaterThan(200);
   });
 
   test("solver view shows grid and clues", async ({ page }) => {
@@ -88,21 +90,23 @@ test.describe("Solver view — no tabs", () => {
     await expect(page.locator("#puzzleView").getByText("Down")).toBeVisible();
   });
 
-  test("solver view hides details toggle for puzzles without descriptions", async ({ page }) => {
+  test("solver view hides the description header for puzzles without descriptions", async ({ page }) => {
     await setupLoggedOutRoutes(page, { puzzles: testPuzzleData });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#descriptionPanel")).toBeHidden();
   });
 
-  test("solver view has Check, Reveal, and Back buttons", async ({ page }) => {
+  test("solver view keeps Check, Review, and Share visible in the header", async ({ page }) => {
     await setupLoggedOutRoutes(page, { puzzles: testPuzzleData });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#headerPuzzleTabs")).toBeVisible();
     await expect(page.getByRole("button", { name: "Check" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reveal" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Back" })).toBeVisible();
+    await expect(page.locator("#reveal")).toHaveText("Review");
+    await expect(page.getByRole("button", { name: "Share" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
   });
 
   test("generate form is hidden in solver when logged out", async ({ page }) => {
@@ -163,25 +167,20 @@ test.describe("Generate flow — landing to solver", () => {
     // Solver should show the generated puzzle title
     await expect(page.locator("#title")).toContainText("Greek Gods");
     await expect(page.locator("#subtitle")).toContainText("Olympian clue set");
-    await expect(page.locator("#descriptionToggle")).toBeVisible();
-    await expect(page.locator("#descriptionContent")).toBeHidden();
-    await page.locator("#descriptionToggle").click();
+    await expect(page.locator("#descriptionPanel")).toBeVisible();
     await expect(page.locator("#descriptionContent")).toContainText("major Olympian deities");
-    await page.locator("#descriptionToggle").click();
-    await expect(page.locator("#descriptionContent")).toBeHidden();
+    var layout = await page.evaluate(() => {
+      var title = document.getElementById("title");
+      var clues = document.querySelector("#puzzleView .clues");
+      if (!title || !clues) return null;
+      return {
+        titleTop: title.getBoundingClientRect().top,
+        cluesTop: clues.getBoundingClientRect().top,
+      };
+    });
+    expect(layout).not.toBeNull();
+    expect(Math.abs(layout.cluesTop - layout.titleTop)).toBeLessThanOrEqual(8);
     // Generate panel should be hidden after successful generation
     await expect(page.locator("#generatePanel")).toBeHidden();
-  });
-});
-
-test.describe("Back button", () => {
-  test("back returns to landing from solver", async ({ page }) => {
-    await setupLoggedOutRoutes(page, { puzzles: testPuzzleData });
-    await page.goto("/");
-    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-    await page.getByRole("button", { name: "Back" }).click();
-    await expect(page.locator("#landingPage")).toBeVisible();
-    await expect(page.locator("#puzzleView")).toBeHidden();
   });
 });

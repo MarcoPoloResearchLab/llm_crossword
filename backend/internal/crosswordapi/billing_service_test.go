@@ -19,12 +19,14 @@ import (
 
 type mockBillingProvider struct {
 	checkoutSession billingCheckoutSession
+	checkoutErr     error
 	code            string
 	customerLink    *BillingCustomerLink
 	eventRecord     BillingEventRecord
 	grantEvent      *BillingGrantEvent
 	parseErr        error
 	portalSession   billingPortalSession
+	portalErr       error
 	publicConfig    billingPublicConfig
 	signatureErr    error
 }
@@ -60,11 +62,11 @@ func (provider *mockBillingProvider) ParseWebhookEvent(payload []byte) (billingP
 }
 
 func (provider *mockBillingProvider) CreateCheckout(ctx context.Context, userID string, userEmail string, pack BillingPack, returnURL string) (billingCheckoutSession, error) {
-	return provider.checkoutSession, nil
+	return provider.checkoutSession, provider.checkoutErr
 }
 
 func (provider *mockBillingProvider) CreatePortalSession(ctx context.Context, customerLink BillingCustomerLink) (billingPortalSession, error) {
-	return provider.portalSession, nil
+	return provider.portalSession, provider.portalErr
 }
 
 func TestBillingServiceSummary_IncludesPortalAndActivity(t *testing.T) {
@@ -300,7 +302,7 @@ func TestHandleBillingSummaryAndCheckout(t *testing.T) {
 			checkoutSession: billingCheckoutSession{
 				ProviderCode:  billingProviderPaddle,
 				TransactionID: "txn_123",
-				CheckoutURL:   "https://example.com/pay?return_to=%7Btransaction_id%7D",
+				CheckoutURL:   "https://example.com/pay?return_to=https%3A%2F%2Fsite.example.com%2F%3Fbilling_transaction_id%3Dtxn_123",
 			},
 		},
 		store: handler.store,
@@ -324,6 +326,9 @@ func TestHandleBillingSummaryAndCheckout(t *testing.T) {
 
 	checkoutPayload := decodeJSONMap(t, checkoutResponse.Body.String())
 	if checkoutPayload["transaction_id"] != "txn_123" {
+		t.Fatalf("unexpected checkout payload: %#v", checkoutPayload)
+	}
+	if checkoutPayload["checkout_url"] != "https://example.com/pay?return_to=https%3A%2F%2Fsite.example.com%2F%3Fbilling_transaction_id%3Dtxn_123" {
 		t.Fatalf("unexpected checkout payload: %#v", checkoutPayload)
 	}
 

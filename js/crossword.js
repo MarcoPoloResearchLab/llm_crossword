@@ -14,6 +14,7 @@
   var _fetch = window.fetch.bind(window);
   var documentElement = document.documentElement;
   var emptyString = "";
+  var cssCluesPanelOffsetProperty = "--clues-panel-offset";
   var cssFooterHeightProperty = "--footer-height";
   var cssHeaderHeightProperty = "--header-height";
   var cssViewportHeightProperty = "--viewport-height";
@@ -31,17 +32,22 @@
     downOl: document.getElementById("down"),
     descriptionContent: document.getElementById("descriptionContent"),
     descriptionPanel: document.getElementById("descriptionPanel"),
-    descriptionToggle: document.getElementById("descriptionToggle"),
     errorBox: document.getElementById("errorBox"),
     footer: document.getElementById("page-footer"),
     generatePanel: document.getElementById("generatePanel"),
     gridEl: document.getElementById("grid"),
     gridViewport: document.getElementById("gridViewport"),
     header: document.getElementById("app-header"),
+    headerPuzzleTabs: document.getElementById("headerPuzzleTabs"),
     puzzleControls: document.querySelector("#puzzleView .controls"),
+    puzzleHeader: document.querySelector("#puzzleView .hdr"),
     puzzlePane: document.querySelector("#puzzleView .pane"),
     puzzleView: document.getElementById("puzzleView"),
     revealBtn: document.getElementById("reveal"),
+    rewardStrip: document.getElementById("rewardStrip"),
+    rewardStripLabel: document.getElementById("rewardStripLabel"),
+    rewardStripMeta: document.getElementById("rewardStripMeta"),
+    shareHint: document.getElementById("shareHint"),
     shareBtn: document.getElementById("shareBtn"),
     sidebar: document.getElementById("puzzleSidebar"),
     sidebarToggle: document.getElementById("puzzleSidebarToggle"),
@@ -58,6 +64,7 @@
   var state = {
     activeCardElement: null,
     activePuzzleIndex: -1,
+    activePuzzleKey: null,
     allPuzzles: [],
     lastLayout: {
       footerHeight: 0,
@@ -70,8 +77,12 @@
     layoutSyncQueued: false,
     layoutMutationObserver: null,
     prebuiltLoadPromise: null,
+    ownedLoadPromise: null,
     recalculateQueued: false,
-    descriptionExpanded: false,
+    loggedIn: false,
+    ownedPuzzles: [],
+    prebuiltPuzzles: [],
+    sharedPuzzle: null,
     sidebarCollapsed: false,
   };
 
@@ -119,7 +130,21 @@
     return fallbackHeight;
   }
 
+  function readCluesPanelOffset() {
+    var headerRect;
+    var paneRect;
+
+    if (!elements.puzzleHeader || !elements.puzzlePane || !elements.descriptionPanel || elements.descriptionPanel.hidden) {
+      return 0;
+    }
+
+    headerRect = elements.puzzleHeader.getBoundingClientRect();
+    paneRect = elements.puzzlePane.getBoundingClientRect();
+    return Math.max(0, Math.round(paneRect.top - headerRect.top));
+  }
+
   function applyLayoutMetrics() {
+    var cluesPanelOffset = readCluesPanelOffset();
     var nextLayout = {
       footerHeight: normalizeShellHeight(
         readElementHeight(getFooterElement()),
@@ -139,10 +164,12 @@
       nextLayout.headerHeight === state.lastLayout.headerHeight &&
       nextLayout.viewportHeight === state.lastLayout.viewportHeight
     ) {
+      documentElement.style.setProperty(cssCluesPanelOffsetProperty, cluesPanelOffset + "px");
       return;
     }
 
     state.lastLayout = nextLayout;
+    documentElement.style.setProperty(cssCluesPanelOffsetProperty, cluesPanelOffset + "px");
     documentElement.style.setProperty(cssFooterHeightProperty, nextLayout.footerHeight + "px");
     documentElement.style.setProperty(cssHeaderHeightProperty, nextLayout.headerHeight + "px");
     documentElement.style.setProperty(cssViewportHeightProperty, nextLayout.viewportHeight + "px");
@@ -302,30 +329,202 @@
     return element;
   }
 
-  function createPuzzleCard(puzzle, index) {
+  function coerceRewardSummary(summary) {
+    if (!summary || typeof summary !== "object") return null;
+    return {
+      owner_reward_status: typeof summary.owner_reward_status === "string" ? summary.owner_reward_status : "practice",
+      owner_reward_claim_total: Number(summary.owner_reward_claim_total || 0),
+      shared_unique_solves: Number(summary.shared_unique_solves || 0),
+      creator_credits_earned: Number(summary.creator_credits_earned || 0),
+      creator_puzzle_cap_remaining: Number(summary.creator_puzzle_cap_remaining || 0),
+      creator_daily_cap_remaining: Number(summary.creator_daily_cap_remaining || 0),
+    };
+  }
+
+  function ensurePuzzleKey(puzzle, fallbackPrefix, fallbackIndex) {
+    if (!puzzle || typeof puzzle !== "object") return fallbackPrefix + ":" + fallbackIndex;
+    if (puzzle.puzzleKey) return puzzle.puzzleKey;
+    if (puzzle.id) {
+      puzzle.puzzleKey = String(puzzle.id);
+      return puzzle.puzzleKey;
+    }
+    puzzle.puzzleKey = fallbackPrefix + ":" + fallbackIndex;
+    return puzzle.puzzleKey;
+  }
+
+  function preparePuzzle(puzzle, source, fallbackIndex) {
+    if (!puzzle || typeof puzzle !== "object") return null;
+    puzzle.source = source || puzzle.source || "practice";
+    puzzle.rewardSummary = coerceRewardSummary(puzzle.rewardSummary || puzzle.reward_summary);
+    ensurePuzzleKey(puzzle, puzzle.source, fallbackIndex);
+    return puzzle;
+  }
+
+  function buildStoredPuzzleFromResponse(rawPuzzle, fallbackSource, fallbackIndex) {
+    var specification;
+    var puzzle;
+
+    specification = {
+      title: rawPuzzle && typeof rawPuzzle.title === "string" ? rawPuzzle.title : "Crossword",
+      subtitle: rawPuzzle && typeof rawPuzzle.subtitle === "string" ? rawPuzzle.subtitle : emptyString,
+      description: rawPuzzle && typeof rawPuzzle.description === "string" ? rawPuzzle.description : emptyString,
+      items: rawPuzzle && Array.isArray(rawPuzzle.items) ? rawPuzzle.items : null,
+    };
+
+    if (!validatePuzzleSpecification(specification)) {
+      throw new Error("Crossword specification invalid");
+    }
+
+    puzzle = buildPuzzleFromSpecification(specification);
+    puzzle.id = rawPuzzle && rawPuzzle.id ? String(rawPuzzle.id) : null;
+    puzzle.shareToken = rawPuzzle && typeof rawPuzzle.share_token === "string" ? rawPuzzle.share_token : null;
+    puzzle.source = rawPuzzle && typeof rawPuzzle.source === "string" ? rawPuzzle.source : fallbackSource;
+    puzzle.rewardSummary = coerceRewardSummary(rawPuzzle && rawPuzzle.reward_summary);
+    ensurePuzzleKey(puzzle, puzzle.source || fallbackSource || "stored", fallbackIndex);
+    return puzzle;
+  }
+
+  function getVisiblePuzzles() {
+    var visiblePuzzles = [];
+    var index;
+
+    if (state.sharedPuzzle) {
+      visiblePuzzles.push(state.sharedPuzzle);
+    }
+    for (index = 0; index < state.ownedPuzzles.length; index++) {
+      visiblePuzzles.push(state.ownedPuzzles[index]);
+    }
+    for (index = 0; index < state.prebuiltPuzzles.length; index++) {
+      visiblePuzzles.push(state.prebuiltPuzzles[index]);
+    }
+    return visiblePuzzles;
+  }
+
+  function findPuzzleIndexByKey(puzzleKey) {
+    var visiblePuzzles = state.allPuzzles;
+    var index;
+    for (index = 0; index < visiblePuzzles.length; index++) {
+      if (visiblePuzzles[index] && visiblePuzzles[index].puzzleKey === puzzleKey) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  function findPuzzleByKey(puzzleKey) {
+    var puzzleIndex = findPuzzleIndexByKey(puzzleKey);
+    return puzzleIndex >= 0 ? state.allPuzzles[puzzleIndex] : null;
+  }
+
+  function setActivePuzzleByKey(puzzleKey) {
+    state.activePuzzleKey = puzzleKey || null;
+    state.activePuzzleIndex = state.activePuzzleKey ? findPuzzleIndexByKey(state.activePuzzleKey) : -1;
+  }
+
+  function rebuildVisiblePuzzles() {
+    var nextPuzzles = getVisiblePuzzles();
+    var activeIndex;
+
+    state.allPuzzles = nextPuzzles;
+    if (nextPuzzles.length === 0) {
+      state.activePuzzleKey = null;
+      state.activePuzzleIndex = -1;
+      return;
+    }
+    activeIndex = state.activePuzzleKey ? findPuzzleIndexByKey(state.activePuzzleKey) : -1;
+    if (activeIndex < 0 && nextPuzzles.length > 0) {
+      setActivePuzzleByKey(nextPuzzles[0].puzzleKey);
+      return;
+    }
+    state.activePuzzleIndex = activeIndex;
+  }
+
+  function replacePuzzleById(collection, puzzle) {
+    var nextCollection = [];
+    var replaced = false;
+    var index;
+
+    for (index = 0; index < collection.length; index++) {
+      if (puzzle.id && collection[index].id === puzzle.id) {
+        nextCollection.push(puzzle);
+        replaced = true;
+      } else {
+        nextCollection.push(collection[index]);
+      }
+    }
+
+    if (!replaced) {
+      nextCollection.unshift(puzzle);
+    }
+    return nextCollection;
+  }
+
+  function buildCardDescription(puzzle) {
+    if (!puzzle) return emptyString;
+    if (typeof puzzle.description === "string" && puzzle.description.trim()) {
+      return puzzle.description.trim();
+    }
+    if (typeof puzzle.subtitle === "string" && puzzle.subtitle.trim()) {
+      return puzzle.subtitle.trim();
+    }
+    return emptyString;
+  }
+
+  function createPuzzleCard(puzzle) {
     var card = document.createElement("div");
     var thumb = document.createElement("div");
+    var copy = document.createElement("div");
     var title = document.createElement("div");
+    var description = document.createElement("div");
 
     card.className = "puzzle-card";
-    card.dataset.puzzleIndex = String(index);
+    card.dataset.puzzleKey = puzzle.puzzleKey;
 
     thumb.className = "puzzle-card__thumb";
     thumb.appendChild(renderMiniGrid(puzzle.entries));
 
+    copy.className = "puzzle-card__copy";
+
     title.className = "puzzle-card__title";
     title.textContent = puzzle.title;
 
+    description.className = "puzzle-card__description";
+    description.textContent = buildCardDescription(puzzle);
+
+    copy.appendChild(title);
+    copy.appendChild(description);
+
     card.appendChild(thumb);
-    card.appendChild(title);
+    card.appendChild(copy);
     return card;
+  }
+
+  function renderSidebarSection(title, puzzles) {
+    var section = document.createElement("section");
+    var heading = document.createElement("div");
+    var list = document.createElement("div");
+    var puzzleIndex;
+
+    section.className = "puzzle-sidebar__section";
+    heading.className = "puzzle-sidebar__section-title";
+    heading.textContent = title;
+    list.className = "puzzle-card-list";
+
+    for (puzzleIndex = 0; puzzleIndex < puzzles.length; puzzleIndex++) {
+      list.appendChild(createPuzzleCard(puzzles[puzzleIndex]));
+    }
+
+    section.appendChild(heading);
+    section.appendChild(list);
+    return section;
   }
 
   function notifyShareToken(puzzle) {
     var token = (puzzle && puzzle.shareToken) || null;
 
     if (elements.shareBtn) {
-      elements.shareBtn.style.display = token ? "" : "none";
+      elements.shareBtn.style.display = "";
+      elements.shareBtn.disabled = !token;
     }
 
     window.dispatchEvent(new CustomEvent("crossword:share-token", {
@@ -344,12 +543,7 @@
   }
 
   function setDescriptionExpanded(isExpanded) {
-    if (!elements.descriptionToggle || !elements.descriptionContent || !elements.descriptionPanel) return;
-
-    state.descriptionExpanded = !!isExpanded && !elements.descriptionPanel.hidden && !!elements.descriptionContent.textContent;
-    elements.descriptionToggle.textContent = state.descriptionExpanded ? "Hide details" : "Show details";
-    elements.descriptionToggle.setAttribute("aria-expanded", state.descriptionExpanded ? "true" : "false");
-    elements.descriptionContent.hidden = !state.descriptionExpanded;
+    void isExpanded;
     scheduleLayoutSync();
     scheduleRecalculate();
   }
@@ -357,16 +551,91 @@
   function updatePuzzleDescription(description) {
     var normalizedDescription = typeof description === "string" ? description.trim() : emptyString;
 
-    if (!elements.descriptionPanel || !elements.descriptionToggle || !elements.descriptionContent) return;
+    if (!elements.descriptionPanel || !elements.descriptionContent) return;
 
     elements.descriptionContent.textContent = normalizedDescription;
+    elements.descriptionContent.hidden = normalizedDescription === emptyString;
     elements.descriptionPanel.hidden = normalizedDescription === emptyString;
-    setDescriptionExpanded(false);
+    scheduleLayoutSync();
+    scheduleRecalculate();
+  }
+
+  function updateRewardUI(puzzle) {
+    var rewardSummary = puzzle && puzzle.rewardSummary;
+    var label = "";
+    var meta = "";
+
+    if (!elements.rewardStrip || !elements.rewardStripLabel || !elements.rewardStripMeta) return;
+    if (!puzzle) {
+      elements.rewardStrip.hidden = true;
+      return;
+    }
+
+    if (puzzle.source === "owned") {
+      if (rewardSummary && rewardSummary.owner_reward_status === "claimed") {
+        label = "Reward claimed";
+        meta = rewardSummary.owner_reward_claim_total > 0
+          ? "You earned " + rewardSummary.owner_reward_claim_total + " credits. Shared solves: " +
+            rewardSummary.shared_unique_solves + ". Creator credits earned: " +
+            rewardSummary.creator_credits_earned + "."
+          : "This puzzle has already recorded its solve outcome.";
+      } else if (rewardSummary && rewardSummary.owner_reward_status === "ineligible") {
+        label = "Reward unavailable";
+        meta = "This puzzle no longer qualifies for solve credits.";
+      } else {
+        label = "Solve to earn credits";
+        meta = "Base reward: 3 credits. No hints: +1. First 3 owner solves each UTC day: +1.";
+      }
+      if (rewardSummary && rewardSummary.owner_reward_status !== "claimed") {
+        meta += " Shared solves: " + rewardSummary.shared_unique_solves + ". Creator credits earned: " +
+          rewardSummary.creator_credits_earned + ".";
+      }
+    } else if (puzzle.source === "shared") {
+      if (!state.loggedIn) {
+        label = "Shared puzzle";
+        meta = "Sign in if you want your solve to support the creator.";
+      } else {
+        label = "Support the creator";
+        meta = "Finish without Reveal and your solve can give the creator 1 credit.";
+      }
+    } else {
+      label = "Practice puzzle";
+      meta = "Prebuilt puzzles are for practice and do not affect credits.";
+    }
+
+    elements.rewardStripLabel.textContent = label;
+    elements.rewardStripMeta.textContent = meta;
+    elements.rewardStrip.hidden = false;
+  }
+
+  function updateShareHint(puzzle) {
+    if (!elements.shareHint) return;
+    if (!puzzle || !puzzle.shareToken) {
+      elements.shareHint.hidden = true;
+      elements.shareHint.textContent = "";
+      return;
+    }
+
+    if (puzzle.source === "owned") {
+      elements.shareHint.textContent =
+        "Share to earn up to 10 credits from unique signed-in solvers. " +
+        "Shared solves: " + (puzzle.rewardSummary ? puzzle.rewardSummary.shared_unique_solves : 0) + ". " +
+        "Creator credits earned: " + (puzzle.rewardSummary ? puzzle.rewardSummary.creator_credits_earned : 0) + ". " +
+        "Puzzle cap left: " + (puzzle.rewardSummary ? puzzle.rewardSummary.creator_puzzle_cap_remaining : 10) + ".";
+      elements.shareHint.hidden = false;
+      return;
+    }
+
+    elements.shareHint.hidden = true;
+    elements.shareHint.textContent = "";
   }
 
   function showPuzzleBoard() {
     if (elements.generatePanel) {
       elements.generatePanel.style.display = "none";
+    }
+    if (elements.headerPuzzleTabs) {
+      elements.headerPuzzleTabs.hidden = false;
     }
     if (elements.puzzlePane) {
       elements.puzzlePane.style.display = "";
@@ -378,45 +647,50 @@
 
   function renderPuzzle(puzzle) {
     updatePuzzleMetadata(puzzle);
+    updateRewardUI(puzzle);
+    updateShareHint(puzzle);
     widget.render(puzzle);
     notifyShareToken(puzzle);
+    window.dispatchEvent(new CustomEvent("crossword:active-puzzle", {
+      detail: puzzle,
+    }));
     scheduleLayoutSync();
     scheduleRecalculate();
   }
 
   function renderSidebar() {
-    var puzzleIndex;
-    var card;
-
     if (!elements.cardList) return;
 
     elements.cardList.innerHTML = "";
-    for (puzzleIndex = 0; puzzleIndex < state.allPuzzles.length; puzzleIndex++) {
-      card = createPuzzleCard(state.allPuzzles[puzzleIndex], puzzleIndex);
-      elements.cardList.appendChild(card);
+    if (state.sharedPuzzle) {
+      elements.cardList.appendChild(renderSidebarSection("Shared with you", [state.sharedPuzzle]));
+    }
+    if (state.loggedIn && state.ownedPuzzles.length > 0) {
+      elements.cardList.appendChild(renderSidebarSection("My Section", state.ownedPuzzles));
+    }
+    if (state.prebuiltPuzzles.length > 0) {
+      elements.cardList.appendChild(renderSidebarSection("Practice Session", state.prebuiltPuzzles));
     }
 
-    if (state.activePuzzleIndex >= 0 && state.activePuzzleIndex < elements.cardList.children.length) {
-      setActiveCard(elements.cardList.children[state.activePuzzleIndex]);
-      return;
-    }
-
-    setActiveCard(null);
-  }
-
-  function selectPuzzle(index, cardElement) {
-    if (index < 0 || index >= state.allPuzzles.length) return;
-
-    state.activePuzzleIndex = index;
-    showPuzzleBoard();
-    if (cardElement) {
-      setActiveCard(cardElement);
-    } else if (elements.cardList && index < elements.cardList.children.length) {
-      setActiveCard(elements.cardList.children[index]);
+    if (state.activePuzzleKey) {
+      setActiveCard(elements.cardList.querySelector('[data-puzzle-key="' + state.activePuzzleKey + '"]'));
     } else {
       setActiveCard(null);
     }
-    renderPuzzle(state.allPuzzles[index]);
+  }
+
+  function selectPuzzleByKey(puzzleKey, cardElement) {
+    var puzzleIndex = findPuzzleIndexByKey(puzzleKey);
+    if (puzzleIndex < 0 || puzzleIndex >= state.allPuzzles.length) return;
+
+    setActivePuzzleByKey(puzzleKey);
+    showPuzzleBoard();
+    if (cardElement) {
+      setActiveCard(cardElement);
+    } else {
+      setActiveCard(elements.cardList.querySelector('[data-puzzle-key="' + puzzleKey + '"]'));
+    }
+    renderPuzzle(state.allPuzzles[puzzleIndex]);
   }
 
   function validatePuzzleSpecification(specification) {
@@ -439,10 +713,20 @@
   }
 
   function buildPuzzleFromSpecification(specification) {
+    function createDeterministicLayoutRandom() {
+      var state = 1;
+
+      return function () {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        return state / 4294967296;
+      };
+    }
+
     return generateCrossword(specification.items, {
       title: specification.title,
       subtitle: specification.subtitle,
       description: typeof specification.description === "string" ? specification.description : emptyString,
+      random: createDeterministicLayoutRandom(),
     });
   }
 
@@ -473,10 +757,14 @@
     }
 
     puzzle = buildPuzzleFromSpecification(specification);
+    puzzle.id = sharedPuzzle && sharedPuzzle.id ? String(sharedPuzzle.id) : null;
     puzzle.shareToken =
       sharedPuzzle && typeof sharedPuzzle.share_token === "string" && sharedPuzzle.share_token.trim()
         ? sharedPuzzle.share_token.trim()
         : sharedToken;
+    puzzle.source = sharedPuzzle && typeof sharedPuzzle.source === "string" ? sharedPuzzle.source : "shared";
+    puzzle.rewardSummary = coerceRewardSummary(sharedPuzzle && sharedPuzzle.reward_summary);
+    ensurePuzzleKey(puzzle, "shared", 0);
     return puzzle;
   }
 
@@ -536,24 +824,22 @@
           if (!validatePuzzleSpecification(specification)) {
             throw new Error("Crossword specification invalid");
           }
-          builtPuzzles.push(buildPuzzleFromSpecification(specification));
+          builtPuzzles.push(preparePuzzle(buildPuzzleFromSpecification(specification), "prebuilt", specificationIndex));
         }
 
-        state.allPuzzles = builtPuzzles;
+        state.prebuiltPuzzles = builtPuzzles;
 
         if (sharedPuzzleResult.puzzle) {
-          state.allPuzzles.unshift(sharedPuzzleResult.puzzle);
-          state.activePuzzleIndex = 0;
+          state.sharedPuzzle = sharedPuzzleResult.puzzle;
         } else if (sharedPuzzleResult.error) {
-          state.activePuzzleIndex = -1;
+          state.sharedPuzzle = null;
           if (elements.errorBox) {
             elements.errorBox.style.display = "block";
             elements.errorBox.textContent = sharedPuzzleResult.error.message;
           }
-        } else {
-          state.activePuzzleIndex = builtPuzzles.length > 0 ? 0 : -1;
         }
 
+        rebuildVisiblePuzzles();
         renderSidebar();
 
         if (elements.statusEl) {
@@ -561,7 +847,12 @@
         }
 
         if (state.activePuzzleIndex >= 0) {
-          selectPuzzle(state.activePuzzleIndex);
+          selectPuzzleByKey(state.allPuzzles[state.activePuzzleIndex].puzzleKey);
+        }
+
+        if (sharedPuzzleResult.error && elements.errorBox) {
+          elements.errorBox.style.display = "block";
+          elements.errorBox.textContent = sharedPuzzleResult.error.message;
         }
 
         return state.allPuzzles;
@@ -579,22 +870,95 @@
       return;
     }
 
-    state.allPuzzles.unshift(puzzle);
-    state.activePuzzleIndex = 0;
+    preparePuzzle(puzzle, "owned", state.ownedPuzzles.length);
+    state.ownedPuzzles = replacePuzzleById(state.ownedPuzzles, puzzle);
+    state.loggedIn = true;
+    setActivePuzzleByKey(puzzle.puzzleKey);
+    rebuildVisiblePuzzles();
     showPuzzleBoard();
     renderSidebar();
     renderPuzzle(puzzle);
   }
 
+  function loadOwnedPuzzles() {
+    if (!state.loggedIn) {
+      state.ownedPuzzles = [];
+      rebuildVisiblePuzzles();
+      renderSidebar();
+      return Promise.resolve([]);
+    }
+
+    if (state.ownedLoadPromise) return state.ownedLoadPromise;
+
+    state.ownedLoadPromise = _fetch("/api/puzzles", {
+      credentials: "include",
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Failed to load your puzzles");
+        }
+        return response.json();
+      })
+      .then(function (payload) {
+        var puzzles = payload && Array.isArray(payload.puzzles) ? payload.puzzles : [];
+        var builtPuzzles = [];
+        var puzzleIndex;
+
+        for (puzzleIndex = 0; puzzleIndex < puzzles.length; puzzleIndex++) {
+          builtPuzzles.push(buildStoredPuzzleFromResponse(puzzles[puzzleIndex], "owned", puzzleIndex));
+        }
+
+        state.ownedPuzzles = builtPuzzles;
+        rebuildVisiblePuzzles();
+        renderSidebar();
+        return builtPuzzles;
+      })
+      .finally(function () {
+        state.ownedLoadPromise = null;
+      });
+
+    return state.ownedLoadPromise;
+  }
+
+  function clearOwnedPuzzles() {
+    state.loggedIn = false;
+    state.ownedPuzzles = [];
+    rebuildVisiblePuzzles();
+    renderSidebar();
+    updateRewardUI(findPuzzleByKey(state.activePuzzleKey));
+  }
+
+  function updatePuzzleRewardData(puzzleId, rewardSummary) {
+    var index;
+    var nextRewardSummary = coerceRewardSummary(rewardSummary);
+    var activePuzzle;
+
+    if (!puzzleId || !nextRewardSummary) return;
+
+    for (index = 0; index < state.ownedPuzzles.length; index++) {
+      if (state.ownedPuzzles[index].id === puzzleId) {
+        state.ownedPuzzles[index].rewardSummary = nextRewardSummary;
+      }
+    }
+    if (state.sharedPuzzle && state.sharedPuzzle.id === puzzleId) {
+      state.sharedPuzzle.rewardSummary = nextRewardSummary;
+    }
+    rebuildVisiblePuzzles();
+    renderSidebar();
+    activePuzzle = findPuzzleByKey(state.activePuzzleKey);
+    updateRewardUI(activePuzzle);
+    updateShareHint(activePuzzle);
+  }
+
   function handleCardListClick(event) {
     var cardElement = event.target.closest(".puzzle-card");
-    var index;
+    var puzzleKey;
 
     if (!cardElement || !elements.cardList || !elements.cardList.contains(cardElement)) return;
 
-    index = Number(cardElement.dataset.puzzleIndex);
-    if (isNaN(index)) return;
-    selectPuzzle(index, cardElement);
+    puzzleKey = cardElement.dataset.puzzleKey;
+    if (!puzzleKey) return;
+    selectPuzzleByKey(puzzleKey, cardElement);
   }
 
   function startLayoutObservers() {
@@ -668,34 +1032,55 @@
     applySidebarState();
   }
 
-  if (elements.descriptionToggle) {
-    elements.descriptionToggle.addEventListener("click", function () {
-      setDescriptionExpanded(!state.descriptionExpanded);
-    });
-  }
-
   window.CrosswordApp = {
     addGeneratedPuzzle: addGeneratedPuzzle,
+    clearOwnedPuzzles: clearOwnedPuzzles,
+    getActivePuzzle: function () {
+      return findPuzzleByKey(state.activePuzzleKey);
+    },
     isSidebarCollapsed: function () {
       return state.sidebarCollapsed;
     },
+    loadOwnedPuzzles: loadOwnedPuzzles,
     loadPrebuilt: loadPrebuiltPuzzles,
     recalculate: scheduleRecalculate,
     render: function (puzzle) {
-      renderPuzzle(puzzle);
+      renderPuzzle(preparePuzzle(puzzle, puzzle && puzzle.source ? puzzle.source : "practice", 0));
     },
     renderMiniGrid: renderMiniGrid,
     setActiveCard: setActiveCard,
     setSidebarCollapsed: setSidebarCollapsed,
+    setViewerSession: function (sessionState) {
+      state.loggedIn = !!(sessionState && sessionState.loggedIn);
+      if (!state.loggedIn) {
+        state.ownedPuzzles = [];
+      }
+      rebuildVisiblePuzzles();
+      renderSidebar();
+      updateRewardUI(findPuzzleByKey(state.activePuzzleKey));
+      updateShareHint(findPuzzleByKey(state.activePuzzleKey));
+    },
+    updatePuzzleRewardData: updatePuzzleRewardData,
   };
 
   (window.__LLM_CROSSWORD_TEST__ || (window.__LLM_CROSSWORD_TEST__ = {})).crossword = {
     addGeneratedPuzzle: addGeneratedPuzzle,
     applySidebarState: applySidebarState,
+    buildCardDescription: buildCardDescription,
     buildSharedPuzzleFromResponse: buildSharedPuzzleFromResponse,
+    buildStoredPuzzleFromResponse: buildStoredPuzzleFromResponse,
+    clearOwnedPuzzles: clearOwnedPuzzles,
+    coerceRewardSummary: coerceRewardSummary,
+    createPuzzleCard: createPuzzleCard,
+    ensurePuzzleKey: ensurePuzzleKey,
     handleCardListClick: handleCardListClick,
+    loadOwnedPuzzles: loadOwnedPuzzles,
+    preparePuzzle: preparePuzzle,
     readSharedPuzzleToken: readSharedPuzzleToken,
     refreshObservedShellElements: refreshObservedShellElements,
+    renderSidebar: renderSidebar,
+    selectPuzzleByKey: selectPuzzleByKey,
+    setActivePuzzleByKey: setActivePuzzleByKey,
     setDescriptionExpanded: setDescriptionExpanded,
     setState: function (nextState) {
       Object.assign(state, nextState || {});

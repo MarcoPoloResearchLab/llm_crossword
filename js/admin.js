@@ -3,6 +3,7 @@
   "use strict";
 
   var _fetch = window.authFetch || window.fetch.bind(window);
+  var billingRestoreDrawerStorageKey = "llm-crossword-billing-restore-drawer";
   var placeholderValue = "—";
 
   // --- Settings modal DOM ---
@@ -19,6 +20,13 @@
   var settingsName      = document.getElementById("settingsName");
   var settingsEmail     = document.getElementById("settingsEmail");
   var settingsAccountDetails = document.getElementById("settingsAccountDetails");
+  var settingsBillingActivityList = document.getElementById("settingsBillingActivityList");
+  var settingsBillingBalanceMeta = document.getElementById("settingsBillingBalanceMeta");
+  var settingsBillingBalanceValue = document.getElementById("settingsBillingBalanceValue");
+  var settingsBillingPanel = document.getElementById("settingsBillingPanel");
+  var settingsBillingPackList = document.getElementById("settingsBillingPackList");
+  var settingsBillingStatus = document.getElementById("settingsBillingStatus");
+  var settingsManageBillingButton = document.getElementById("settingsManageBillingButton");
 
   // Admin DOM
   var adminRefreshUsers = document.getElementById("adminRefreshUsers");
@@ -43,14 +51,12 @@
 
   var isAdmin = false;
   var allUsers = [];
+  var billingSummary = null;
   var selectedUser = null;
   var sessionData = null;
   var accountDetailsConfig = [
     { key: "display", label: "Display Name", formatter: formatTextValue },
     { key: "email", label: "Email", formatter: formatTextValue },
-    { key: "avatar_url", label: "Avatar URL", formatter: formatTextValue },
-    { key: "roles", label: "Roles", formatter: formatRolesValue },
-    { key: "is_admin", label: "Admin Access", formatter: formatBooleanValue },
     { key: "expires", label: "Session Expires", formatter: formatExpiresValue },
   ];
 
@@ -188,11 +194,6 @@
     return hasDisplayValue(value) ? String(value) : placeholderValue;
   }
 
-  function formatBooleanValue(value) {
-    if (!hasDisplayValue(value)) return placeholderValue;
-    return value ? "Yes" : "No";
-  }
-
   function formatRolesValue(value) {
     if (!Array.isArray(value)) return placeholderValue;
     return value.length > 0 ? value.join(", ") : placeholderValue;
@@ -215,6 +216,262 @@
     parsedDate = new Date(parsedValue * 1000);
     if (isNaN(parsedDate.getTime())) return String(value);
     return parsedDate.toISOString();
+  }
+
+  function getBalanceCredits(balance) {
+    if (!balance || typeof balance !== "object") return null;
+    if (balance.coins != null && !isNaN(Number(balance.coins))) {
+      return Number(balance.coins);
+    }
+    if (balance.available_cents != null && !isNaN(Number(balance.available_cents))) {
+      return Math.floor(Number(balance.available_cents) / 100);
+    }
+    return null;
+  }
+
+  function formatBillingTimestamp(value) {
+    var parsedDate;
+
+    if (!hasDisplayValue(value)) return placeholderValue;
+    parsedDate = new Date(value);
+    if (isNaN(parsedDate.getTime())) return String(value);
+    return parsedDate.toLocaleString();
+  }
+
+  function normalizeBillingSummary(rawSummary) {
+    var summary = rawSummary && typeof rawSummary === "object" ? rawSummary : {};
+
+    return {
+      activity: Array.isArray(summary.activity) ? summary.activity : [],
+      balance: summary.balance || null,
+      enabled: summary.enabled === true,
+      packs: Array.isArray(summary.packs) ? summary.packs : [],
+      portal_available: summary.portal_available === true,
+      provider_code: hasDisplayValue(summary.provider_code) ? String(summary.provider_code) : "",
+    };
+  }
+
+  function hasPendingBillingReturn() {
+    try {
+      return new URL(window.location.href).searchParams.has("billing_transaction_id");
+    } catch {
+      return false;
+    }
+  }
+
+  function shouldRestoreBillingDrawer() {
+    if (hasPendingBillingReturn()) return true;
+    try {
+      return window.sessionStorage.getItem(billingRestoreDrawerStorageKey) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function clearPendingBillingRestore() {
+    try {
+      window.sessionStorage.removeItem(billingRestoreDrawerStorageKey);
+    } catch {}
+  }
+
+  function getBillingPackLabel(packCode) {
+    var matchingPack;
+
+    if (!billingSummary || !Array.isArray(billingSummary.packs) || !hasDisplayValue(packCode)) {
+      return "";
+    }
+
+    matchingPack = billingSummary.packs.find(function (pack) {
+      return pack && pack.code === packCode;
+    });
+    return matchingPack && hasDisplayValue(matchingPack.label) ? String(matchingPack.label) : "";
+  }
+
+  function setBillingActionState(isBusy) {
+    var actionButtons;
+
+    if (settingsManageBillingButton) {
+      settingsManageBillingButton.disabled = isBusy === true || !billingSummary || billingSummary.portal_available !== true;
+    }
+    if (!settingsBillingPackList) return;
+
+    actionButtons = settingsBillingPackList.querySelectorAll("[data-billing-pack-button]");
+    Array.prototype.forEach.call(actionButtons, function (button) {
+      button.disabled = isBusy === true;
+    });
+  }
+
+  function renderBillingActivity(activityEntries) {
+    var entries = Array.isArray(activityEntries) ? activityEntries : [];
+
+    if (!settingsBillingActivityList) return;
+
+    settingsBillingActivityList.innerHTML = "";
+    if (entries.length === 0) {
+      var empty = document.createElement("div");
+
+      empty.className = "billing-activity-list__empty";
+      empty.textContent = "No billing activity yet.";
+      settingsBillingActivityList.appendChild(empty);
+      return;
+    }
+
+    entries.forEach(function (entry) {
+      var item = document.createElement("div");
+      var header = document.createElement("div");
+      var summary = document.createElement("div");
+      var status = document.createElement("div");
+      var meta = document.createElement("div");
+      var metaParts = [];
+      var packLabel = getBillingPackLabel(entry && entry.pack_code);
+
+      item.className = "billing-activity";
+      header.className = "billing-activity__header";
+      summary.className = "billing-activity__summary";
+      status.className = "billing-activity__status";
+      meta.className = "billing-activity__meta";
+
+      summary.textContent = hasDisplayValue(entry && entry.summary) ? String(entry.summary) : "Billing activity recorded.";
+      status.textContent = hasDisplayValue(entry && entry.status) ? String(entry.status) : "pending";
+      if (entry && (entry.event_type === "transaction.completed" || entry.status === "completed")) {
+        status.className += " billing-activity__status--completed";
+      } else {
+        status.className += " billing-activity__status--pending";
+      }
+
+      if (packLabel) {
+        metaParts.push(packLabel);
+      }
+      if (entry && entry.credits_delta > 0) {
+        metaParts.push("+" + entry.credits_delta + " credits");
+      }
+      if (hasDisplayValue(entry && entry.occurred_at)) {
+        metaParts.push(formatBillingTimestamp(entry.occurred_at));
+      }
+      if (hasDisplayValue(entry && entry.transaction_id)) {
+        metaParts.push("Transaction " + entry.transaction_id);
+      }
+      meta.textContent = metaParts.length > 0 ? metaParts.join(" • ") : placeholderValue;
+
+      header.appendChild(summary);
+      header.appendChild(status);
+      item.appendChild(header);
+      item.appendChild(meta);
+      settingsBillingActivityList.appendChild(item);
+    });
+  }
+
+  function renderBillingPacks(packs) {
+    var entries = Array.isArray(packs) ? packs : [];
+
+    if (!settingsBillingPackList) return;
+
+    settingsBillingPackList.innerHTML = "";
+    if (entries.length === 0) {
+      var empty = document.createElement("div");
+
+      empty.className = "billing-pack-list__empty";
+      empty.textContent = "Credit packs are not configured for this deployment.";
+      settingsBillingPackList.appendChild(empty);
+      return;
+    }
+
+    entries.forEach(function (pack) {
+      var card = document.createElement("div");
+      var label = document.createElement("div");
+      var credits = document.createElement("div");
+      var meta = document.createElement("div");
+      var button = document.createElement("button");
+
+      card.className = "billing-pack";
+      label.className = "billing-pack__label";
+      credits.className = "billing-pack__credits";
+      meta.className = "billing-pack__meta";
+      button.className = "billing-pack__buy";
+      button.type = "button";
+      button.setAttribute("data-billing-pack-button", pack.code || "");
+      button.textContent = "Buy now";
+
+      label.textContent = hasDisplayValue(pack.label) ? String(pack.label) : placeholderValue;
+      credits.textContent = hasDisplayValue(pack.credits) ? String(pack.credits) + " credits" : placeholderValue;
+      meta.textContent = [
+        hasDisplayValue(pack.price_display) ? String(pack.price_display) : placeholderValue,
+        "One-time pack",
+      ].join(" • ");
+
+      button.addEventListener("click", function () {
+        if (!window.CrosswordBilling || typeof window.CrosswordBilling.requestCheckout !== "function") return;
+        setBillingActionState(true);
+        window.CrosswordBilling.requestCheckout(pack.code)
+          .catch(function () {})
+          .finally(function () {
+            setBillingActionState(false);
+          });
+      });
+
+      card.appendChild(label);
+      card.appendChild(credits);
+      card.appendChild(meta);
+      card.appendChild(button);
+      settingsBillingPackList.appendChild(card);
+    });
+  }
+
+  function renderBillingSummary() {
+    var balanceCredits;
+
+    if (!settingsBillingPanel || !settingsBillingBalanceValue || !settingsBillingBalanceMeta) return;
+
+    if (!billingSummary || billingSummary.enabled !== true) {
+      settingsBillingBalanceValue.textContent = placeholderValue;
+      settingsBillingBalanceMeta.textContent = "Credit purchases are not enabled on this deployment.";
+      if (settingsManageBillingButton) settingsManageBillingButton.style.display = "none";
+      renderBillingPacks([]);
+      renderBillingActivity([]);
+      return;
+    }
+
+    balanceCredits = getBalanceCredits(billingSummary.balance);
+    settingsBillingBalanceValue.textContent = balanceCredits === null ? placeholderValue : balanceCredits + " credits";
+    settingsBillingBalanceMeta.textContent = "Each new crossword costs 4 credits. Purchases are granted after Paddle confirms payment.";
+
+    if (settingsManageBillingButton) {
+      settingsManageBillingButton.style.display = billingSummary.portal_available ? "" : "none";
+      settingsManageBillingButton.disabled = billingSummary.portal_available !== true;
+    }
+
+    renderBillingPacks(billingSummary.packs);
+    renderBillingActivity(billingSummary.activity);
+    setBillingActionState(false);
+  }
+
+  function requestBillingSummary(force) {
+    if (!window.CrosswordBilling || typeof window.CrosswordBilling.loadSummary !== "function") {
+      return Promise.resolve();
+    }
+    return window.CrosswordBilling.loadSummary({
+      force: force === true,
+    }).catch(function () {
+      return null;
+    });
+  }
+
+  function syncBillingStatusFromCoordinator() {
+    var billingState;
+    var lastStatus;
+
+    if (!window.CrosswordBilling || typeof window.CrosswordBilling.getState !== "function") return;
+
+    billingState = window.CrosswordBilling.getState();
+    lastStatus = billingState && billingState.lastStatus ? billingState.lastStatus : null;
+    if (!lastStatus || !lastStatus.message) return;
+
+    setStatus(
+      settingsBillingStatus,
+      lastStatus.message,
+      lastStatus.tone === "error",
+      lastStatus.tone === "success"
+    );
   }
 
   function buildAccountDetails(data) {
@@ -289,6 +546,8 @@
   function openDrawer() {
     if (!settingsDrawer) return;
     populateAccount();
+    requestBillingSummary(true);
+    syncBillingStatusFromCoordinator();
     if (settingsDrawer.open) return;
     if (typeof settingsDrawer.showModal === "function") {
       settingsDrawer.showModal();
@@ -358,6 +617,7 @@
         // Always add Settings to menu once logged in.
         setMenuItems();
         setAdminState(sessionData.is_admin);
+        requestBillingSummary(false);
         if (settingsDrawer && settingsDrawer.open) {
           populateAccount();
         }
@@ -381,14 +641,60 @@
     checkAdminStatus();
   });
   document.addEventListener("mpr-ui:auth:unauthenticated", function () {
+    billingSummary = null;
     sessionData = null;
     selectedUser = null;
     allUsers = [];
     setAdminState(false);
+    clearPendingBillingRestore();
+    setStatus(settingsBillingStatus, "");
+    renderBillingSummary();
     closeDrawer();
   });
 
   checkAdminStatus();
+  renderBillingSummary();
+  if (shouldRestoreBillingDrawer()) {
+    openDrawer();
+    switchTab("account");
+    clearPendingBillingRestore();
+    syncBillingStatusFromCoordinator();
+  }
+
+  window.addEventListener("llm-crossword:billing-summary", function (event) {
+    billingSummary = normalizeBillingSummary(event && event.detail);
+    renderBillingSummary();
+  });
+
+  window.addEventListener("llm-crossword:billing-status", function (event) {
+    var detail = event && event.detail ? event.detail : {};
+    var isError = detail.tone === "error";
+    var isSuccess = detail.tone === "success";
+
+    setStatus(settingsBillingStatus, detail.message || "", isError, isSuccess);
+  });
+
+  window.addEventListener("llm-crossword:billing-open-request", function () {
+    openDrawer();
+    switchTab("account");
+    clearPendingBillingRestore();
+    syncBillingStatusFromCoordinator();
+    if (settingsBillingPanel && typeof settingsBillingPanel.scrollIntoView === "function") {
+      settingsBillingPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+
+  if (settingsManageBillingButton) {
+    settingsManageBillingButton.addEventListener("click", function () {
+      if (!window.CrosswordBilling || typeof window.CrosswordBilling.requestPortalSession !== "function") return;
+      setBillingActionState(true);
+      window.CrosswordBilling.requestPortalSession()
+        .catch(function () {})
+        .finally(function () {
+          setBillingActionState(false);
+        });
+    });
+  }
 
   // --- Load users ---
   function loadUsers() {
@@ -657,32 +963,48 @@
 
   (window.__LLM_CROSSWORD_TEST__ || (window.__LLM_CROSSWORD_TEST__ = {})).admin = {
     checkAdminStatus: checkAdminStatus,
+    clearPendingBillingRestore: clearPendingBillingRestore,
     formatExpiresValue: formatExpiresValue,
+    formatBillingTimestamp: formatBillingTimestamp,
     formatRolesValue: formatRolesValue,
+    getBalanceCredits: getBalanceCredits,
+    getBillingPackLabel: getBillingPackLabel,
     getUserPrimaryLabel: getUserPrimaryLabel,
     getUserSearchText: getUserSearchText,
     getUserSecondaryLabel: getUserSecondaryLabel,
+    hasPendingBillingReturn: hasPendingBillingReturn,
     hasDisplayValue: hasDisplayValue,
     hasAdminRole: hasAdminRole,
     isSameUser: isSameUser,
     loadGrantHistory: loadGrantHistory,
     loadUsers: loadUsers,
     normalizeAdminUser: normalizeAdminUser,
+    normalizeBillingSummary: normalizeBillingSummary,
     normalizeRoles: normalizeRoles,
     normalizeSessionData: normalizeSessionData,
     openDrawer: openDrawer,
     populateAccount: populateAccount,
     renderAccountDetails: renderAccountDetails,
+    renderBillingActivity: renderBillingActivity,
+    renderBillingPacks: renderBillingPacks,
+    renderBillingSummary: renderBillingSummary,
     renderGrantHistory: renderGrantHistory,
     renderSelectedUser: renderSelectedUser,
+    requestBillingSummary: requestBillingSummary,
     selectUser: selectUser,
     setAdminState: setAdminState,
+    setBillingSummary: function (summary) {
+      billingSummary = normalizeBillingSummary(summary);
+      renderBillingSummary();
+    },
     setMenuItems: setMenuItems,
+    shouldRestoreBillingDrawer: shouldRestoreBillingDrawer,
     setStatus: setStatus,
     setSessionData: function (data) {
       sessionData = data;
     },
     switchTab: switchTab,
+    syncBillingStatusFromCoordinator: syncBillingStatusFromCoordinator,
     setSelectedUser: function (user) {
       selectedUser = user;
     },

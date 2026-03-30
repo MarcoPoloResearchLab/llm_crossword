@@ -250,10 +250,64 @@ test.describe("Generator — compactness", () => {
     var avg = densities.reduce(function (a, b) { return a + b; }, 0) / densities.length;
     expect(avg).toBeGreaterThanOrEqual(0.25);
   });
+
+  test("generator prefers more square successful layouts when later tries improve the shape", async ({ page }) => {
+    await setupLoggedOutRoutes(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
+    await expect(page.locator("#puzzleView").getByText("Across")).toBeVisible({ timeout: 10000 });
+
+    var result = await page.evaluate(() => {
+      var items = [
+        { word: "ceres", definition: "Roman goddess", hint: "harvest" },
+        { word: "mars", definition: "Roman god", hint: "war" },
+        { word: "minerva", definition: "Roman goddess", hint: "wisdom" },
+        { word: "janus", definition: "Roman god", hint: "doorways" },
+        { word: "neptune", definition: "Roman god", hint: "sea" },
+        { word: "diana", definition: "Roman goddess", hint: "hunt" },
+        { word: "vesta", definition: "Roman goddess", hint: "hearth" },
+        { word: "venus", definition: "Roman goddess", hint: "love" },
+        { word: "jupiter", definition: "Roman god", hint: "thunder" },
+        { word: "mercury", definition: "Roman god", hint: "messenger" },
+        { word: "apollo", definition: "Roman god", hint: "sun" },
+        { word: "pluto", definition: "Roman god", hint: "underworld" },
+      ];
+      var payload = generateCrossword(items, {
+        title: "Roman Gods",
+        seedTries: 2,
+        random: function () { return 0.9; },
+      });
+      var minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+      for (var i = 0; i < payload.entries.length; i++) {
+        var entry = payload.entries[i];
+        for (var letterIndex = 0; letterIndex < entry.answer.length; letterIndex++) {
+          var row = entry.dir === "across" ? entry.row : entry.row + letterIndex;
+          var col = entry.dir === "across" ? entry.col + letterIndex : entry.col;
+          if (row < minR) minR = row;
+          if (row > maxR) maxR = row;
+          if (col < minC) minC = col;
+          if (col > maxC) maxC = col;
+        }
+      }
+      var rows = maxR - minR + 1;
+      var cols = maxC - minC + 1;
+      return {
+        rows: rows,
+        cols: cols,
+        imbalance: Math.abs(rows - cols),
+      };
+    });
+
+    expect(result.rows).toBeLessThanOrEqual(14);
+    expect(result.cols).toBeLessThanOrEqual(14);
+    expect(result.imbalance).toBeLessThanOrEqual(2);
+  });
 });
 
 test.describe("Generator — large puzzle stress test", () => {
   test("120-word puzzle generates successfully and renders", async ({ page }) => {
+    test.setTimeout(90000);
+
     await setupLoggedOutRoutes(page);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();

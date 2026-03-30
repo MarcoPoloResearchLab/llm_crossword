@@ -6,6 +6,10 @@
   <title>LLM Crossword Puzzle Widget</title>
   <meta name="description" content="Interactive crossword puzzle generator and solver powered by large language models."/>
   <link rel="canonical" href="https://llm-crossword.mprlab.com/"/>
+  <link rel="icon" type="image/svg+xml" href="/assets/img/llm_crossword_favicon.svg"/>
+  <link rel="icon" type="image/png" sizes="512x512" href="/assets/img/llm_crossword_favicon.png"/>
+  <link rel="shortcut icon" type="image/x-icon" href="/assets/img/llm_crossword_favicon.ico"/>
+  <link rel="apple-touch-icon" href="/assets/img/llm_crossword_favicon.png"/>
   <meta property="og:title" content="LLM Crossword Puzzle Widget"/>
   <meta property="og:description" content="Interactive crossword puzzle generator and solver powered by large language models."/>
   <meta property="og:url" content="https://llm-crossword.mprlab.com/"/>
@@ -49,6 +53,7 @@
   <script defer src="/tauth.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <script defer src="./js/runtime-auth-config.js"></script>
   <script src="./mpr-ui-config.js" defer></script>
   <script id="mpr-ui-bundle" type="application/json" data-mpr-ui-bundle-src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@latest/mpr-ui.js"></script>
 </head>
@@ -62,7 +67,25 @@
   logout-url="/"
   sign-out-label="Log out"
 >
-  <span id="headerCreditBadge" slot="aux" class="header-credit-badge" style="display:none;"></span>
+  <div
+    id="headerPuzzleTabs"
+    slot="nav-right"
+    class="controls__actions header-puzzle-tabs"
+    role="group"
+    aria-label="Puzzle actions"
+    hidden
+  >
+    <button id="check" class="header-puzzle-tabs__tab header-puzzle-tabs__tab--check" type="button">Check</button>
+    <button
+      id="reveal"
+      class="header-puzzle-tabs__tab header-puzzle-tabs__tab--review"
+      type="button"
+      data-label-reveal="Review"
+      data-label-hide="Hide"
+    >Review</button>
+    <button id="shareBtn" class="header-puzzle-tabs__tab header-puzzle-tabs__tab--share" type="button" disabled>Share</button>
+  </div>
+  <button id="headerCreditBadge" slot="aux" class="header-credit-badge" type="button" style="display:none;" aria-label="Open billing"></button>
   <mpr-user
     id="userMenu"
     slot="aux"
@@ -79,6 +102,18 @@
 <!-- ========== Landing page (shown when no puzzle is active) ========== -->
 <section id="landingPage" class="landing" aria-label="Welcome">
   <div class="landing__hero">
+    <div class="landing__brand-lockup">
+      <div class="landing__logo-shell">
+        <img
+          class="landing__logo"
+          src="/assets/img/llm_crossword_favicon.svg"
+          alt="LLM Crossword logo"
+          width="512"
+          height="512"
+        />
+      </div>
+      <p class="landing__eyebrow">LLM Crossword</p>
+    </div>
     <h1 class="landing__title">Create crossword puzzles with AI</h1>
     <p class="landing__subtitle">
       Enter any topic and let a large language model generate a unique
@@ -143,16 +178,6 @@
       <div class="hdr__copy">
         <h1 id="title">Crossword Puzzle</h1>
         <div class="sub" id="subtitle">Loading...</div>
-        <div id="descriptionPanel" class="hdr__details" hidden>
-          <button
-            id="descriptionToggle"
-            class="hdr__details-toggle"
-            type="button"
-            aria-expanded="false"
-            aria-controls="descriptionContent"
-          >Show details</button>
-          <p id="descriptionContent" class="hdr__details-copy" hidden></p>
-        </div>
       </div>
     </div>
 
@@ -169,9 +194,12 @@
             <option value="12">12</option>
           </select>
         </label>
-        <button id="generateBtn" disabled>Generate (5 credits)</button>
+        <button id="generateBtn" disabled>Generate (4 credits)</button>
       </div>
-      <div id="generateStatus" class="generate-status"></div>
+      <div class="generate-status-row">
+        <div id="generateStatus" class="generate-status"></div>
+        <button id="generateBuyCreditsButton" class="secondary generate-buy-credits" type="button" hidden>Buy credits</button>
+      </div>
     </div>
 
     <div class="pane">
@@ -180,6 +208,9 @@
         <div class="grid" id="grid"></div>
       </div>
       <div class="clues">
+        <div id="descriptionPanel" class="clues__header" hidden>
+          <p id="descriptionContent" class="clues__description" hidden></p>
+        </div>
         <div class="cluegrp"><h3>Across</h3>
           <ol id="across"></ol>
         </div>
@@ -190,15 +221,36 @@
     </div>
 
     <div class="controls">
-      <button id="check">Check</button>
-      <button class="secondary" id="reveal">Reveal</button>
-      <button id="shareBtn" class="secondary" style="display:none;">Share</button>
-      <button id="backToLanding" class="secondary">Back</button>
       <div class="status" id="status"></div>
+      <div id="rewardStrip" class="reward-strip" hidden>
+        <div id="rewardStripLabel" class="reward-strip__label"></div>
+        <div id="rewardStripMeta" class="reward-strip__meta"></div>
+      </div>
+      <div id="shareHint" class="share-hint" hidden></div>
       <div class="error" id="errorBox"></div>
     </div>
   </div>
 </div>
+
+<dialog id="completionModal" class="completion-modal" aria-labelledby="completionTitle" aria-describedby="completionSummary">
+  <div class="completion-modal__surface">
+    <div class="completion-modal__header">
+      <div>
+        <h2 id="completionTitle" class="completion-modal__title">Puzzle complete</h2>
+        <p id="completionSummary" class="completion-modal__summary"></p>
+      </div>
+      <button id="completionCloseButton" class="completion-modal__close" type="button">Close</button>
+    </div>
+    <div class="completion-modal__body">
+      <div id="completionBreakdown" class="completion-modal__breakdown"></div>
+      <div id="completionReason" class="completion-modal__reason"></div>
+    </div>
+    <div class="completion-modal__actions">
+      <button id="completionPrimaryAction" type="button">Generate another</button>
+      <button id="completionSecondaryAction" class="secondary" type="button">Keep solving</button>
+    </div>
+  </div>
+</dialog>
 
 <!-- ========== Settings modal ========== -->
 <dialog id="settingsDrawer" class="settings-modal" aria-labelledby="settingsTitle" aria-describedby="settingsSubtitle">
@@ -206,7 +258,7 @@
     <div class="settings-modal__header">
       <div>
         <h2 id="settingsTitle" class="settings-modal__title">Settings</h2>
-        <p id="settingsSubtitle" class="settings-modal__subtitle">Account and admin access</p>
+        <p id="settingsSubtitle" class="settings-modal__subtitle">Account details and tools</p>
       </div>
       <button id="settingsCloseButton" class="settings-modal__close" type="button">Close</button>
     </div>
@@ -233,6 +285,28 @@
             <dl id="settingsAccountDetails" class="settings-account-details"></dl>
           </div>
         </div>
+
+        <section id="settingsBillingPanel" class="settings-billing">
+          <div class="settings-billing__header">
+            <div class="settings-billing__copy">
+              <div class="settings-account-card__details-header">Credits</div>
+              <div id="settingsBillingBalanceValue" class="settings-billing__balance">—</div>
+              <p id="settingsBillingBalanceMeta" class="settings-billing__meta">Use credits to generate new crosswords and keep track of purchases here.</p>
+            </div>
+            <button id="settingsManageBillingButton" class="secondary settings-billing__manage" type="button" style="display:none;">Manage billing</button>
+          </div>
+          <div id="settingsBillingStatus" class="admin-panel__status"></div>
+
+          <div class="settings-billing__section">
+            <div class="settings-account-card__details-header">Buy credits</div>
+            <div id="settingsBillingPackList" class="billing-pack-list"></div>
+          </div>
+
+          <div class="settings-billing__section">
+            <div class="settings-account-card__details-header">Billing activity</div>
+            <div id="settingsBillingActivityList" class="billing-activity-list"></div>
+          </div>
+        </section>
       </div>
 
       <!-- ===== Admin section ===== -->
@@ -343,6 +417,7 @@
 <script src="js/crossword-widget.js"></script>
 <script src="js/landing-puzzle.js"></script>
 <script src="js/crossword.js"></script>
+<script src="js/billing.js"></script>
 <script src="js/app.js"></script>
 <script src="js/admin.js"></script>
 

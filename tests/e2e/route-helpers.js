@@ -46,10 +46,6 @@ const appShellHtml = `<!doctype html>
         <div class="hdr__copy">
           <h1 id="title">Crossword Puzzle</h1>
           <div id="subtitle">Loading...</div>
-          <div id="descriptionPanel" hidden>
-            <button id="descriptionToggle" type="button" aria-expanded="false" aria-controls="descriptionContent">Show details</button>
-            <p id="descriptionContent" hidden></p>
-          </div>
         </div>
       </div>
       <div id="generatePanel" style="display:none;">
@@ -61,12 +57,31 @@ const appShellHtml = `<!doctype html>
         <button id="generateBtn" type="button">Generate</button>
         <div id="generateStatus"></div>
       </div>
-      <div class="pane"></div>
+      <div class="pane">
+        <div class="clues">
+          <div id="descriptionPanel" hidden>
+            <p id="descriptionContent" hidden></p>
+          </div>
+        </div>
+      </div>
       <div class="controls">
-        <button id="shareBtn" type="button" style="display:none;">Share</button>
-        <button id="backToLanding" type="button">Back</button>
+        <div id="rewardStrip" hidden>
+          <span id="rewardStripLabel"></span>
+          <span id="rewardStripMeta"></span>
+        </div>
+        <button id="shareBtn" type="button" disabled>Share</button>
+        <p id="shareHint" hidden></p>
       </div>
     </div>
+    <dialog id="completionModal">
+      <h2 id="completionTitle">Puzzle complete</h2>
+      <p id="completionSummary"></p>
+      <div id="completionBreakdown"></div>
+      <p id="completionReason"></p>
+      <button id="completionCloseButton" type="button">Close</button>
+      <button id="completionSecondaryAction" type="button">Keep solving</button>
+      <button id="completionPrimaryAction" type="button">Generate another</button>
+    </dialog>
   </body>
 </html>`;
 
@@ -85,6 +100,18 @@ function json(status, body) {
 
 function text(status, body) {
   return { status, contentType: "text/plain", body };
+}
+
+function createBillingSummary(overrides = {}) {
+  return {
+    enabled: false,
+    provider_code: "",
+    balance: null,
+    packs: [],
+    activity: [],
+    portal_available: false,
+    ...(overrides || {}),
+  };
 }
 
 function createSession(overrides = {}) {
@@ -112,6 +139,15 @@ async function setupBaseRoutes(page) {
   await page.route("**/mpr-ui-config.js", (route) =>
     route.fulfill(text(200, mprUiConfigStub))
   );
+  await page.route("**/api/billing/summary", (route) =>
+    route.fulfill(json(200, createBillingSummary()))
+  );
+  await page.route("**/api/billing/checkout", (route) =>
+    route.fulfill(json(503, { message: "billing unavailable" }))
+  );
+  await page.route("**/api/billing/portal", (route) =>
+    route.fulfill(json(503, { message: "billing unavailable" }))
+  );
 }
 
 /**
@@ -128,6 +164,7 @@ async function setupBaseRoutes(page) {
 async function setupLoggedInRoutes(page, opts = {}) {
   var coins = opts.coins != null ? opts.coins : 15;
   var puzzles = opts.puzzles || defaultPuzzles;
+  var ownedPuzzles = opts.ownedPuzzles || [];
   var configYaml = opts.configYaml != null ? opts.configYaml : "";
   var session = createSession(opts.session);
 
@@ -139,7 +176,10 @@ async function setupLoggedInRoutes(page, opts = {}) {
   );
   await page.route("**/me", (route) => route.fulfill(json(200, {})));
   await page.route("**/api/bootstrap", (route) =>
-    route.fulfill(json(200, { balance: { coins } }))
+    route.fulfill(json(200, { balance: { coins }, grants: { bootstrap_coins: 0, daily_login_coins: 0, low_balance_coins: 0 } }))
+  );
+  await page.route("**/api/puzzles", (route) =>
+    route.fulfill(json(200, { puzzles: ownedPuzzles }))
   );
   await page.route("**/config.yaml", (route) =>
     route.fulfill(text(200, configYaml))
@@ -195,6 +235,7 @@ async function mountAppShell(page) {
 
 module.exports = {
   appShellHtml,
+  createBillingSummary,
   createSession,
   defaultPuzzles,
   defaultSession,

@@ -31,6 +31,10 @@
       },
     }),
   });
+  var generationCostCredits = 4;
+  var generateButtonLabel = "Generate (" + generationCostCredits + " credits)";
+  var insufficientCreditsCardMessage = "Not enough credits. You need " + generationCostCredits + " credits to generate a puzzle.";
+  var insufficientCreditsGenerateMessage = "Not enough credits. You need " + generationCostCredits + " credits per puzzle.";
 
   function requireElement(id) {
     var element = document.getElementById(id);
@@ -49,14 +53,22 @@
   }
 
   var elements = {
-    backToLanding: requireElement("backToLanding"),
+    completionBreakdown: requireElement("completionBreakdown"),
+    completionCloseButton: requireElement("completionCloseButton"),
+    completionModal: requireElement("completionModal"),
+    completionPrimaryAction: requireElement("completionPrimaryAction"),
+    completionReason: requireElement("completionReason"),
+    completionSecondaryAction: requireElement("completionSecondaryAction"),
+    completionSummary: requireElement("completionSummary"),
+    completionTitle: requireElement("completionTitle"),
     creditBadge: requireElement("headerCreditBadge"),
     descriptionContent: document.getElementById("descriptionContent"),
     descriptionPanel: document.getElementById("descriptionPanel"),
-    descriptionToggle: document.getElementById("descriptionToggle"),
     generateBtn: requireElement("generateBtn"),
+    generateBuyCreditsButton: document.getElementById("generateBuyCreditsButton"),
     generatePanel: requireElement("generatePanel"),
     generateStatus: requireElement("generateStatus"),
+    headerPuzzleTabs: document.getElementById("headerPuzzleTabs"),
     landingPage: requireElement("landingPage"),
     landingSignIn: requireElement("landingSignIn"),
     landingTryBtn: requireElement("landingTryPrebuilt"),
@@ -137,6 +149,7 @@
     currentShareToken: null,
     currentView: isAuthPending() ? "puzzle" : "landing",
     loggedIn: false,
+    pendingCompletionKey: null,
     pendingAuthRestoreTimer: null,
     pendingSessionVerification: null,
   };
@@ -164,6 +177,13 @@
     var showLandingView = state.currentView === "landing";
     elements.landingPage.style.display = showLandingView ? "" : "none";
     elements.puzzleView.style.display = showLandingView ? "none" : "";
+    syncHeaderPuzzleTabsVisibility();
+  }
+
+  function syncHeaderPuzzleTabsVisibility() {
+    if (!elements.headerPuzzleTabs) return;
+    var shouldShowTabs = state.currentView === "puzzle" && elements.generatePanel.style.display === "none";
+    elements.headerPuzzleTabs.hidden = !shouldShowTabs;
   }
 
   function setPuzzleContentVisible(isVisible) {
@@ -191,20 +211,27 @@
   }
 
   function showGenerateForm() {
+    var rewardStrip = document.getElementById("rewardStrip");
+    var shareHint = document.getElementById("shareHint");
+
     elements.generatePanel.style.display = "";
+    syncHeaderPuzzleTabsVisibility();
     setPuzzleContentVisible(false);
     elements.title.textContent = "Generate a New Crossword";
     elements.subtitle.textContent = "Enter a topic and choose the number of words.";
+    if (rewardStrip) {
+      rewardStrip.hidden = true;
+    }
+    if (shareHint) {
+      shareHint.hidden = true;
+      shareHint.textContent = "";
+    }
     if (elements.descriptionPanel) {
       elements.descriptionPanel.hidden = true;
     }
     if (elements.descriptionContent) {
       elements.descriptionContent.hidden = true;
       elements.descriptionContent.textContent = "";
-    }
-    if (elements.descriptionToggle) {
-      elements.descriptionToggle.textContent = "Show details";
-      elements.descriptionToggle.setAttribute("aria-expanded", "false");
     }
     if (window.CrosswordApp && window.CrosswordApp.setActiveCard) {
       window.CrosswordApp.setActiveCard(elements.newCrosswordCard);
@@ -214,7 +241,36 @@
 
   function hideGenerateForm() {
     elements.generatePanel.style.display = "none";
+    syncHeaderPuzzleTabsVisibility();
     setPuzzleContentVisible(true);
+  }
+
+  function setGenerateBuyCreditsVisible(isVisible) {
+    if (!elements.generateBuyCreditsButton) return;
+    elements.generateBuyCreditsButton.hidden = !isVisible;
+  }
+
+  function clearGenerateStatus() {
+    elements.generateStatus.textContent = "";
+    elements.generateStatus.classList.remove("loading");
+    setGenerateBuyCreditsVisible(false);
+  }
+
+  function showInsufficientCreditsMessage(message) {
+    elements.generateStatus.textContent = message;
+    elements.generateStatus.classList.remove("loading");
+    setGenerateBuyCreditsVisible(state.loggedIn);
+  }
+
+  function openBillingDrawer(source, message) {
+    if (!window.CrosswordBilling || typeof window.CrosswordBilling.openAccountBilling !== "function") {
+      return;
+    }
+    window.CrosswordBilling.openAccountBilling({
+      force: true,
+      message: message || "",
+      source: source || "app",
+    });
   }
 
   function restorePendingAuthView() {
@@ -227,12 +283,79 @@
   }
 
   function updateShareButton() {
-    elements.shareBtn.style.display = state.currentShareToken ? "" : "none";
+    elements.shareBtn.style.display = "";
+    elements.shareBtn.disabled = !state.currentShareToken;
   }
 
   function setShareToken(value) {
     state.currentShareToken = value || null;
     updateShareButton();
+  }
+
+  function syncShareTokenFromActivePuzzle() {
+    var activePuzzle = window.CrosswordApp && window.CrosswordApp.getActivePuzzle
+      ? window.CrosswordApp.getActivePuzzle()
+      : null;
+    setShareToken(activePuzzle && activePuzzle.shareToken ? activePuzzle.shareToken : null);
+  }
+
+  function pulseCreditBadge() {
+    elements.creditBadge.classList.remove("header-credit-badge--pulse");
+    void elements.creditBadge.offsetWidth;
+    elements.creditBadge.classList.add("header-credit-badge--pulse");
+  }
+
+  function setViewerSessionState() {
+    if (!window.CrosswordApp || !window.CrosswordApp.setViewerSession) return;
+    window.CrosswordApp.setViewerSession({
+      loggedIn: state.loggedIn,
+    });
+  }
+
+  function renderCompletionRow(label, value, isTotal) {
+    var row = document.createElement("div");
+    var labelElement = document.createElement("span");
+    var valueElement = document.createElement("strong");
+
+    row.className = "completion-modal__row" + (isTotal ? " completion-modal__row--total" : "");
+    labelElement.textContent = label;
+    valueElement.textContent = value;
+    row.appendChild(labelElement);
+    row.appendChild(valueElement);
+    return row;
+  }
+
+  function hideCompletionModal() {
+    if (elements.completionModal.open) {
+      elements.completionModal.close();
+    }
+  }
+
+  function showCompletionModal(details) {
+    var breakdown = details && Array.isArray(details.breakdown) ? details.breakdown : [];
+    var index;
+
+    elements.completionTitle.textContent = details && details.title ? details.title : "Puzzle complete";
+    elements.completionSummary.textContent = details && details.summary ? details.summary : "";
+    elements.completionReason.textContent = details && details.reason ? details.reason : "";
+    elements.completionBreakdown.innerHTML = "";
+
+    for (index = 0; index < breakdown.length; index++) {
+      elements.completionBreakdown.appendChild(renderCompletionRow(
+        breakdown[index].label,
+        breakdown[index].value,
+        !!breakdown[index].isTotal
+      ));
+    }
+
+    elements.completionPrimaryAction.style.display = details && details.hidePrimary ? "none" : "";
+    if (details && details.primaryLabel) {
+      elements.completionPrimaryAction.textContent = details.primaryLabel;
+    }
+
+    if (!elements.completionModal.open) {
+      elements.completionModal.showModal();
+    }
   }
 
   function updateAuthUI() {
@@ -242,28 +365,171 @@
       elements.generateBtn.textContent = "Generate";
       elements.creditBadge.textContent = "";
       elements.creditBadge.style.display = "none";
-      elements.generateStatus.textContent = "";
-      elements.generateStatus.classList.remove("loading");
+      elements.creditBadge.disabled = true;
+      clearGenerateStatus();
       elements.landingSignIn.textContent = "Sign in to generate";
       hideGenerateForm();
       return;
     }
 
-    elements.generateBtn.textContent = "Generate (5 credits)";
+    elements.generateBtn.textContent = generateButtonLabel;
     elements.creditBadge.style.display = "";
+    elements.creditBadge.disabled = false;
     elements.creditBadge.classList.remove("logged-out");
-    elements.generateStatus.textContent = "";
+    clearGenerateStatus();
     elements.landingSignIn.textContent = "Go to generator";
   }
 
   function updateBalance(balance) {
     var coins;
+    var previousCoins = state.currentCoins;
 
     if (!balance) return;
 
     coins = balance.coins != null ? balance.coins : Math.floor(balance.available_cents / 100);
     state.currentCoins = coins;
     elements.creditBadge.textContent = coins + " credits";
+    if (previousCoins !== null && coins > previousCoins) {
+      pulseCreditBadge();
+    }
+    if (state.loggedIn && coins >= generationCostCredits) {
+      setGenerateBuyCreditsVisible(false);
+      if (elements.generatePanel.style.display !== "none" && elements.generateStatus.textContent.indexOf("Not enough credits") === 0) {
+        elements.generateStatus.textContent = "Credits updated. You can generate a new puzzle.";
+      }
+      if (!elements.generateStatus.classList.contains("loading")) {
+        elements.generateBtn.disabled = false;
+      }
+    }
+  }
+
+  function describeCompletionReason(reason) {
+    if (reason === "revealed") return "Reveal was used, so this puzzle no longer qualifies for rewards.";
+    if (reason === "anonymous_solver") return "Sign in if you want shared solves to support the creator.";
+    if (reason === "creator_puzzle_cap_reached") return "This puzzle has already reached its creator reward cap.";
+    if (reason === "creator_daily_cap_reached") return "The creator has already reached today’s shared reward cap.";
+    if (reason === "already_recorded") return "This puzzle has already recorded its solve outcome.";
+    if (!reason) return "";
+    return "This solve did not qualify for extra credits.";
+  }
+
+  function getCompletionEndpoint(puzzle) {
+    if (!puzzle) return null;
+    if (puzzle.source === "shared" && puzzle.shareToken) {
+      return "/api/shared/" + encodeURIComponent(puzzle.shareToken) + "/complete";
+    }
+    if (puzzle.id) {
+      return "/api/puzzles/" + encodeURIComponent(puzzle.id) + "/complete";
+    }
+    return null;
+  }
+
+  function updatePuzzleRewardSummary(puzzle, result) {
+    if (!puzzle || !puzzle.id || !result || !result.reward_summary) return;
+    if (window.CrosswordApp && window.CrosswordApp.updatePuzzleRewardData) {
+      window.CrosswordApp.updatePuzzleRewardData(puzzle.id, result.reward_summary);
+    }
+  }
+
+  function showSolveCompletionModal(result) {
+    var reward = result && result.reward ? result.reward : {};
+    var total = Number(reward.total || 0);
+    var breakdown = [];
+    var reasonText = describeCompletionReason(result && result.reason);
+
+    if (reward.base) breakdown.push({ label: "Base reward", value: "+" + reward.base });
+    if (reward.no_hint_bonus) breakdown.push({ label: "No-hint bonus", value: "+" + reward.no_hint_bonus });
+    if (reward.daily_bonus) breakdown.push({ label: "Daily owner bonus", value: "+" + reward.daily_bonus });
+    breakdown.push({ label: "Total", value: "+" + total + " credits", isTotal: true });
+
+    showCompletionModal({
+      title: total > 0 ? "Reward claimed" : "Puzzle complete",
+      summary: total > 0
+        ? "You earned " + total + " credits."
+        : "This puzzle completed without a reward payout.",
+      reason: reasonText,
+      breakdown: breakdown,
+      primaryLabel: "Generate another",
+    });
+  }
+
+  function showSharedCompletionModal(result) {
+    var creatorCoins = Number(result && result.creator_coins || 0);
+    var breakdown = [];
+
+    if (creatorCoins > 0) {
+      breakdown.push({ label: "Creator support", value: "+" + creatorCoins + " credit", isTotal: true });
+      showCompletionModal({
+        title: "Creator supported",
+        summary: "Your solve counted and rewarded the creator.",
+        reason: "",
+        breakdown: breakdown,
+        primaryLabel: "Generate another",
+      });
+      return;
+    }
+
+    showCompletionModal({
+      title: "Shared puzzle complete",
+      summary: "This solve did not generate a creator payout.",
+      reason: describeCompletionReason(result && result.reason),
+      breakdown: [],
+      primaryLabel: "Generate another",
+    });
+  }
+
+  function submitPuzzleCompletion(detail) {
+    var activePuzzle = window.CrosswordApp && window.CrosswordApp.getActivePuzzle
+      ? window.CrosswordApp.getActivePuzzle()
+      : null;
+    var endpoint = getCompletionEndpoint(activePuzzle);
+    var requestKey;
+
+    if (!activePuzzle || !endpoint) return;
+    if (activePuzzle.source !== "owned" && activePuzzle.source !== "shared") return;
+    if (activePuzzle.source === "shared" && !state.loggedIn) return;
+
+    requestKey = endpoint + ":" + (detail && detail.usedReveal ? "reveal" : "complete");
+    if (state.pendingCompletionKey === requestKey) return;
+    state.pendingCompletionKey = requestKey;
+
+    _fetch(endpoint, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        used_hint: !!(detail && detail.usedHint),
+        used_reveal: !!(detail && detail.usedReveal),
+      }),
+    })
+      .then(function (resp) {
+        return resp.json().then(function (data) {
+          return { ok: resp.ok, data: data };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok) {
+          throw new Error(result.data && result.data.message ? result.data.message : "Completion request failed");
+        }
+
+        if (result.data && result.data.balance) {
+          updateBalance(result.data.balance);
+        }
+        updatePuzzleRewardSummary(activePuzzle, result.data);
+
+        if (detail && detail.usedReveal) return;
+        if (result.data && result.data.mode === "owner") {
+          showSolveCompletionModal(result.data);
+          return;
+        }
+        showSharedCompletionModal(result.data);
+      })
+      .catch(function (err) {
+        console.warn("completion request failed:", err);
+      })
+      .finally(function () {
+        state.pendingCompletionKey = null;
+      });
   }
 
   function verifySessionStillValid() {
@@ -298,7 +564,11 @@
     clearPostLoginView();
     setAuthCheckPending(false);
     updateAuthUI();
+    setViewerSessionState();
     showPuzzle();
+    if (window.CrosswordBilling && typeof window.CrosswordBilling.setLoggedIn === "function") {
+      window.CrosswordBilling.setLoggedIn(true).catch(function () {});
+    }
 
     if (postLoginView === "generator") {
       showGenerateForm();
@@ -311,6 +581,10 @@
       })
       .then(function (data) {
         if (data && data.balance) updateBalance(data.balance);
+        if (window.CrosswordApp && window.CrosswordApp.loadOwnedPuzzles) {
+          return window.CrosswordApp.loadOwnedPuzzles();
+        }
+        return null;
       })
       .catch(function (err) {
         console.warn("bootstrap failed:", err);
@@ -325,6 +599,14 @@
     clearPostLoginView();
     setAuthCheckPending(false);
     updateAuthUI();
+    setViewerSessionState();
+    if (window.CrosswordBilling && typeof window.CrosswordBilling.setLoggedIn === "function") {
+      window.CrosswordBilling.setLoggedIn(false);
+    }
+    if (window.CrosswordApp && window.CrosswordApp.clearOwnedPuzzles) {
+      window.CrosswordApp.clearOwnedPuzzles();
+    }
+    hideCompletionModal();
     showLanding();
   }
 
@@ -338,6 +620,10 @@
     clearPostLoginView();
     setAuthCheckPending(false);
     updateAuthUI();
+    setViewerSessionState();
+    if (window.CrosswordApp && window.CrosswordApp.clearOwnedPuzzles) {
+      window.CrosswordApp.clearOwnedPuzzles();
+    }
 
     if (shouldRestoreLanding) {
       showLanding();
@@ -355,6 +641,10 @@
     clearPostLoginView();
     setAuthCheckPending(false);
     updateAuthUI();
+    setViewerSessionState();
+    if (window.CrosswordApp && window.CrosswordApp.clearOwnedPuzzles) {
+      window.CrosswordApp.clearOwnedPuzzles();
+    }
     showLanding();
   }
 
@@ -386,16 +676,16 @@
   }
 
   elements.newCrosswordCard.addEventListener("click", function () {
-    if (state.currentCoins !== null && state.currentCoins < 5) {
+    if (state.currentCoins !== null && state.currentCoins < generationCostCredits) {
       showGenerateForm();
       elements.generateBtn.disabled = true;
-      elements.generateStatus.textContent = "Not enough credits. You need 5 credits to generate a puzzle.";
+      showInsufficientCreditsMessage(insufficientCreditsCardMessage);
       return;
     }
 
     showGenerateForm();
     elements.generateBtn.disabled = !state.loggedIn;
-    elements.generateStatus.textContent = "";
+    clearGenerateStatus();
   });
 
   elements.landingTryBtn.addEventListener("click", function () {
@@ -422,15 +712,6 @@
     showPuzzle();
     showGenerateForm();
     headerSignIn.click();
-  });
-
-  elements.backToLanding.addEventListener("click", function () {
-    if (state.loggedIn) {
-      hideGenerateForm();
-      showPuzzle();
-      return;
-    }
-    showLanding();
   });
 
   document.addEventListener("mpr-ui:auth:authenticated", function () {
@@ -489,10 +770,12 @@
 
     if (!topic) {
       elements.generateStatus.textContent = "Please enter a topic.";
+      setGenerateBuyCreditsVisible(false);
       return;
     }
     if (!state.loggedIn) {
       elements.generateStatus.textContent = "Please log in first.";
+      setGenerateBuyCreditsVisible(false);
       return;
     }
 
@@ -517,13 +800,16 @@
       .then(function (result) {
         if (!result.ok) {
           if (result.data.error === "insufficient_credits") {
-            elements.generateStatus.textContent = "Not enough credits. You need 5 credits per puzzle.";
+            showInsufficientCreditsMessage(insufficientCreditsGenerateMessage);
           } else if (result.data.error === "llm_timeout") {
             elements.generateStatus.textContent = "The AI model timed out. Your credits have been refunded — please try again.";
+            setGenerateBuyCreditsVisible(false);
           } else if (result.data.error === "llm_error") {
             elements.generateStatus.textContent = "Generation failed. Your credits have been refunded — please try again.";
+            setGenerateBuyCreditsVisible(false);
           } else {
             elements.generateStatus.textContent = result.data.message || "Generation failed. Please try again.";
+            setGenerateBuyCreditsVisible(false);
           }
 
           if (result.data.error === "llm_timeout" || result.data.error === "llm_error") {
@@ -551,7 +837,10 @@
         });
 
         setPuzzleContentVisible(true);
+        payload.id = result.data.id ? String(result.data.id) : null;
         payload.shareToken = state.currentShareToken;
+        payload.source = result.data.source || "owned";
+        payload.rewardSummary = result.data.reward_summary || null;
 
         if (window.CrosswordApp && window.CrosswordApp.addGeneratedPuzzle) {
           window.CrosswordApp.addGeneratedPuzzle(payload);
@@ -560,11 +849,12 @@
         }
 
         elements.generatePanel.style.display = "none";
-        elements.generateStatus.textContent = "";
+        clearGenerateStatus();
       })
       .catch(function (err) {
         console.error("generate error:", err);
         elements.generateStatus.textContent = "Network error. Please try again.";
+        setGenerateBuyCreditsVisible(false);
       })
       .finally(function () {
         elements.generateBtn.disabled = !state.loggedIn;
@@ -574,6 +864,19 @@
 
   window.addEventListener("crossword:share-token", function (e) {
     setShareToken(e.detail);
+  });
+
+  window.addEventListener("crossword:active-puzzle", function (event) {
+    var puzzle = event && event.detail ? event.detail : null;
+    setShareToken(puzzle && puzzle.shareToken ? puzzle.shareToken : null);
+  });
+
+  window.addEventListener("crossword:completed", function (event) {
+    submitPuzzleCompletion(event.detail);
+  });
+
+  window.addEventListener("crossword:reveal-used", function (event) {
+    submitPuzzleCompletion(event.detail);
   });
 
   elements.shareBtn.addEventListener("click", function () {
@@ -598,36 +901,91 @@
     window.prompt("Copy this link to share:", url);
   });
 
+  elements.creditBadge.addEventListener("click", function () {
+    if (!state.loggedIn) return;
+    openBillingDrawer("header_credit_badge");
+  });
+
+  if (elements.generateBuyCreditsButton) {
+    elements.generateBuyCreditsButton.addEventListener("click", function () {
+      openBillingDrawer("generator_insufficient", "Choose a credit pack to keep generating.");
+    });
+  }
+
   elements.topicInput.addEventListener("keydown", function (e) {
     if (e.key !== "Enter") return;
     e.preventDefault();
     elements.generateBtn.click();
   });
 
+  elements.completionCloseButton.addEventListener("click", function () {
+    hideCompletionModal();
+  });
+
+  elements.completionSecondaryAction.addEventListener("click", function () {
+    hideCompletionModal();
+  });
+
+  elements.completionPrimaryAction.addEventListener("click", function () {
+    hideCompletionModal();
+    showPuzzle();
+    showGenerateForm();
+  });
+
+  elements.completionModal.addEventListener("click", function (event) {
+    if (event.target === elements.completionModal) {
+      hideCompletionModal();
+    }
+  });
+
+  window.addEventListener("llm-crossword:billing-summary", function (event) {
+    var summary = event && event.detail ? event.detail : null;
+
+    if (summary && summary.balance) {
+      updateBalance(summary.balance);
+    }
+    if (!summary || summary.enabled !== true) {
+      setGenerateBuyCreditsVisible(false);
+      return;
+    }
+    if (state.loggedIn && state.currentCoins !== null && state.currentCoins < generationCostCredits) {
+      setGenerateBuyCreditsVisible(true);
+    }
+  });
+
   updateAuthUI();
-  updateShareButton();
+  setViewerSessionState();
+  syncShareTokenFromActivePuzzle();
   applyView();
 
   (window.__LLM_CROSSWORD_TEST__ || (window.__LLM_CROSSWORD_TEST__ = {})).app = {
     clearPendingAuthRestoreTimer: clearPendingAuthRestoreTimer,
     clearAuthPending: clearAuthPending,
     clearPostLoginView: clearPostLoginView,
+    describeCompletionReason: describeCompletionReason,
     finalizePendingAuthRestoreFailure: finalizePendingAuthRestoreFailure,
+    getCompletionEndpoint: getCompletionEndpoint,
     getPostLoginView: getPostLoginView,
     getState: function () {
       return {
         authCheckPending: state.authCheckPending,
+        authStateVersion: state.authStateVersion,
         currentCoins: state.currentCoins,
         currentShareToken: state.currentShareToken,
         currentView: state.currentView,
         loggedIn: state.loggedIn,
+        pendingCompletionKey: state.pendingCompletionKey,
       };
     },
     isAuthPending: isAuthPending,
+    openBillingDrawer: openBillingDrawer,
     requireChild: requireChild,
     requireElement: requireElement,
     schedulePendingAuthRestoreRetry: schedulePendingAuthRestoreRetry,
     setAuthPending: setAuthPending,
+    setState: function (nextState) {
+      Object.assign(state, nextState || {});
+    },
     setLoggedIn: function (value) {
       state.loggedIn = !!value;
       updateAuthUI();
@@ -637,8 +995,12 @@
     },
     setPostLoginView: setPostLoginView,
     setShareToken: setShareToken,
+    showCompletionModal: showCompletionModal,
+    showSharedCompletionModal: showSharedCompletionModal,
+    showSolveCompletionModal: showSolveCompletionModal,
     showGenerateForm: showGenerateForm,
     showPuzzle: showPuzzle,
+    submitPuzzleCompletion: submitPuzzleCompletion,
     updateBalance: updateBalance,
   };
 })();
