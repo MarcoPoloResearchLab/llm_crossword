@@ -156,6 +156,7 @@ async function setupBaseRoutes(page) {
  * @param {import('@playwright/test').Page} page
  * @param {object}  [opts]
  * @param {number}  [opts.coins=15]          — credit balance
+ * @param {number}  [opts.generationCostCoins=4] — generation cost reflected by the backend
  * @param {Array}   [opts.puzzles]           — puzzle payload (defaults to defaultPuzzles)
  * @param {string}  [opts.configYaml=""]     — raw config.yaml text
  * @param {Record<string, (route: import('@playwright/test').Route) => void>} [opts.extra]
@@ -163,6 +164,7 @@ async function setupBaseRoutes(page) {
  */
 async function setupLoggedInRoutes(page, opts = {}) {
   var coins = opts.coins != null ? opts.coins : 15;
+  var generationCostCoins = opts.generationCostCoins != null ? opts.generationCostCoins : 4;
   var puzzles = opts.puzzles || defaultPuzzles;
   var ownedPuzzles = opts.ownedPuzzles || [];
   var configYaml = opts.configYaml != null ? opts.configYaml : "";
@@ -176,7 +178,13 @@ async function setupLoggedInRoutes(page, opts = {}) {
   );
   await page.route("**/me", (route) => route.fulfill(json(200, {})));
   await page.route("**/api/bootstrap", (route) =>
-    route.fulfill(json(200, { balance: { coins }, grants: { bootstrap_coins: 0, daily_login_coins: 0, low_balance_coins: 0 } }))
+    route.fulfill(json(200, {
+      balance: {
+        coins,
+        generation_cost_coins: generationCostCoins,
+      },
+      grants: { bootstrap_coins: 0, daily_login_coins: 0, low_balance_coins: 0 },
+    }))
   );
   await page.route("**/api/puzzles", (route) =>
     route.fulfill(json(200, { puzzles: ownedPuzzles }))
