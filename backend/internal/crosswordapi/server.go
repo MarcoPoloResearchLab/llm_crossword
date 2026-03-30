@@ -173,6 +173,9 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 
 	// Public endpoint — no auth required.
 	router.GET("/api/shared/:token", handler.handleGetSharedPuzzle)
+	// Shared completion accepts anonymous requests but upgrades to the
+	// authenticated flow when a valid session cookie is present.
+	router.POST("/api/shared/:token/complete", optionalSessionMiddleware(validator, "auth_claims"), handler.handleCompleteSharedPuzzle)
 	router.POST("/api/billing/paddle/webhook", handler.handleBillingWebhook)
 
 	api := router.Group("/api")
@@ -189,7 +192,6 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 	api.GET("/puzzles/:id", handler.handleGetPuzzle)
 	api.POST("/puzzles/:id/complete", handler.handleCompletePuzzle)
 	api.DELETE("/puzzles/:id", handler.handleDeletePuzzle)
-	api.POST("/shared/:token/complete", handler.handleCompleteSharedPuzzle)
 
 	admin := api.Group("/admin")
 	admin.Use(handler.requireAdmin)
@@ -199,6 +201,21 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 	admin.POST("/grant", handler.handleAdminGrant)
 
 	return router
+}
+
+func optionalSessionMiddleware(validator *sessionvalidator.Validator, contextKey string) gin.HandlerFunc {
+	if strings.TrimSpace(contextKey) == "" {
+		contextKey = sessionvalidator.DefaultContextKey
+	}
+	return func(ctx *gin.Context) {
+		if validator != nil {
+			claims, err := validator.ValidateRequest(ctx.Request)
+			if err == nil {
+				ctx.Set(contextKey, claims)
+			}
+		}
+		ctx.Next()
+	}
 }
 
 type httpHandler struct {
@@ -572,9 +589,10 @@ func (handler *httpHandler) respondWithBalance(ctx *gin.Context, userID string) 
 }
 
 type balanceResponse struct {
-	TotalCents     int64 `json:"total_cents"`
-	AvailableCents int64 `json:"available_cents"`
-	Coins          int64 `json:"coins"`
+	TotalCents          int64 `json:"total_cents"`
+	AvailableCents      int64 `json:"available_cents"`
+	Coins               int64 `json:"coins"`
+	GenerationCostCoins int64 `json:"generation_cost_coins"`
 }
 
 type bootstrapGrantSummary struct {
@@ -617,9 +635,10 @@ func (handler *httpHandler) fetchBalance(ctx context.Context, userID string) (*b
 		return nil, err
 	}
 	return &balanceResponse{
-		TotalCents:     resp.GetTotalCents(),
-		AvailableCents: resp.GetAvailableCents(),
-		Coins:          resp.GetAvailableCents() / handler.cfg.CoinValueCents,
+		TotalCents:          resp.GetTotalCents(),
+		AvailableCents:      resp.GetAvailableCents(),
+		Coins:               resp.GetAvailableCents() / handler.cfg.CoinValueCents,
+		GenerationCostCoins: handler.cfg.GenerateCoins,
 	}, nil
 }
 

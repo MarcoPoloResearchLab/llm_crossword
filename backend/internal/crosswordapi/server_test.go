@@ -13,6 +13,7 @@ import (
 
 	creditv1 "github.com/MarkoPoloResearchLab/ledger/api/credit/v1"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/tyemirov/tauth/pkg/sessionvalidator"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -182,6 +183,10 @@ func testClaims() *sessionvalidator.Claims {
 }
 
 func doRequest(router *gin.Engine, method, path string, body string) *httptest.ResponseRecorder {
+	return doRequestWithCookies(router, method, path, body)
+}
+
+func doRequestWithCookies(router *gin.Engine, method, path string, body string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	var reader *strings.Reader
 	if body != "" {
 		reader = strings.NewReader(body)
@@ -190,9 +195,33 @@ func doRequest(router *gin.Engine, method, path string, body string) *httptest.R
 	}
 	req := httptest.NewRequest(method, path, reader)
 	req.Header.Set("Content-Type", "application/json")
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
+	}
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
+}
+
+func testSessionCookie(t *testing.T, cfg Config, claims *sessionvalidator.Claims) *http.Cookie {
+	t.Helper()
+
+	tokenClaims := *claims
+	tokenClaims.RegisteredClaims = jwt.RegisteredClaims{
+		Issuer:    cfg.SessionIssuer,
+		IssuedAt:  jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &tokenClaims)
+	signedToken, err := token.SignedString([]byte(cfg.SessionSigningKey))
+	if err != nil {
+		t.Fatalf("SignedString: %v", err)
+	}
+
+	return &http.Cookie{
+		Name:  cfg.SessionCookieName,
+		Value: signedToken,
+	}
 }
 
 func testLLMResponseServer(t *testing.T, responses ...string) *httptest.Server {
@@ -319,6 +348,9 @@ func TestHandleBootstrap_GrantSummaryIncludesBootstrapAndDailyLogin(t *testing.T
 	if balance["coins"].(float64) != 38 {
 		t.Fatalf("expected 38 coins after grants, got %v", balance["coins"])
 	}
+	if balance["generation_cost_coins"].(float64) != 4 {
+		t.Fatalf("expected generation cost of 4 coins, got %v", balance["generation_cost_coins"])
+	}
 	if len(grantKeys) != 2 {
 		t.Fatalf("expected 2 grant calls, got %d", len(grantKeys))
 	}
@@ -355,6 +387,9 @@ func TestHandleBootstrap_LowBalanceTopUp(t *testing.T) {
 	}
 	if balance["coins"].(float64) != 4 {
 		t.Fatalf("expected balance to top up to 4 coins, got %v", balance["coins"])
+	}
+	if balance["generation_cost_coins"].(float64) != 4 {
+		t.Fatalf("expected generation cost of 4 coins, got %v", balance["generation_cost_coins"])
 	}
 }
 
@@ -434,6 +469,9 @@ func TestHandleBalance_Success(t *testing.T) {
 	balance := resp["balance"].(map[string]any)
 	if balance["coins"].(float64) != 15 {
 		t.Errorf("expected 15 coins, got %v", balance["coins"])
+	}
+	if balance["generation_cost_coins"].(float64) != 4 {
+		t.Errorf("expected generation cost of 4 coins, got %v", balance["generation_cost_coins"])
 	}
 }
 
@@ -567,6 +605,13 @@ func TestHandleGenerate_Success(t *testing.T) {
 	}
 	if resp["description"] != metadata.Description {
 		t.Fatalf("expected description %q, got %v", metadata.Description, resp["description"])
+	}
+	balance, ok := resp["balance"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected balance in response, got %T", resp["balance"])
+	}
+	if balance["generation_cost_coins"].(float64) != 4 {
+		t.Fatalf("expected generation cost of 4 coins, got %v", balance["generation_cost_coins"])
 	}
 }
 
@@ -1011,6 +1056,32 @@ func TestHandleCompleteSharedPuzzle_AnonymousSolverDoesNotAffectCredits(t *testi
 	}
 }
 
+func TestSetupRouter_HandleCompleteSharedPuzzle_AllowsAnonymousWithoutSession(t *testing.T) {
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", ShareToken: "shared-token", Title: "Shared"}
+	store := &mockStore{
+		getByShareFunc: func(token string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+	}
+
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, store)
+	validator, err := newTestValidator(handler.cfg)
+	if err != nil {
+		t.Fatalf("validator: %v", err)
+	}
+	router := setupRouter(handler.cfg, handler, validator)
+
+	response := doRequest(router, "POST", "/api/shared/shared-token/complete", `{"used_hint":false,"used_reveal":false}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	if body["reason"] != "anonymous_solver" {
+		t.Fatalf("expected anonymous_solver reason, got %v", body["reason"])
+	}
+}
+
 func TestHandleCompleteSharedPuzzle_PaysCreatorOnce(t *testing.T) {
 	var grantUserID string
 	var grantAmount int64
@@ -1063,6 +1134,63 @@ func TestHandleCompleteSharedPuzzle_PaysCreatorOnce(t *testing.T) {
 	}
 	if recordedSolve == nil || recordedSolve.CreatorRewardCoins != 1 {
 		t.Fatalf("expected creator reward record, got %#v", recordedSolve)
+	}
+}
+
+func TestSetupRouter_HandleCompleteSharedPuzzle_UsesSessionWhenPresent(t *testing.T) {
+	var grantUserID string
+	var grantAmount int64
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", ShareToken: "shared-token", Title: "Shared"}
+	store := &mockStore{
+		getByShareFunc: func(token string) (*Puzzle, error) {
+			return puzzle, nil
+		},
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+			return nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			return &PuzzleRewardStats{}, nil
+		},
+	}
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantUserID = in.GetUserId()
+			grantAmount = in.GetAmountCents()
+			return &creditv1.Empty{}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(ledger, nil, store)
+	validator, err := newTestValidator(handler.cfg)
+	if err != nil {
+		t.Fatalf("validator: %v", err)
+	}
+	router := setupRouter(handler.cfg, handler, validator)
+	cookie := testSessionCookie(t, handler.cfg, &sessionvalidator.Claims{UserID: "solver-1"})
+
+	response := doRequestWithCookies(
+		router,
+		"POST",
+		"/api/shared/shared-token/complete",
+		`{"used_hint":false,"used_reveal":false}`,
+		cookie,
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeJSONMap(t, response.Body.String())
+	if body["mode"] != "shared" {
+		t.Fatalf("expected shared mode, got %v", body["mode"])
+	}
+	if body["creator_rewarded"] != true {
+		t.Fatalf("expected creator_rewarded true, got %v", body["creator_rewarded"])
+	}
+	if grantUserID != "owner-1" || grantAmount != 100 {
+		t.Fatalf("expected creator grant to owner-1 for 100 cents, got user=%q amount=%d", grantUserID, grantAmount)
 	}
 }
 

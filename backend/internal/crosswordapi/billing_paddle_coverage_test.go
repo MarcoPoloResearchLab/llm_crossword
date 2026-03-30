@@ -303,6 +303,10 @@ func TestReplaceCheckoutTransactionPlaceholderCoverage(t *testing.T) {
 	if got := replaceCheckoutTransactionPlaceholder(returnURL, " txn_123 "); got != "https://site.example.com/?billing_transaction_id=txn_123" {
 		t.Fatalf("expected placeholder replacement, got %q", got)
 	}
+	checkoutURL := "https://checkout.example.com/session?return_to=https%3A%2F%2Fsite.example.com%2F%3Fbilling_transaction_id%3D%7Btransaction_id%7D"
+	if got := replaceCheckoutTransactionPlaceholder(checkoutURL, " txn_123 "); got != "https://checkout.example.com/session?return_to=https%3A%2F%2Fsite.example.com%2F%3Fbilling_transaction_id%3Dtxn_123" {
+		t.Fatalf("expected encoded placeholder replacement, got %q", got)
+	}
 	if got := replaceCheckoutTransactionPlaceholder(returnURL, "   "); got != returnURL {
 		t.Fatalf("expected blank transaction id to keep return url, got %q", got)
 	}
