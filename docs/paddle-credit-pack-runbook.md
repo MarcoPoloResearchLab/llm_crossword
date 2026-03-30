@@ -12,7 +12,7 @@ The app expects:
 
 ## Required Dashboard Setup
 
-1. Create one Paddle price for each pack in `config.yaml`:
+1. Create one Paddle price for each pack in `configs/config.yml`:
    - `starter`
    - `creator`
    - `publisher`
