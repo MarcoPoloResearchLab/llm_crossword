@@ -3,7 +3,7 @@
 (function (global) {
   "use strict";
 
-  var DEFAULT_CONFIG_URL = "/config.yaml";
+  var DEFAULT_CONFIG_URL = "/config.yml";
   var DEFAULT_YAML_PARSER_URL = "https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js";
   var DEFAULT_HEADER_SELECTOR = "mpr-header";
   var DEFAULT_LOGIN_BUTTON_SELECTOR = "mpr-login-button";
@@ -51,18 +51,18 @@
   function requireString(source, key, scope) {
     var value = source[key];
     if (typeof value !== "string" || value.trim().length === 0) {
-      throw new Error("config.yaml missing " + scope + "." + key);
+      throw new Error("config.yml missing " + scope + "." + key);
     }
     return value.trim();
   }
 
   function requireStringAllowEmpty(source, key, scope) {
     if (!Object.prototype.hasOwnProperty.call(source, key)) {
-      throw new Error("config.yaml missing " + scope + "." + key);
+      throw new Error("config.yml missing " + scope + "." + key);
     }
     var value = source[key];
     if (typeof value !== "string") {
-      throw new Error("config.yaml missing " + scope + "." + key);
+      throw new Error("config.yml missing " + scope + "." + key);
     }
     return value.trim();
   }
@@ -81,13 +81,13 @@
     var normalizedGoogleClientId = "";
 
     if (typeof rawGoogleClientId !== "string") {
-      throw new Error("config.yaml missing auth.googleClientId");
+      throw new Error("config.yml missing auth.googleClientId");
     }
 
     normalizedGoogleClientId = rawGoogleClientId.trim();
 
     if (normalizedGoogleClientId.length === 0) {
-      throw new Error("config.yaml missing auth.googleClientId");
+      throw new Error("config.yml missing auth.googleClientId");
     }
 
     if (normalizedGoogleClientId !== GOOGLE_CLIENT_ID_PLACEHOLDER) {
@@ -105,7 +105,7 @@
   function requireObject(source, key, scope) {
     var value = source[key];
     if (!isPlainObject(value)) {
-      throw new Error("config.yaml missing " + scope + "." + key);
+      throw new Error("config.yml missing " + scope + "." + key);
     }
     return value;
   }
@@ -133,11 +133,11 @@
 
   function requireEnvironments(value) {
     if (!Array.isArray(value) || value.length === 0) {
-      throw new Error("config.yaml missing environments");
+      throw new Error("config.yml missing environments");
     }
     return value.map(function mapEnvironment(environment, index) {
       if (!isPlainObject(environment)) {
-        throw new Error("config.yaml environment at index " + index + " must be an object");
+        throw new Error("config.yml environment at index " + index + " must be an object");
       }
       return environment;
     });
@@ -156,15 +156,15 @@
     var matches = environments.filter(function filterEnvironment(environment) {
       var origins = readStringArray(environment, SECTION_ORIGINS);
       if (origins.length === 0) {
-        throw new Error("config.yaml environment missing origins");
+        throw new Error("config.yml environment missing origins");
       }
       return origins.indexOf(runtimeOrigin) !== -1;
     });
     if (matches.length === 0) {
-      throw new Error("config.yaml has no environment for origin " + runtimeOrigin);
+      throw new Error("config.yml has no environment for origin " + runtimeOrigin);
     }
     if (matches.length > 1) {
-      throw new Error("config.yaml has multiple environments for origin " + runtimeOrigin);
+      throw new Error("config.yml has multiple environments for origin " + runtimeOrigin);
     }
     return matches[0];
   }
@@ -250,12 +250,12 @@
 
   function fetchConfig(configUrl) {
     if (!global.fetch) {
-      return Promise.reject(new Error("fetch is required to load config.yaml"));
+      return Promise.reject(new Error("fetch is required to load config.yml"));
     }
     return global.fetch(configUrl, { cache: "no-store" }).then(function parseResponse(response) {
       if (!response || !response.ok) {
         var status = response ? response.status : "unknown";
-        throw new Error("config.yaml request failed (" + status + ")");
+        throw new Error("config.yml request failed (" + status + ")");
       }
       return response.text();
     });
@@ -264,7 +264,7 @@
   function parseConfigYaml(configText, parser) {
     var parsed = parser.load(configText);
     if (!isPlainObject(parsed)) {
-      throw new Error("config.yaml must be an object");
+      throw new Error("config.yml must be an object");
     }
     return parsed;
   }
@@ -364,7 +364,7 @@
     }
     if (loginButtons.length > 0) {
       if (!runtimeConfig.authButton) {
-        throw new Error("config.yaml missing authButton for login button");
+        throw new Error("config.yml missing authButton for login button");
       }
       loginButtons.forEach(function updateLogin(loginButton) {
         applyLoginButtonAttributes(loginButton, runtimeConfig.auth, runtimeConfig.authButton);

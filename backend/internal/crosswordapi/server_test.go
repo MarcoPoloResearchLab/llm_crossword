@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +148,7 @@ func testRouterWithClaims(handler *httpHandler, claims *sessionvalidator.Claims)
 	router.GET("/healthz", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+	router.GET("/config.yml", handler.handlePublicConfig)
 	router.GET("/api/session", handler.handleSession)
 	router.POST("/api/bootstrap", handler.handleBootstrap)
 	router.GET("/api/balance", handler.handleBalance)
@@ -257,6 +259,41 @@ func TestOptionalSessionMiddleware_UsesDefaultContextKey(t *testing.T) {
 	response := doRequestWithCookies(router, http.MethodGet, "/session", "", cookie)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", response.Code)
+	}
+}
+
+func TestHandlePublicConfig_ServesConfiguredDocument(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := tempDir + "/config.yml"
+	configBody := "billing:\n  packs: []\n"
+	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg := testConfig()
+	cfg.PublicConfigPath = configPath
+	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, cfg)
+	router := testRouterWithClaims(handler, nil)
+
+	response := doRequest(router, http.MethodGet, "/config.yml", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("expected Cache-Control no-store, got %q", got)
+	}
+	if !strings.Contains(response.Body.String(), "billing:") {
+		t.Fatalf("expected config body, got %q", response.Body.String())
+	}
+}
+
+func TestHandlePublicConfig_NotFoundWhenUnset(t *testing.T) {
+	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, testConfig())
+	router := testRouterWithClaims(handler, nil)
+
+	response := doRequest(router, http.MethodGet, "/config.yml", "")
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", response.Code, response.Body.String())
 	}
 }
 
@@ -528,7 +565,7 @@ func TestHandleBalance_LedgerError(t *testing.T) {
 func TestHandleGenerate_NoClaims(t *testing.T) {
 	handler := testHandler(&mockLedgerClient{}, nil)
 	router := testRouterWithClaims(handler, nil)
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"test"}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"test"}`)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
 	}
@@ -543,10 +580,26 @@ func TestHandleGenerate_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestHandleGenerate_MissingRequestID(t *testing.T) {
+	handler := testHandler(&mockLedgerClient{}, nil)
+	router := testRouterWithClaims(handler, testClaims())
+	w := doRequest(router, "POST", "/api/generate", `{"topic":"test","word_count":8}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if body["error"] != "invalid_request_id" {
+		t.Fatalf("expected invalid_request_id, got %v", body["error"])
+	}
+}
+
 func TestHandleGenerate_EmptyTopic(t *testing.T) {
 	handler := testHandler(&mockLedgerClient{}, nil)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"","word_count":8}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
@@ -556,7 +609,7 @@ func TestHandleGenerate_TopicTooLong(t *testing.T) {
 	handler := testHandler(&mockLedgerClient{}, nil)
 	router := testRouterWithClaims(handler, testClaims())
 	longTopic := strings.Repeat("a", 201)
-	body := fmt.Sprintf(`{"topic":%q,"word_count":8}`, longTopic)
+	body := fmt.Sprintf(`{"request_id":"req-1","topic":%q,"word_count":8}`, longTopic)
 	w := doRequest(router, "POST", "/api/generate", body)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -571,7 +624,7 @@ func TestHandleGenerate_InsufficientCredits(t *testing.T) {
 	}
 	handler := testHandler(ledger, nil)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"Greek gods","word_count":8}`)
 	if w.Code != http.StatusPaymentRequired {
 		t.Fatalf("expected 402, got %d", w.Code)
 	}
@@ -585,7 +638,7 @@ func TestHandleGenerate_SpendError(t *testing.T) {
 	}
 	handler := testHandler(ledger, nil)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"Greek gods","word_count":8}`)
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
 	}
@@ -601,7 +654,7 @@ func TestHandleGenerate_LLMError(t *testing.T) {
 
 	handler := testHandler(ledger, llmServer)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"Greek gods","word_count":8}`)
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
 	}
@@ -623,7 +676,7 @@ func TestHandleGenerate_Success(t *testing.T) {
 
 	handler := testHandler(ledger, llmServer)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"Greek gods","word_count":8}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -651,6 +704,34 @@ func TestHandleGenerate_Success(t *testing.T) {
 	}
 }
 
+func TestHandleGenerate_UsesStableSpendIdempotencyKey(t *testing.T) {
+	var capturedKey string
+
+	ledger := &mockLedgerClient{
+		spendFunc: func(ctx context.Context, in *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			capturedKey = in.GetIdempotencyKey()
+			return &creditv1.Empty{}, nil
+		},
+	}
+	items := []WordItem{
+		{Word: "ZEUS", Definition: "King of gods", Hint: "Lightning thrower"},
+	}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmProxyResponse{Response: mustMarshalJSON(items)})
+	}))
+	defer llmServer.Close()
+
+	handler := testHandler(ledger, llmServer)
+	router := testRouterWithClaims(handler, testClaims())
+	response := doRequest(router, "POST", "/api/generate", `{"request_id":"stable-request","topic":"Greek gods","word_count":8}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if capturedKey != "generate:user-123:stable-request" {
+		t.Fatalf("unexpected spend idempotency key %q", capturedKey)
+	}
+}
+
 func TestHandleGenerate_MetadataRetrySucceeds(t *testing.T) {
 	items := []WordItem{
 		{Word: "FORUM", Definition: "Public square", Hint: "civic center"},
@@ -665,7 +746,7 @@ func TestHandleGenerate_MetadataRetrySucceeds(t *testing.T) {
 
 	handler := testHandler(&mockLedgerClient{}, llmServer)
 	router := testRouterWithClaims(handler, testClaims())
-	resp := doRequest(router, "POST", "/api/generate", `{"topic":"Roman city","word_count":8}`)
+	resp := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"Roman city","word_count":8}`)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -696,7 +777,7 @@ func TestHandleGenerate_MetadataFailureFallsBackWithoutRefund(t *testing.T) {
 
 	handler := testHandler(ledger, llmServer)
 	router := testRouterWithClaims(handler, testClaims())
-	resp := doRequest(router, "POST", "/api/generate", `{"topic":"Crossword city","word_count":8}`)
+	resp := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"Crossword city","word_count":8}`)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -740,7 +821,7 @@ func TestHandleGenerate_WordCountClamping(t *testing.T) {
 
 			handler := testHandler(ledger, llmServer)
 			router := testRouterWithClaims(handler, testClaims())
-			body := fmt.Sprintf(`{"topic":"test","word_count":%d}`, tt.wordCount)
+			body := fmt.Sprintf(`{"request_id":"req-1","topic":"test","word_count":%d}`, tt.wordCount)
 			w := doRequest(router, "POST", "/api/generate", body)
 			if w.Code != http.StatusOK {
 				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -766,7 +847,7 @@ func TestHandleGenerate_BalanceFetchFailsGracefully(t *testing.T) {
 
 	handler := testHandler(ledger, llmServer)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"test","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"test","word_count":8}`)
 	// Should still succeed even if balance fetch fails.
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -2205,7 +2286,7 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 	}
 	handler := testHandlerWithStore(ledger, llmServer, s)
 	router := testRouterWithClaims(handler, testClaims())
-	resp := doRequest(router, "POST", "/api/generate", `{"topic":"cats","word_count":5}`)
+	resp := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"cats","word_count":5}`)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -2310,7 +2391,7 @@ func TestHandleGenerate_IncludesShareToken(t *testing.T) {
 
 	handler := testHandler(ledger, llmServer)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"test","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"test","word_count":8}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -2322,7 +2403,98 @@ func TestHandleGenerate_IncludesShareToken(t *testing.T) {
 	}
 }
 
-func TestHandleGenerate_SaveFailureIsNonFatal(t *testing.T) {
+func TestHandleGenerate_ReplaysSucceededRequestWithoutSecondSpend(t *testing.T) {
+	var spendCalls int
+
+	s, _ := OpenDatabase(":memory:")
+	ledger := &mockLedgerClient{
+		spendFunc: func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			spendCalls += 1
+			return &creditv1.Empty{}, nil
+		},
+	}
+	items := []WordItem{
+		{Word: "TEST", Definition: "A trial", Hint: "Exam"},
+	}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmProxyResponse{Response: mustMarshalJSON(items)})
+	}))
+	defer llmServer.Close()
+
+	handler := testHandlerWithStore(ledger, llmServer, s)
+	router := testRouterWithClaims(handler, testClaims())
+	firstResponse := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"test","word_count":8}`)
+	if firstResponse.Code != http.StatusOK {
+		t.Fatalf("expected first response 200, got %d: %s", firstResponse.Code, firstResponse.Body.String())
+	}
+	secondResponse := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"test","word_count":8}`)
+	if secondResponse.Code != http.StatusOK {
+		t.Fatalf("expected second response 200, got %d: %s", secondResponse.Code, secondResponse.Body.String())
+	}
+	if spendCalls != 1 {
+		t.Fatalf("expected a single spend call, got %d", spendCalls)
+	}
+	var firstBody map[string]any
+	var secondBody map[string]any
+	if err := json.Unmarshal(firstResponse.Body.Bytes(), &firstBody); err != nil {
+		t.Fatalf("Unmarshal first response: %v", err)
+	}
+	if err := json.Unmarshal(secondResponse.Body.Bytes(), &secondBody); err != nil {
+		t.Fatalf("Unmarshal second response: %v", err)
+	}
+	if firstBody["id"] != secondBody["id"] {
+		t.Fatalf("expected replayed id %v, got %v", firstBody["id"], secondBody["id"])
+	}
+	if firstBody["share_token"] != secondBody["share_token"] {
+		t.Fatalf("expected replayed share_token %v, got %v", firstBody["share_token"], secondBody["share_token"])
+	}
+}
+
+func TestHandleGenerate_RejectsRequestIDReuseForDifferentPayload(t *testing.T) {
+	var spendCalls int
+
+	s, _ := OpenDatabase(":memory:")
+	ledger := &mockLedgerClient{
+		spendFunc: func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			spendCalls += 1
+			return &creditv1.Empty{}, nil
+		},
+	}
+	items := []WordItem{
+		{Word: "TEST", Definition: "A trial", Hint: "Exam"},
+	}
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmProxyResponse{Response: mustMarshalJSON(items)})
+	}))
+	defer llmServer.Close()
+
+	handler := testHandlerWithStore(ledger, llmServer, s)
+	router := testRouterWithClaims(handler, testClaims())
+	firstResponse := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"test","word_count":8}`)
+	if firstResponse.Code != http.StatusOK {
+		t.Fatalf("expected first response 200, got %d: %s", firstResponse.Code, firstResponse.Body.String())
+	}
+
+	conflictResponse := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"different","word_count":8}`)
+	if conflictResponse.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", conflictResponse.Code, conflictResponse.Body.String())
+	}
+	if spendCalls != 1 {
+		t.Fatalf("expected a single spend call, got %d", spendCalls)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(conflictResponse.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal conflict response: %v", err)
+	}
+	if body["error"] != "request_id_conflict" {
+		t.Fatalf("expected request_id_conflict, got %v", body["error"])
+	}
+}
+
+func TestHandleGenerate_SaveFailureRefundsAndFails(t *testing.T) {
+	var grantCalled bool
+
 	s := &mockStore{
 		createFunc: func(puzzle *Puzzle) error {
 			return errors.New("db write failed")
@@ -2339,16 +2511,32 @@ func TestHandleGenerate_SaveFailureIsNonFatal(t *testing.T) {
 		spendFunc: func(ctx context.Context, req *creditv1.SpendRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
 			return &creditv1.Empty{}, nil
 		},
+		grantFunc: func(ctx context.Context, req *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantCalled = true
+			if req.GetIdempotencyKey() != "refund:generate_persist_failure:req-1" {
+				t.Fatalf("unexpected refund idempotency key %q", req.GetIdempotencyKey())
+			}
+			return &creditv1.Empty{}, nil
+		},
 		getBalanceFunc: func(ctx context.Context, req *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {
 			return &creditv1.BalanceResponse{}, nil
 		},
 	}
 	handler := testHandlerWithStore(ledger, llmServer, s)
 	router := testRouterWithClaims(handler, testClaims())
-	resp := doRequest(router, "POST", "/api/generate", `{"topic":"dogs","word_count":5}`)
-	// Should still return 200 even though save failed.
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200 (save failure is non-fatal), got %d: %s", resp.Code, resp.Body.String())
+	resp := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"dogs","word_count":5}`)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !grantCalled {
+		t.Fatal("expected refund grant after save failure")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if body["error"] != "puzzle_persist_failed" {
+		t.Fatalf("expected puzzle_persist_failed, got %v", body["error"])
 	}
 }
 
@@ -2775,7 +2963,7 @@ func TestHandleGenerate_LLMError_RefundsCredits(t *testing.T) {
 
 	handler := testHandler(ledger, llmServer)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"Greek gods","word_count":8}`)
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
 	}
@@ -2799,7 +2987,7 @@ func TestHandleGenerate_LLMTimeout_Returns504(t *testing.T) {
 
 	handler := testHandler(ledger, llmServer)
 	router := testRouterWithClaims(handler, testClaims())
-	w := doRequest(router, "POST", "/api/generate", `{"topic":"Greek gods","word_count":8}`)
+	w := doRequest(router, "POST", "/api/generate", `{"request_id":"req-1","topic":"Greek gods","word_count":8}`)
 	if w.Code != http.StatusGatewayTimeout {
 		t.Fatalf("expected 504, got %d: %s", w.Code, w.Body.String())
 	}

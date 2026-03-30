@@ -113,9 +113,13 @@ func TestLoadConfig_AdminEmailsFromConfigYAML(t *testing.T) {
 	}()
 
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
+	configDir := filepath.Join(tempDir, "configs")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.yml")
 	if err := os.WriteFile(configPath, []byte("administrators:\n  - \"admin@example.com\"\n"), 0o644); err != nil {
-		t.Fatalf("write config.yaml: %v", err)
+		t.Fatalf("write config.yml: %v", err)
 	}
 
 	originalWorkingDirectory, err := os.Getwd()
@@ -165,9 +169,13 @@ func TestLoadConfig_AdminEmailsMergeEnvAndConfig(t *testing.T) {
 	}()
 
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
+	configDir := filepath.Join(tempDir, "configs")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.yml")
 	if err := os.WriteFile(configPath, []byte("administrators:\n  - \"file-admin@example.com\"\n"), 0o644); err != nil {
-		t.Fatalf("write config.yaml: %v", err)
+		t.Fatalf("write config.yml: %v", err)
 	}
 
 	originalWorkingDirectory, err := os.Getwd()
@@ -279,9 +287,13 @@ func TestLoadConfig_BindPFlagError(t *testing.T) {
 
 func TestLoadAdminEmailsFromConfigPaths(t *testing.T) {
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
+	configDir := filepath.Join(tempDir, "configs")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.yml")
 	if err := os.WriteFile(configPath, []byte("administrators:\n  - \"admin@example.com\"\n"), 0o644); err != nil {
-		t.Fatalf("write config.yaml: %v", err)
+		t.Fatalf("write config.yml: %v", err)
 	}
 
 	adminEmails, err := loadAdminEmailsFromConfigPaths([]string{

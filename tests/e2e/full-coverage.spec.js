@@ -765,6 +765,53 @@ test.describe("App coverage", () => {
     await expect(page.locator("#generateStatus")).toContainText("timed out");
   });
 
+  test("covers insufficient-credit messaging when the generator is already showing balance loading text", async ({ page }) => {
+    await mountAppShell(page);
+    await page.evaluate(() => {
+      window.fetch = function () {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: function () { return Promise.resolve({}); },
+        });
+      };
+      window.CrosswordApp = {};
+    });
+    await loadScript(page, "app.js");
+
+    var result = await page.evaluate(() => {
+      var app = window.__LLM_CROSSWORD_TEST__.app;
+      app.setLoggedIn(true);
+      app.showPuzzle();
+      app.showGenerateForm();
+      document.getElementById("generateStatus").textContent = "Loading your credit balance...";
+      app.updateBalance({ coins: 1, generation_cost_coins: 4 });
+      var buyCreditsButton = document.getElementById("generateBuyCreditsButton");
+      return {
+        status: document.getElementById("generateStatus").textContent,
+        buyCreditsHidden: buyCreditsButton ? buyCreditsButton.hidden : null,
+      };
+    });
+
+    expect(result.status).toBe("Not enough credits. You need 4 credits per puzzle.");
+    expect(result.buyCreditsHidden).toBeNull();
+  });
+
+  test("covers generation-in-progress responses", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/api/generate": (route) =>
+          route.fulfill(json(409, { error: "generation_in_progress" })),
+      },
+    });
+
+    await page.goto("/");
+    await openGenerateForm(page);
+    await page.fill("#topicInput", "duplicate request");
+    await page.click("#generateBtn");
+    await expect(page.locator("#generateStatus")).toContainText("previous generation is still finishing");
+  });
+
   test("covers the generate fallback when CrosswordApp.addGeneratedPuzzle is absent", async ({ page }) => {
     await setupLoggedInRoutes(page, {
       extra: {
@@ -1347,6 +1394,7 @@ test.describe("App coverage", () => {
     await page.evaluate(() => {
       var app = window.__LLM_CROSSWORD_TEST__.app;
       app.setLoggedIn(true);
+      app.updateBalance({ coins: 12, generation_cost_coins: 4 });
       document.getElementById("topicInput").value = "isolated";
       document.getElementById("generateBtn").click();
     });
@@ -1354,6 +1402,73 @@ test.describe("App coverage", () => {
     await expect.poll(async () => page.evaluate(() => {
       return window.__isolatedGeneratedPayload && window.__isolatedGeneratedPayload.title;
     })).toBe("Isolated Success");
+  });
+
+  test("covers bootstrap rejection while the generator is visible", async ({ page }) => {
+    await mountAppShell(page);
+    await page.evaluate(() => {
+      window.__warns = [];
+      window.__rejectBootstrap = null;
+      console.warn = function () {
+        window.__warns.push(Array.prototype.slice.call(arguments).join(" "));
+      };
+      window.sessionStorage.setItem("llm-crossword-post-login-view", "generator");
+      window.fetch = function (url) {
+        if (String(url).indexOf("/api/bootstrap") >= 0) {
+          return new Promise(function (_, reject) {
+            window.__rejectBootstrap = reject;
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: function () { return Promise.resolve({}); },
+        });
+      };
+      window.CrosswordApp = {};
+    });
+    await loadScript(page, "app.js");
+
+    await page.evaluate(() => {
+      window.__LLM_CROSSWORD_TEST__.app.setPostLoginView("generator");
+      document.dispatchEvent(new Event("mpr-ui:auth:authenticated"));
+    });
+
+    await page.evaluate(() => {
+      document.getElementById("generateBtn").disabled = false;
+      document.getElementById("generateStatus").classList.add("loading");
+      window.__rejectBootstrap(new Error("offline"));
+    });
+
+    await expect(page.locator("#generatePanel")).toBeVisible();
+    await expect(page.locator("#generateStatus")).toContainText("We couldn't load your credit balance");
+    await expect(page.locator("#generateBtn")).toBeEnabled();
+  });
+
+  test("covers non-ok bootstrap responses while the generator is visible", async ({ page }) => {
+    await mountAppShell(page);
+    await page.evaluate(() => {
+      window.fetch = function (url) {
+        if (String(url).indexOf("/api/bootstrap") >= 0) {
+          return Promise.resolve({ ok: false, status: 500 });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: function () { return Promise.resolve({}); },
+        });
+      };
+      window.CrosswordApp = {};
+    });
+    await loadScript(page, "app.js");
+
+    await page.evaluate(() => {
+      window.__LLM_CROSSWORD_TEST__.app.setPostLoginView("generator");
+      document.dispatchEvent(new Event("mpr-ui:auth:authenticated"));
+    });
+
+    await expect(page.locator("#generatePanel")).toBeVisible();
+    await expect(page.locator("#generateStatus")).toContainText("We couldn't load your credit balance");
   });
 });
 

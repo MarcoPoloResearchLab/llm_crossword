@@ -144,7 +144,7 @@ func TestRefundCredits_GrantError(t *testing.T) {
 	}
 
 	handler := testHandler(ledger, nil)
-	handler.refundCredits(context.Background(), "user-1", GenerateAmountCents(), "generation_failure")
+	handler.refundCredits(context.Background(), "user-1", GenerateAmountCents(), "generation_failure", "req-1")
 
 	if grantCalls != 1 {
 		t.Fatalf("expected 1 grant call, got %d", grantCalls)

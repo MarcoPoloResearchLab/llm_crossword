@@ -262,8 +262,37 @@ test.describe("App auth — bootstrap failure", () => {
     await page.goto("/");
     // onLogin() auto-navigates to puzzle view
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-    // Generate button should still be enabled after clicking New Crossword
     await page.locator("#newCrosswordCard").click();
+    await expect(page.locator("#generateBtn")).toBeDisabled({ timeout: 5000 });
+    await expect(page.locator("#generateStatus")).toContainText("couldn't load your credit balance", { timeout: 5000 });
+    expect(warnings.some((text) => text.includes("bootstrap failed"))).toBeTruthy();
+  });
+});
+
+test.describe("App auth — bootstrap loading gate", () => {
+  test("generate stays disabled until bootstrap returns a balance", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      extra: {
+        "**/api/bootstrap": async (route) => {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await route.fulfill(json(200, {
+            balance: {
+              coins: 15,
+              generation_cost_coins: 4,
+            },
+            grants: { bootstrap_coins: 0, daily_login_coins: 0, low_balance_coins: 0 },
+          }));
+        },
+      },
+    });
+
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+
+    await page.locator("#newCrosswordCard").click();
+    await expect(page.locator("#generateBtn")).toBeDisabled();
+    await expect(page.locator("#generateStatus")).toContainText("Loading your credit balance", { timeout: 5000 });
+
     await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
   });
 });

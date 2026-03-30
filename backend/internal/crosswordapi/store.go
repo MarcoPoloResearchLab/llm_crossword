@@ -109,11 +109,14 @@ type Store interface {
 	ListPuzzlesByUser(userID string) ([]Puzzle, error)
 	GetPuzzle(id string, userID string) (*Puzzle, error)
 	GetPuzzleByShareToken(token string) (*Puzzle, error)
+	CreateGenerationRequest(record *GenerationRequestRecord) error
 	DeletePuzzle(id string, userID string) error
+	GetGenerationRequest(userID string, requestID string) (*GenerationRequestRecord, error)
 	GetPuzzleSolveRecord(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error)
 	CreatePuzzleSolveRecord(record *PuzzleSolveRecord) error
 	CountQualifiedOwnerSolvesByDay(userID string, dayStart time.Time, dayEnd time.Time) (int64, error)
 	GetPuzzleRewardStats(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error)
+	UpdateGenerationRequest(record *GenerationRequestRecord) error
 	UpsertUserProfile(profile *UserProfile) error
 	ListAdminUsers() ([]AdminUser, error)
 	CreateAdminGrantRecord(record *AdminGrantRecord) error
@@ -140,6 +143,7 @@ func OpenDatabase(dsn string) (Store, error) {
 	if err := db.AutoMigrate(
 		&Puzzle{},
 		&PuzzleWord{},
+		&GenerationRequestRecord{},
 		&UserProfile{},
 		&AdminGrantRecord{},
 		&PuzzleSolveRecord{},

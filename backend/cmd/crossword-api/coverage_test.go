@@ -53,9 +53,10 @@ func TestLoadConfig_AdminConfigReadError(t *testing.T) {
 	setRequiredConfigEnv(t)
 
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
+	configDir := filepath.Join(tempDir, "configs")
+	configPath := filepath.Join(configDir, "config.yml")
 
-	if err := os.Mkdir(configPath, 0o755); err != nil {
+	if err := os.MkdirAll(configPath, 0o755); err != nil {
 		t.Fatalf("mkdir config path: %v", err)
 	}
 
@@ -73,14 +74,14 @@ func TestLoadConfig_AdminConfigReadError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected config read error")
 	}
-	if !strings.Contains(err.Error(), "load admin config config.yaml") {
+	if !strings.Contains(err.Error(), "load app config configs/config.yml") {
 		t.Fatalf("expected wrapped config path error, got %v", err)
 	}
 }
 
 func TestLoadAdminEmailsFromConfigPaths_SkipsBlankAndMissing(t *testing.T) {
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
+	configPath := filepath.Join(tempDir, "config.yml")
 
 	if err := os.WriteFile(configPath, []byte("administrators:\n  - admin@example.com\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
