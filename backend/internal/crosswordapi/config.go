@@ -39,6 +39,7 @@ type Config struct {
 	LLMProxyKey               string
 	LLMProxyTimeout           time.Duration
 	DatabaseDSN               string
+	PublicConfigPath          string
 	AdminEmails               []string
 	CoinValueCents            int64
 	BootstrapCoins            int64
@@ -236,7 +237,7 @@ func ParseAdminEmails(raw string) []string {
 	return normalized
 }
 
-// ParseAdminEmailsFromYAML extracts administrators from the shared UI config.yaml.
+// ParseAdminEmailsFromYAML extracts administrators from the shared public app config.
 func ParseAdminEmailsFromYAML(yamlText string) []string {
 	if strings.TrimSpace(yamlText) == "" {
 		return []string{}

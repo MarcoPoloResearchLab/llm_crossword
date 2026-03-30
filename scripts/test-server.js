@@ -4,6 +4,8 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
+const RUNTIME_ROOT = path.join(ROOT, ".runtime");
+const CONFIGS_ROOT = path.join(ROOT, "configs");
 const instrumenter = createInstrumenter({ esModules: false, compact: false });
 
 const app = express();
@@ -24,6 +26,19 @@ app.get("/js/:file", (req, res) => {
 // Stub /tauth.js (proxied to TAuth in production, not needed in tests)
 app.get("/tauth.js", (req, res) => {
   res.type("application/javascript").send("/* tauth.js stub for tests */");
+});
+
+app.get("/config.yml", (req, res) => {
+  const runtimeConfigPath = path.join(RUNTIME_ROOT, "config.yml");
+  const publicConfigPath = fs.existsSync(runtimeConfigPath)
+    ? runtimeConfigPath
+    : path.join(CONFIGS_ROOT, "config.yml");
+
+  if (!fs.existsSync(publicConfigPath)) {
+    return res.status(404).send("Not found");
+  }
+
+  res.type("text/yaml").send(fs.readFileSync(publicConfigPath, "utf8"));
 });
 
 // Serve static files

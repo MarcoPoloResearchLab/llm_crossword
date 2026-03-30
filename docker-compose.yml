@@ -47,7 +47,7 @@ services:
       - "${CROSSWORD_API_HOST_PORT:-9090}:9090"
     volumes:
       - crossword_puzzle_data:/data
-      - ./config.yaml:/config.yaml:ro
+      - ${APP_CONFIG_SOURCE:-./.runtime/config.yml}:/configs/config.yml:ro
     restart: unless-stopped
 
   ghttp:
@@ -66,6 +66,8 @@ services:
         "/me=http://tauth:8080",
         "--proxy",
         "/tauth.js=http://tauth:8080",
+        "--proxy",
+        "/config.yml=http://crossword-api:9090",
         "--response-header",
         "/js/=Cache-Control:public,max-age=86400",
         "--response-header",
@@ -76,7 +78,7 @@ services:
       - "${CROSSWORD_PORT:-8000}:8000"
     volumes:
       - .:/data:ro
-      - ${SITE_CONFIG_SOURCE:-./config.yaml}:/data/config.yaml:ro
+      - ${PUBLIC_CONFIGS_SOURCE:-./.runtime/public-configs}:/data/configs:ro
     depends_on:
       - crossword-api
       - tauth

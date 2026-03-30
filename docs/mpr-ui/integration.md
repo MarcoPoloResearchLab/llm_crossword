@@ -44,7 +44,7 @@ Load scripts in this exact order:
       s.src = 'https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@v3.8.2/mpr-ui.js';
       document.head.appendChild(s);
     }
-    MPRUI.applyYamlConfig({ configUrl: '/config.yaml' })
+    MPRUI.applyYamlConfig({ configUrl: '/config.yml' })
       .then(loadMprUi)
       .catch(function(err) { console.error('Config failed:', err); });
   })();
@@ -55,7 +55,7 @@ Load scripts in this exact order:
 
 ## YAML Configuration
 
-Create `config.yaml` at your application root:
+Create `configs/config.yml` in your application and serve it from `/config.yml`:
 
 ```yaml
 environments:
@@ -113,7 +113,7 @@ Environment matching uses `window.location.origin`. Each origin must appear in e
 
 ### `<mpr-header>` — Authentication & Navigation Banner
 
-**Auth attributes (set from config.yaml):**
+**Auth attributes (set from `/config.yml`):**
 - `google-site-id` — Google OAuth Web client ID
 - `tauth-tenant-id` — TAuth tenant identifier
 - `tauth-login-path`, `tauth-logout-path`, `tauth-nonce-path` — Auth endpoints
@@ -242,7 +242,7 @@ MPRUI.onThemeChange((mode) => console.log("Theme:", mode));
 
 | Function | Purpose |
 |---|---|
-| `MPRUI.loadYamlConfig(options)` | Loads and parses config.yaml |
+| `MPRUI.loadYamlConfig(options)` | Loads and parses `/config.yml` |
 | `MPRUI.applyYamlConfig(options)` | Loads config and applies auth attributes to DOM |
 | `MPRUI.whenAutoOrchestrationReady()` | Waits for auto-orchestration to complete |
 
@@ -251,7 +251,7 @@ MPRUI.onThemeChange((mode) => console.log("Theme:", mode));
 ## Usage Example
 
 ```html
-<mpr-header brand-label="My App" brand-href="/" data-config-url="/config.yaml">
+<mpr-header brand-label="My App" brand-href="/" data-config-url="/config.yml">
     <mpr-user slot="aux" display-mode="avatar" logout-url="/" logout-label="Log out"></mpr-user>
 </mpr-header>
 
@@ -267,7 +267,7 @@ MPRUI.onThemeChange((mode) => console.log("Theme:", mode));
 
 ## Common Integration Patterns
 
-1. **Same-origin auth**: Set `tauthUrl: ""` in config.yaml; reverse-proxy TAuth endpoints
+1. **Same-origin auth**: Set `tauthUrl: ""` in `configs/config.yml`; reverse-proxy TAuth endpoints
 2. **Cross-origin auth**: Set `tauthUrl: "https://tauth.example.com"`
 3. **Multiple tenants**: Recreate header/login-button (never mutate `tauth-tenant-id`)
 4. **Custom CSS**: Use `--mpr-color-*` variables
@@ -278,7 +278,7 @@ MPRUI.onThemeChange((mode) => console.log("Theme:", mode));
 | Issue | Fix |
 |---|---|
 | Sign-in button doesn't appear | Check GIS script loaded; verify CDN |
-| Config error: "no environment for origin" | Add `window.location.origin` to config.yaml |
+| Config error: "no environment for origin" | Add `window.location.origin` to `configs/config.yml` |
 | Session doesn't persist | Verify TAuth cookie domain matches app domain |
 | CORS errors during nonce/login | Add origin to TAuth CORS config |
 | Theme doesn't apply | Check theme-config `targets` selectors exist |

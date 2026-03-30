@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -167,6 +168,7 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 		MaxAge:           12 * time.Hour,
 	}))
 
+	router.GET("/config.yml", handler.handlePublicConfig)
 	router.GET("/healthz", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
@@ -231,6 +233,28 @@ const (
 	adminGrantHistoryLimit = 20
 	adminGrantReasonMaxLen = 240
 )
+
+func (handler *httpHandler) handlePublicConfig(ctx *gin.Context) {
+	configPath := strings.TrimSpace(handler.cfg.PublicConfigPath)
+	if configPath == "" {
+		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "config unavailable"))
+		return
+	}
+
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			ctx.JSON(http.StatusNotFound, errorResponse("not_found", "config unavailable"))
+			return
+		}
+		handler.logger.Error("read public config failed", zap.Error(err), zap.String("path", configPath))
+		ctx.JSON(http.StatusInternalServerError, errorResponse("config_read_failed", "could not load config"))
+		return
+	}
+
+	ctx.Header("Cache-Control", "no-store")
+	ctx.Data(http.StatusOK, "text/yaml; charset=utf-8", configBytes)
+}
 
 func (handler *httpHandler) handleSession(ctx *gin.Context) {
 	claims := getClaims(ctx)
@@ -427,8 +451,179 @@ func (handler *httpHandler) handleBillingWebhook(ctx *gin.Context) {
 }
 
 type generateRequest struct {
+	RequestID string `json:"request_id"`
 	Topic     string `json:"topic"`
 	WordCount int    `json:"word_count"`
+}
+
+const maxGenerateRequestIDLength = 128
+
+func buildGenerateSpendIdempotencyKey(userID string, requestID string) string {
+	return fmt.Sprintf("generate:%s:%s", userID, requestID)
+}
+
+func buildGenerateRefundIdempotencyKey(reason string, requestID string) string {
+	if strings.TrimSpace(requestID) == "" {
+		return fmt.Sprintf("refund:%s:%s", reason, uuid.NewString())
+	}
+	return fmt.Sprintf("refund:%s:%s", reason, requestID)
+}
+
+func generationFailureResponse(record *GenerationRequestRecord) (int, string, string) {
+	if record == nil {
+		return http.StatusInternalServerError, "generation_failed", "generation request could not be completed"
+	}
+
+	switch record.ErrorCode {
+	case "insufficient_credits":
+		return http.StatusPaymentRequired, record.ErrorCode, "not enough credits to generate a puzzle"
+	case "ledger_error":
+		return http.StatusBadGateway, record.ErrorCode, "spend failed"
+	case "llm_timeout":
+		return http.StatusGatewayTimeout, record.ErrorCode, "the language model took too long — credits have been refunded, please try again"
+	case "llm_error":
+		return http.StatusBadGateway, record.ErrorCode, "failed to generate words — credits have been refunded, please try again"
+	case "puzzle_persist_failed":
+		return http.StatusInternalServerError, record.ErrorCode, "generated puzzle could not be saved — credits have been refunded, please try again"
+	default:
+		if strings.TrimSpace(record.ErrorMessage) != "" {
+			return http.StatusInternalServerError, "generation_failed", record.ErrorMessage
+		}
+		return http.StatusInternalServerError, "generation_failed", "generation request could not be completed"
+	}
+}
+
+func wordItemsFromPuzzleWords(words []PuzzleWord) []WordItem {
+	items := make([]WordItem, 0, len(words))
+	for _, word := range words {
+		items = append(items, WordItem{
+			Word:       word.Word,
+			Definition: word.Clue,
+			Hint:       word.Hint,
+		})
+	}
+	return items
+}
+
+func buildGenerateSuccessResponse(puzzle *Puzzle, balance *balanceResponse) gin.H {
+	if puzzle == nil {
+		return gin.H{
+			"balance": balance,
+			"items":   []WordItem{},
+		}
+	}
+
+	return gin.H{
+		"items":          wordItemsFromPuzzleWords(puzzle.Words),
+		"title":          puzzle.Title,
+		"subtitle":       puzzle.Subtitle,
+		"description":    puzzle.Description,
+		"balance":        balance,
+		"id":             puzzle.ID,
+		"share_token":    puzzle.ShareToken,
+		"source":         puzzle.Source,
+		"reward_summary": puzzle.RewardSummary,
+	}
+}
+
+func (handler *httpHandler) markGenerationRequestFailed(record *GenerationRequestRecord, errorCode string, errorMessage string) {
+	if handler == nil || handler.store == nil || record == nil {
+		return
+	}
+
+	record.Status = generationRequestStatusFailed
+	record.ErrorCode = errorCode
+	record.ErrorMessage = errorMessage
+	record.PuzzleID = ""
+	if err := handler.store.UpdateGenerationRequest(record); err != nil {
+		handler.logger.Error("generation request update failed",
+			zap.Error(err),
+			zap.String("request_id", record.RequestID),
+			zap.String("user_id", record.UserID),
+		)
+	}
+}
+
+func (handler *httpHandler) markGenerationRequestSucceeded(record *GenerationRequestRecord, puzzleID string) {
+	if handler == nil || handler.store == nil || record == nil {
+		return
+	}
+
+	record.Status = generationRequestStatusSucceeded
+	record.PuzzleID = puzzleID
+	record.ErrorCode = ""
+	record.ErrorMessage = ""
+	if err := handler.store.UpdateGenerationRequest(record); err != nil {
+		handler.logger.Error("generation request update failed",
+			zap.Error(err),
+			zap.String("request_id", record.RequestID),
+			zap.String("user_id", record.UserID),
+			zap.String("puzzle_id", puzzleID),
+		)
+	}
+}
+
+func (handler *httpHandler) loadStoredGenerationResponse(ctx context.Context, userID string, record *GenerationRequestRecord) (gin.H, error) {
+	if handler == nil || handler.store == nil || record == nil {
+		return nil, fmt.Errorf("generation request is required")
+	}
+	if strings.TrimSpace(record.PuzzleID) == "" {
+		return nil, fmt.Errorf("generation request %s is missing puzzle id", record.RequestID)
+	}
+
+	puzzle, err := handler.store.GetPuzzle(record.PuzzleID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := handler.decorateOwnedPuzzle(puzzle, userID, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+
+	balance, _ := handler.fetchBalance(ctx, userID)
+	return buildGenerateSuccessResponse(puzzle, balance), nil
+}
+
+func generationRequestMatchesPayload(record *GenerationRequestRecord, topic string, wordCount int) bool {
+	if record == nil {
+		return false
+	}
+	return record.Topic == topic && record.WordCount == wordCount
+}
+
+func (handler *httpHandler) respondToExistingGenerationRequest(ctx *gin.Context, userID string, record *GenerationRequestRecord, topic string, wordCount int) bool {
+	if handler == nil || ctx == nil || record == nil {
+		return false
+	}
+	if !generationRequestMatchesPayload(record, topic, wordCount) {
+		ctx.JSON(http.StatusConflict, errorResponse("request_id_conflict", "request_id must be reused with the same topic and word_count"))
+		return true
+	}
+
+	switch record.Status {
+	case generationRequestStatusSucceeded:
+		response, err := handler.loadStoredGenerationResponse(ctx.Request.Context(), userID, record)
+		if err != nil {
+			handler.logger.Error("stored generation replay failed",
+				zap.Error(err),
+				zap.String("request_id", record.RequestID),
+				zap.String("user_id", userID),
+			)
+			ctx.JSON(http.StatusInternalServerError, errorResponse("generation_failed", "stored generation result could not be loaded"))
+			return true
+		}
+		ctx.JSON(http.StatusOK, response)
+		return true
+	case generationRequestStatusFailed:
+		statusCode, errorCode, message := generationFailureResponse(record)
+		ctx.JSON(statusCode, errorResponse(errorCode, message))
+		return true
+	case generationRequestStatusPending:
+		ctx.JSON(http.StatusConflict, errorResponse("generation_in_progress", "generation request is already in progress"))
+		return true
+	default:
+		ctx.JSON(http.StatusConflict, errorResponse("generation_in_progress", "generation request is already in progress"))
+		return true
+	}
 }
 
 func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
@@ -442,6 +637,16 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 	var req generateRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_payload", "expected JSON body with topic"))
+		return
+	}
+
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_request_id", "request_id is required"))
+		return
+	}
+	if len(requestID) > maxGenerateRequestIDLength {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_request_id", "request_id must be 128 characters or fewer"))
 		return
 	}
 
@@ -463,23 +668,68 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 		wordCount = 15
 	}
 
+	existingRequest, err := handler.store.GetGenerationRequest(claims.GetUserID(), requestID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		handler.logger.Error("generation request lookup failed",
+			zap.Error(err),
+			zap.String("request_id", requestID),
+			zap.String("user_id", claims.GetUserID()),
+		)
+		ctx.JSON(http.StatusInternalServerError, errorResponse("generation_failed", "generation request could not be prepared"))
+		return
+	}
+	if existingRequest != nil && handler.respondToExistingGenerationRequest(ctx, claims.GetUserID(), existingRequest, topic, wordCount) {
+		return
+	}
+
+	generationRequest := &GenerationRequestRecord{
+		UserID:    claims.GetUserID(),
+		RequestID: requestID,
+		Topic:     topic,
+		WordCount: wordCount,
+		Status:    generationRequestStatusPending,
+	}
+	if err := handler.store.CreateGenerationRequest(generationRequest); err != nil {
+		if isUniqueConstraintError(err) {
+			existingRequest, lookupErr := handler.store.GetGenerationRequest(claims.GetUserID(), requestID)
+			if lookupErr == nil && existingRequest != nil && handler.respondToExistingGenerationRequest(ctx, claims.GetUserID(), existingRequest, topic, wordCount) {
+				return
+			}
+			ctx.JSON(http.StatusConflict, errorResponse("generation_in_progress", "generation request is already in progress"))
+			return
+		}
+		handler.logger.Error("generation request create failed",
+			zap.Error(err),
+			zap.String("request_id", requestID),
+			zap.String("user_id", claims.GetUserID()),
+		)
+		ctx.JSON(http.StatusInternalServerError, errorResponse("generation_failed", "generation request could not be prepared"))
+		return
+	}
+
 	// Debit credits via Ledger.
 	spendCtx, spendCancel := context.WithTimeout(ctx.Request.Context(), handler.cfg.LedgerTimeout)
 	defer spendCancel()
 
-	_, err := handler.ledgerClient.Spend(spendCtx, &creditv1.SpendRequest{
+	_, err = handler.ledgerClient.Spend(spendCtx, &creditv1.SpendRequest{
 		UserId:         claims.GetUserID(),
 		AmountCents:    handler.cfg.GenerateAmountCents(),
-		IdempotencyKey: fmt.Sprintf("generate:%s", uuid.NewString()),
+		IdempotencyKey: buildGenerateSpendIdempotencyKey(claims.GetUserID(), requestID),
 		MetadataJson:   marshalMetadata(map[string]any{"action": "generate", "topic": topic}),
 		LedgerId:       handler.cfg.DefaultLedgerID,
 		TenantId:       handler.cfg.DefaultTenantID,
 	})
 	if err != nil {
 		if isGRPCInsufficientFunds(err) {
+			handler.markGenerationRequestFailed(generationRequest, "insufficient_credits", "not enough credits to generate a puzzle")
 			ctx.JSON(http.StatusPaymentRequired, errorResponse("insufficient_credits", "not enough credits to generate a puzzle"))
 			return
 		}
+		if isGRPCAlreadyExists(err) {
+			ctx.JSON(http.StatusConflict, errorResponse("generation_in_progress", "generation request is already in progress"))
+			return
+		}
+		handler.markGenerationRequestFailed(generationRequest, "ledger_error", "spend failed")
 		handler.logger.Error("spend failed", zap.Error(err))
 		ctx.JSON(http.StatusBadGateway, errorResponse("ledger_error", "spend failed"))
 		return
@@ -494,15 +744,24 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 		handler.logger.Error("llm proxy call failed", zap.Error(llmErr), zap.String("topic", topic))
 
 		// Refund the debited credits since generation failed.
-		handler.refundCredits(ctx.Request.Context(), claims.GetUserID(), handler.cfg.GenerateAmountCents(), "generate_failure")
+		var errorCode string
+		var errorMessage string
 
 		// Return a specific HTTP status and error code based on the upstream failure.
 		var proxyErr *llmProxyError
 		if errors.As(llmErr, &proxyErr) && proxyErr.StatusCode == http.StatusGatewayTimeout {
-			ctx.JSON(http.StatusGatewayTimeout, errorResponse("llm_timeout", "the language model took too long — credits have been refunded, please try again"))
+			errorCode = "llm_timeout"
+			errorMessage = "the language model took too long — credits have been refunded, please try again"
+			handler.refundCredits(ctx.Request.Context(), claims.GetUserID(), handler.cfg.GenerateAmountCents(), "generate_failure", requestID)
+			handler.markGenerationRequestFailed(generationRequest, errorCode, errorMessage)
+			ctx.JSON(http.StatusGatewayTimeout, errorResponse(errorCode, errorMessage))
 			return
 		}
-		ctx.JSON(http.StatusBadGateway, errorResponse("llm_error", "failed to generate words — credits have been refunded, please try again"))
+		errorCode = "llm_error"
+		errorMessage = "failed to generate words — credits have been refunded, please try again"
+		handler.refundCredits(ctx.Request.Context(), claims.GetUserID(), handler.cfg.GenerateAmountCents(), "generate_failure", requestID)
+		handler.markGenerationRequestFailed(generationRequest, errorCode, errorMessage)
+		ctx.JSON(http.StatusBadGateway, errorResponse(errorCode, errorMessage))
 		return
 	}
 
@@ -529,7 +788,10 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 	}
 	if err := handler.store.CreatePuzzle(puzzle); err != nil {
 		handler.logger.Error("save puzzle failed", zap.Error(err))
-		// Non-fatal: still return the puzzle to the user.
+		handler.refundCredits(ctx.Request.Context(), claims.GetUserID(), handler.cfg.GenerateAmountCents(), "generate_persist_failure", requestID)
+		handler.markGenerationRequestFailed(generationRequest, "puzzle_persist_failed", "generated puzzle could not be saved — credits have been refunded, please try again")
+		ctx.JSON(http.StatusInternalServerError, errorResponse("puzzle_persist_failed", "generated puzzle could not be saved — credits have been refunded, please try again"))
+		return
 	}
 
 	// Fetch updated balance.
@@ -541,18 +803,9 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 			handler.logger.Error("decorate generated puzzle failed", zap.Error(decorateErr), zap.String("puzzle_id", puzzle.ID))
 		}
 	}
+	handler.markGenerationRequestSucceeded(generationRequest, puzzle.ID)
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"items":          items,
-		"title":          metadata.Title,
-		"subtitle":       metadata.Subtitle,
-		"description":    metadata.Description,
-		"balance":        balance,
-		"id":             puzzle.ID,
-		"share_token":    puzzle.ShareToken,
-		"source":         puzzle.Source,
-		"reward_summary": puzzle.RewardSummary,
-	})
+	ctx.JSON(http.StatusOK, buildGenerateSuccessResponse(puzzle, balance))
 }
 
 func (handler *httpHandler) generatePuzzleMetadata(ctx context.Context, topic string, items []WordItem) (*PuzzleMetadata, error) {
@@ -794,14 +1047,14 @@ func (handler *httpHandler) decorateOwnedPuzzle(puzzle *Puzzle, viewerUserID str
 // refundCredits grants back credits when a post-debit operation fails.
 // Failures here are logged but not surfaced to the user since the primary
 // error is already being returned.
-func (handler *httpHandler) refundCredits(ctx context.Context, userID string, amountCents int64, reason string) {
+func (handler *httpHandler) refundCredits(ctx context.Context, userID string, amountCents int64, reason string, requestID string) {
 	refundCtx, cancel := context.WithTimeout(ctx, handler.cfg.LedgerTimeout)
 	defer cancel()
 
 	_, err := handler.ledgerClient.Grant(refundCtx, &creditv1.GrantRequest{
 		UserId:         userID,
 		AmountCents:    amountCents,
-		IdempotencyKey: fmt.Sprintf("refund:%s:%s", reason, uuid.NewString()),
+		IdempotencyKey: buildGenerateRefundIdempotencyKey(reason, requestID),
 		MetadataJson:   marshalMetadata(map[string]string{"action": "refund", "reason": reason}),
 		LedgerId:       handler.cfg.DefaultLedgerID,
 		TenantId:       handler.cfg.DefaultTenantID,

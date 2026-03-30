@@ -10,8 +10,8 @@
   // Default: tauth is proxied through the same origin via ghttp.
   var tauthUrl = window.location.origin;
 
-  // Fetch config.yaml to check for environment-specific overrides.
-  _fetch(window.location.origin + "/config.yaml")
+  // Fetch the public config document to check for environment-specific overrides.
+  _fetch(header.getAttribute("data-config-url") || (window.location.origin + "/config.yml"))
     .then(function (resp) { return resp.text(); })
     .then(function (text) {
       var match = matchEnvironment(text, window.location.origin);

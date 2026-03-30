@@ -574,14 +574,17 @@ func TestGetPuzzleRewardStats_QueryErrors(t *testing.T) {
 // mockStore implements Store for handler testing.
 type mockStore struct {
 	createFunc                                    func(puzzle *Puzzle) error
+	createGenerationRequestFunc                   func(record *GenerationRequestRecord) error
 	listFunc                                      func(userID string) ([]Puzzle, error)
 	getFunc                                       func(id, userID string) (*Puzzle, error)
 	deleteFunc                                    func(id, userID string) error
+	getGenerationRequestFunc                      func(userID string, requestID string) (*GenerationRequestRecord, error)
 	getByShareFunc                                func(token string) (*Puzzle, error)
 	getSolveRecordFunc                            func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error)
 	createSolveRecordFunc                         func(record *PuzzleSolveRecord) error
 	countOwnerSolvesFunc                          func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error)
 	getRewardStatsFunc                            func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error)
+	updateGenerationRequestFunc                   func(record *GenerationRequestRecord) error
 	upsertUserProfileFunc                         func(profile *UserProfile) error
 	listUsersFunc                                 func() ([]AdminUser, error)
 	createGrantRecordFunc                         func(record *AdminGrantRecord) error
@@ -599,6 +602,16 @@ func (m *mockStore) CreatePuzzle(puzzle *Puzzle) error {
 		return m.createFunc(puzzle)
 	}
 	puzzle.ID = "mock-id"
+	return nil
+}
+
+func (m *mockStore) CreateGenerationRequest(record *GenerationRequestRecord) error {
+	if m.createGenerationRequestFunc != nil {
+		return m.createGenerationRequestFunc(record)
+	}
+	if record != nil && record.ID == "" {
+		record.ID = "generation-request-id"
+	}
 	return nil
 }
 
@@ -621,6 +634,13 @@ func (m *mockStore) DeletePuzzle(id, userID string) error {
 		return m.deleteFunc(id, userID)
 	}
 	return nil
+}
+
+func (m *mockStore) GetGenerationRequest(userID string, requestID string) (*GenerationRequestRecord, error) {
+	if m.getGenerationRequestFunc != nil {
+		return m.getGenerationRequestFunc(userID, requestID)
+	}
+	return nil, gorm.ErrRecordNotFound
 }
 
 func (m *mockStore) GetPuzzleByShareToken(token string) (*Puzzle, error) {
@@ -656,6 +676,13 @@ func (m *mockStore) GetPuzzleRewardStats(puzzleID string, ownerUserID string, da
 		return m.getRewardStatsFunc(puzzleID, ownerUserID, dayStart, dayEnd)
 	}
 	return &PuzzleRewardStats{}, nil
+}
+
+func (m *mockStore) UpdateGenerationRequest(record *GenerationRequestRecord) error {
+	if m.updateGenerationRequestFunc != nil {
+		return m.updateGenerationRequestFunc(record)
+	}
+	return nil
 }
 
 func (m *mockStore) UpsertUserProfile(profile *UserProfile) error {

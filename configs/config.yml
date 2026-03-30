@@ -1,5 +1,5 @@
-administrators:
-  - "temirov@gmail.com"
+# Public browser config served via the backend at /config.yml.
+# Keep administrator allowlists in CROSSWORDAPI_ADMIN_EMAILS, not here.
 
 billing:
   packs:

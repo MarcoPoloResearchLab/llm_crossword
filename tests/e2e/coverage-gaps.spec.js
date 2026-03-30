@@ -26,17 +26,17 @@ async function goToPuzzleWithGrid(page) {
 // ---------------------------------------------------------------------------
 
 test.describe("Config — YAML environment matching", () => {
-  test("matches tauth-url from config.yaml when origin matches", async ({ page }) => {
-    // mpr-ui-config.js loads config.yaml via global.fetch and sets tauth-url.
-    // The final tauth-url value is set by mpr-ui-config.js from the real config.yaml.
+  test("matches tauth-url from config.yml when origin matches", async ({ page }) => {
+    // mpr-ui-config.js loads config.yml via global.fetch and sets tauth-url.
+    // The final tauth-url value is set by mpr-ui-config.js from the real config.yml.
     await page.goto("/");
     await page.waitForTimeout(2000);
     var tauthUrl = await page.locator("#app-header").getAttribute("tauth-url");
-    // Should be set to the local dev tauthUrl from config.yaml.
+    // Should be set to the local dev tauthUrl from config.yml.
     expect(tauthUrl).toContain("localhost");
   });
 
-  test("uses same-origin when config.yaml has no matching environment", async ({ page }) => {
+  test("uses same-origin when config.yml has no matching environment", async ({ page }) => {
     var yamlText = "environments:\n  - description: production\n    - \"https://prod.example.com\"\n    tauthUrl: \"https://prod-tauth.example.com\"";
     await setupLoggedOutRoutes(page, { configYaml: yamlText });
     await page.goto("/");
@@ -105,10 +105,11 @@ test.describe("App — bootstrap non-ok response (line 114)", () => {
     // Logged-in user sees puzzle view; click New Crossword to show generate form
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     await page.locator("#newCrosswordCard").click();
-    // Generate button should be enabled (logged in) but no credit count shown
-    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
-    // Credit badge should be visible (logged in state) but without credit count
-    // since bootstrap returned non-ok, the balance is not set
+    await expect(page.locator("#generateBtn")).toBeDisabled({ timeout: 5000 });
+    await expect(page.locator("#generateStatus")).toContainText(
+      "couldn't load your credit balance",
+      { timeout: 5000 },
+    );
   });
 });
 
@@ -995,7 +996,11 @@ test.describe("App — updateBalance falsy guard", () => {
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
     await page.locator("#newCrosswordCard").click();
     // Should not crash — no balance in bootstrap response
-    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+    await expect(page.locator("#generateBtn")).toBeDisabled({ timeout: 5000 });
+    await expect(page.locator("#generateStatus")).toContainText(
+      "couldn't load your credit balance",
+      { timeout: 5000 },
+    );
   });
 });
 

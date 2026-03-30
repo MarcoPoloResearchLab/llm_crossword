@@ -99,6 +99,18 @@ up:
 			exit 1; \
 		fi; \
 	done; \
+	if [ -f config.yaml ]; then \
+		echo "Legacy root config.yaml is not allowed. Move public config to configs/config.yml."; \
+		exit 1; \
+	fi; \
+	if rg -n '^[[:space:]]*administrators:' configs/config.yml >/dev/null 2>&1; then \
+		echo "configs/config.yml is public and must not contain administrators. Move admin emails to CROSSWORDAPI_ADMIN_EMAILS in .env.crosswordapi."; \
+		exit 1; \
+	fi; \
+	if find . -maxdepth 1 -type f -name 'client_secret_*.json' | grep -q .; then \
+		echo "Refusing to start: repo-root client_secret_*.json would be served by ghttp. Move OAuth client secret files outside the repo root."; \
+		exit 1; \
+	fi; \
 	port_in_use() { \
 		lsof -nP -iTCP:"$$1" -sTCP:LISTEN >/dev/null 2>&1; \
 	}; \
@@ -183,7 +195,8 @@ up:
 	export CROSSWORD_API_HOST_PORT="$$api_resolved_port"; \
 	export CROSSWORD_PORT="$$site_resolved_port"; \
 	export SITE_ORIGIN="http://localhost:$$site_resolved_port"; \
-	export SITE_CONFIG_SOURCE="./$(RUNTIME_DIR)/config.yaml"; \
+	export APP_CONFIG_SOURCE="./$(RUNTIME_DIR)/config.yml"; \
+	export PUBLIC_CONFIGS_SOURCE="./$(RUNTIME_DIR)/public-configs"; \
 	export TAUTH_CONFIG_SOURCE="./$(RUNTIME_DIR)/tauth.config.yaml"; \
 	bash ./scripts/render-runtime-auth-config.sh; \
 	bash ./scripts/render-runtime-compose-configs.sh; \

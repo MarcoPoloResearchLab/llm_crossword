@@ -930,6 +930,7 @@ test.describe("App 100 coverage", () => {
     var result = await page.evaluate(async () => {
       var app = window.__LLM_CROSSWORD_TEST__.app;
       app.setLoggedIn(true);
+      app.updateBalance({ coins: 12, generation_cost_coins: 4 });
       window.__resolveMe({ ok: false, status: 500 });
       await Promise.resolve();
       await Promise.resolve();
@@ -950,6 +951,177 @@ test.describe("App 100 coverage", () => {
     expect(result.currentView).toBe("puzzle");
     expect(result.generateStatus).toBe("");
     expect(result.panelDisplay).toBe("none");
+  });
+
+  test("covers generate submit while balance state is still loading or unavailable", async ({ page }) => {
+    await mountAppShell(page);
+    await page.evaluate(() => {
+      window.fetch = function () {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: function () {
+            return Promise.resolve({});
+          },
+        });
+      };
+      window.CrosswordApp = {};
+    });
+
+    await loadScript(page, "app.js");
+
+    var result = await page.evaluate(async () => {
+      var app = window.__LLM_CROSSWORD_TEST__.app;
+      app.setLoggedIn(true);
+      app.showPuzzle();
+      app.showGenerateForm();
+      document.getElementById("topicInput").value = "balance gate";
+
+      app.setState({ balanceStatus: "loading", currentCoins: null });
+      document.getElementById("generateBtn").disabled = false;
+      document.getElementById("generateBtn").click();
+      var loadingStatus = document.getElementById("generateStatus").textContent;
+
+      app.setState({ balanceStatus: "error", currentCoins: null });
+      document.getElementById("generateBtn").disabled = false;
+      document.getElementById("generateBtn").click();
+      var errorStatus = document.getElementById("generateStatus").textContent;
+
+      return {
+        loadingStatus: loadingStatus,
+        errorStatus: errorStatus,
+        disabled: document.getElementById("generateBtn").disabled,
+      };
+    });
+
+    expect(result.loadingStatus).toBe("Loading your credit balance...");
+    expect(result.errorStatus).toBe("We couldn't load your credit balance. Refresh and try again.");
+    expect(result.disabled).toBe(true);
+  });
+
+  test("covers generate request id fallback when crypto.randomUUID is unavailable", async ({ page }) => {
+    await mountAppShell(page);
+    await page.evaluate((items) => {
+      window.__capturedGenerateBody = null;
+      window.fetch = function (url, options) {
+        if (String(url).indexOf("/api/generate") >= 0) {
+          window.__capturedGenerateBody = JSON.parse(options.body);
+          return Promise.resolve({
+            ok: true,
+            json: function () {
+              return Promise.resolve({
+                title: "Fallback Request ID",
+                subtitle: "",
+                items: items,
+              });
+            },
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: function () {
+            return Promise.resolve({});
+          },
+        });
+      };
+      window.generateCrossword = function (generatedItems, options) {
+        return {
+          title: options.title,
+          subtitle: options.subtitle,
+          entries: [
+            { id: "solo", row: 1, col: 1, dir: "across", clue: "Solo", answer: "A", hint: "A" },
+          ],
+          overlaps: [],
+          items: generatedItems,
+        };
+      };
+      window.CrosswordApp = {};
+    }, defaultPuzzles[0].items);
+
+    await loadScript(page, "app.js");
+
+    var requestID = await page.evaluate(async () => {
+      var app = window.__LLM_CROSSWORD_TEST__.app;
+      if (window.crypto) {
+        window.crypto.randomUUID = undefined;
+      }
+      app.setLoggedIn(true);
+      app.updateBalance({ coins: 12, generation_cost_coins: 4 });
+      app.showPuzzle();
+      app.showGenerateForm();
+      document.getElementById("topicInput").value = "fallback request id";
+      document.getElementById("generateBtn").click();
+      await new Promise(function (resolve) {
+        window.setTimeout(resolve, 0);
+      });
+      return window.__capturedGenerateBody && window.__capturedGenerateBody.request_id;
+    });
+
+    expect(requestID).toMatch(/^generate-/);
+  });
+
+  test("covers generate request id reuse for the same request fingerprint", async ({ page }) => {
+    await mountAppShell(page);
+    await page.evaluate((items) => {
+      window.__capturedGenerateBody = null;
+      window.fetch = function (url, options) {
+        if (String(url).indexOf("/api/generate") >= 0) {
+          window.__capturedGenerateBody = JSON.parse(options.body);
+          return Promise.resolve({
+            ok: true,
+            json: function () {
+              return Promise.resolve({
+                title: "Reused Request ID",
+                subtitle: "",
+                items: items,
+              });
+            },
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: function () {
+            return Promise.resolve({});
+          },
+        });
+      };
+      window.generateCrossword = function (generatedItems, options) {
+        return {
+          title: options.title,
+          subtitle: options.subtitle,
+          entries: [
+            { id: "solo", row: 1, col: 1, dir: "across", clue: "Solo", answer: "A", hint: "A" },
+          ],
+          overlaps: [],
+          items: generatedItems,
+        };
+      };
+      window.CrosswordApp = {};
+    }, defaultPuzzles[0].items);
+
+    await loadScript(page, "app.js");
+
+    var requestID = await page.evaluate(async () => {
+      var app = window.__LLM_CROSSWORD_TEST__.app;
+      app.setLoggedIn(true);
+      app.updateBalance({ coins: 12, generation_cost_coins: 4 });
+      app.setState({
+        activeGenerateRequestFingerprint: "repeat topic|8",
+        activeGenerateRequestId: "existing-request-id",
+      });
+      app.showPuzzle();
+      app.showGenerateForm();
+      document.getElementById("topicInput").value = "repeat topic";
+      document.getElementById("generateBtn").click();
+      await new Promise(function (resolve) {
+        window.setTimeout(resolve, 0);
+      });
+      return window.__capturedGenerateBody && window.__capturedGenerateBody.request_id;
+    });
+
+    expect(requestID).toBe("existing-request-id");
   });
 });
 
@@ -1551,6 +1723,7 @@ test.describe("App completion coverage", () => {
           items: [{ word: "Orbit", definition: "Path", hint: "Ring" }],
         },
       };
+      app.updateBalance({ coins: 12, generation_cost_coins: 4 });
       app.showGenerateForm();
       document.getElementById("topicInput").value = "generate with id";
       document.getElementById("generateBtn").click();

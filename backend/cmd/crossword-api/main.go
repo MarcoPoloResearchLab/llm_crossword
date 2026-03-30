@@ -39,9 +39,9 @@ const (
 	envPrefix           = "CROSSWORDAPI"
 )
 
-var defaultAdminConfigPaths = []string{
-	"/config.yaml",
-	"config.yaml",
+var defaultAppConfigPaths = []string{
+	"/configs/config.yml",
+	"configs/config.yml",
 }
 
 var exitFunc = os.Exit
@@ -160,17 +160,18 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	cfg.PaddleWebhookSecret = v.GetString(flagPaddleWebhook)
 	cfg.PaddlePackPriceIDs = loadPaddlePackPriceIDsFromEnv(os.Environ())
 
-	configFile, err := loadAppConfigFromPaths(defaultAdminConfigPaths)
+	configFile, configPath, err := loadAppConfigFromPaths(defaultAppConfigPaths)
 	if err != nil {
 		return err
 	}
+	cfg.PublicConfigPath = strings.TrimSpace(configPath)
 	cfg.AdminEmails = crosswordapi.MergeAdminEmails(cfg.AdminEmails, crosswordapi.ParseAdminEmails(strings.Join(configFile.Administrators, ",")))
 	cfg.BillingPacks = configFile.Billing.Packs
 
 	return cfg.Validate()
 }
 
-func loadAppConfigFromPaths(paths []string) (*crosswordapi.AppConfigFile, error) {
+func loadAppConfigFromPaths(paths []string) (*crosswordapi.AppConfigFile, string, error) {
 	for _, path := range paths {
 		trimmedPath := strings.TrimSpace(path)
 		if trimmedPath == "" {
@@ -179,18 +180,18 @@ func loadAppConfigFromPaths(paths []string) (*crosswordapi.AppConfigFile, error)
 
 		configFile, err := crosswordapi.LoadAppConfigFile(trimmedPath)
 		if err == nil {
-			return configFile, nil
+			return configFile, trimmedPath, nil
 		}
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		return nil, fmt.Errorf("load admin config %s: %w", trimmedPath, err)
+		return nil, "", fmt.Errorf("load app config %s: %w", trimmedPath, err)
 	}
-	return &crosswordapi.AppConfigFile{}, nil
+	return &crosswordapi.AppConfigFile{}, "", nil
 }
 
 func loadAdminEmailsFromConfigPaths(paths []string) ([]string, error) {
-	configFile, err := loadAppConfigFromPaths(paths)
+	configFile, _, err := loadAppConfigFromPaths(paths)
 	if err != nil {
 		return nil, err
 	}

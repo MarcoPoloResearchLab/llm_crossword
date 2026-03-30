@@ -62,7 +62,7 @@
   id="app-header"
   brand-label="LLM Crossword"
   brand-href="/"
-  data-config-url="/config.yaml"
+  data-config-url="/config.yml"
   user-menu-display-mode="avatar"
   logout-url="/"
   sign-out-label="Log out"
@@ -408,29 +408,23 @@
   id="page-footer"
   sticky="true"
   size="small"
-  privacy-link-label="Privacy &amp; Terms"
-  privacy-link-href="#privacy"
-  privacy-modal-content="
-    <h1>Privacy Policy — LLM Crossword</h1>
-    <p><strong>Effective Date:</strong> 2025-10-11</p>
-    <p>LLM Crossword uses Google Identity Services to authenticate users. We receive your Google profile
-       information (name, email, profile image) only to sign you in. We do not sell or share your data,
-       and we only store your credits so the service functions.</p>
-    <p>To request deletion of your data, contact
-       <a href='mailto:support@mprlab.com'>support@mprlab.com</a>.</p>
-  "
+  privacy-link-hidden="true"
   horizontal-links='{
     "alignment": "center",
     "links": [
-      { "label": "GitHub", "href": "https://github.com/MarcoPoloResearchLab/llm_crossword", "target": "_blank" },
-      { "label": "Support", "href": "mailto:support@mprlab.com" }
+      { "label": "© 2025-2026 Marco Polo Research Lab LLC", "href": "https://mprlab.com", "target": "_blank" },
+      { "label": "Privacy", "href": "/privacy.html" },
+      { "label": "Terms", "href": "/tos.html" },
+      { "label": "Refunds", "href": "/tos.html#refund-policy" },
+      { "label": "Support", "href": "mailto:support@mprlab.com" },
+      { "label": "GitHub", "href": "https://github.com/MarcoPoloResearchLab/llm_crossword", "target": "_blank" }
     ]
   }'
   links-collection='{
     "style": "drop-up",
-    "text": "Built by Marco Polo Research Lab",
+    "text": "Built by Marco Polo Research Lab LLC",
     "links": [
-      { "label": "Marco Polo Research Lab", "url": "https://mprlab.com" },
+      { "label": "Marco Polo Research Lab LLC", "url": "https://mprlab.com" },
       { "label": "Gravity Notes", "url": "https://gravity.mprlab.com" },
       { "label": "LoopAware", "url": "https://loopaware.mprlab.com" },
       { "label": "LLM Crossword", "url": "https://llm-crossword.mprlab.com" }

@@ -151,6 +151,7 @@ func TestSetupRouter_HasRoutes(t *testing.T) {
 	}
 
 	expected := []string{
+		"GET:/config.yml",
 		"GET:/healthz",
 		"GET:/api/session",
 		"POST:/api/bootstrap",

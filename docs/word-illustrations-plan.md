@@ -1,7 +1,7 @@
 # Word Illustration Feature Plan
 
 Status: draft  
-Last updated: 2026-03-27
+Last updated: 2026-03-30
 
 ## Summary
 
@@ -180,6 +180,42 @@ The proposed architecture is backend-generated, persistence-first, and vendor-ag
 10. Backend returns puzzle items and illustration metadata in the API response.
 11. Frontend renders the puzzle and uses the persisted illustration fields only.
 
+### LLM proxy boundary
+
+Phase 1 should keep provider credentials and provider-specific request formats behind `llm-proxy`, not inside the crossword service.
+
+The current proxy only covers:
+
+1. `GET /` for text generation through the OpenAI Responses API
+2. `POST /dictate` for transcription
+
+Illustration mode requires explicit proxy additions.
+
+Required `llm-proxy` changes:
+
+1. add `POST /images/generations` for text-to-image generation
+2. add a JSON-based responses endpoint that can pass multimodal inputs for vision-based verification
+3. accept model, size, quality, and output-format parameters without exposing the OpenAI key to the crossword service
+4. return structured error classes that let the crossword backend distinguish provider failure from moderation or validation failure
+5. preserve the existing shared-secret authentication model
+
+Recommended phase 1 request shape for image generation:
+
+1. model: `gpt-image-1-mini`
+2. quality: `medium`
+3. size: `1024x1024`
+4. response format: base64 image payload plus provider metadata
+
+The crossword backend should remain responsible for:
+
+1. prompt composition
+2. concurrency limits
+3. retry budget
+4. persistence
+5. puzzle-level acceptance rules
+
+The proxy should remain a narrow transport boundary over provider APIs rather than absorbing crossword-specific business logic.
+
 ### Why backend generation is the right boundary
 
 1. The backend already owns generation and persistence.
@@ -209,6 +245,13 @@ These fields exist to keep prompts accurate, especially for ambiguous answers.
 
 The backend should treat the image generator as a pluggable provider. Phase 1 should use an API-based provider, not self-hosted GPU infrastructure.
 
+In this repository family, that means two layers:
+
+1. a crossword-side provider interface used by the puzzle generation pipeline
+2. an `llm-proxy` transport adapter that speaks to the external model API
+
+The crossword service should depend on the crossword-side interface, not on raw OpenAI HTTP requests.
+
 The abstraction should hide:
 
 1. model name
@@ -216,6 +259,18 @@ The abstraction should hide:
 3. image size options
 4. retry behavior
 5. moderation response format
+6. proxy request and response details
+
+### Phase 1 provider decision
+
+Phase 1 should standardize on:
+
+1. text generation through the existing `llm-proxy` text path
+2. image generation through a new `llm-proxy` image-generation path
+3. `gpt-image-1-mini` at `medium` quality as the default illustration model
+4. `1024x1024` generation with optional downscaling at render or storage time
+
+This default keeps image cost low enough for consumer pricing while still targeting better prompt fidelity than the cheapest image tier.
 
 ### Why an API provider first
 
@@ -362,6 +417,8 @@ Phase 1 should combine more than one signal when practical:
 3. a vision-model review prompt that compares the image to the intended context
 
 The vision-model verifier is the key part of the loop because it can explain why the image is wrong in a way that can drive the next retry.
+
+In transport terms, that means the verifier should not require direct provider calls from the crossword backend. The verifier path should also run through `llm-proxy` so the crossword service can send structured multimodal verification requests without owning provider credentials.
 
 ### Failure taxonomy
 
@@ -660,6 +717,14 @@ The provider layer should support:
 4. stable model identification
 5. provider-specific retry classification
 
+For the `llm-proxy` transport layer, phase 1 should additionally support:
+
+1. image-generation requests with explicit `model`, `size`, and `quality`
+2. image responses that include binary payload or base64 payload plus content type
+3. multimodal verification requests that can include image input plus structured expected context
+4. provider error mapping into stable application-facing error codes
+5. request and response logging that redact secrets and avoid logging raw image bytes by default
+
 ### Verifier abstraction requirements
 
 The verifier layer should support:
@@ -768,8 +833,9 @@ Add UI coverage for:
 1. extend `WordItem`
 2. extend `PuzzleWord`
 3. add generated-image provider abstraction
-4. add verifier abstraction
-5. add prompt builder and tests
+4. extend `llm-proxy` with image-generation and multimodal verification endpoints
+5. add verifier abstraction
+6. add prompt builder and tests
 
 ### Phase 2. Illustration-aware text generation
 
@@ -833,14 +899,15 @@ When implementation starts, the checklist should be:
 1. finalize the new item schema
 2. define the house style profile
 3. update the LLM prompt to require visual context
-4. add the image-provider abstraction and prompt builder
-5. add the verifier loop and structured failure taxonomy
-6. implement prompt revision from verifier feedback
-7. extend persistence and response payloads
-8. propagate illustration metadata through the frontend generator
-9. add the active-clue illustration card
-10. batch-generate prebuilt puzzle assets offline
-11. measure latency before deciding whether the flow can stay synchronous
+4. extend `llm-proxy` with image-generation and multimodal verification endpoints
+5. add the image-provider abstraction and prompt builder
+6. add the verifier loop and structured failure taxonomy
+7. implement prompt revision from verifier feedback
+8. extend persistence and response payloads
+9. propagate illustration metadata through the frontend generator
+10. add the active-clue illustration card
+11. batch-generate prebuilt puzzle assets offline
+12. measure latency before deciding whether the flow can stay synchronous
 
 ## External References
 
@@ -848,5 +915,9 @@ These references informed the generated-image direction:
 
 1. OpenAI image generation docs: https://developers.openai.com/api/docs/guides/image-generation
 2. OpenAI image generation API notes and pricing examples: https://openai.com/index/image-generation-api/
-3. Stability image model overview: https://stability.ai/stable-image
-4. Stability license terms: https://stability.ai/license
+3. GPT Image 1.5 model docs: https://developers.openai.com/api/docs/models/gpt-image-1.5
+4. gpt-image-1-mini model docs: https://developers.openai.com/api/docs/models/gpt-image-1-mini
+5. LLM proxy integration notes in this repo: ./docs/llm-proxy/integration.md
+6. LLM proxy illustration contract in this repo: ./docs/llm-proxy/illustration-api-contract.md
+7. Stability image model overview: https://stability.ai/stable-image
+8. Stability license terms: https://stability.ai/license

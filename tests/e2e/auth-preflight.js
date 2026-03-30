@@ -13,6 +13,7 @@ const {
 
 const ROOT = path.join(__dirname, "../..");
 const RUNTIME_ROOT = path.join(ROOT, ".runtime");
+const CONFIGS_ROOT = path.join(ROOT, "configs");
 const DEFAULT_SITE_ORIGIN = "http://localhost:8000";
 const DEFAULT_TAUTH_ORIGIN = "http://localhost:8081";
 const DEFAULT_API_ORIGIN = "http://localhost:9090";
@@ -23,6 +24,10 @@ function resolveConfigPath(fileName) {
   const runtimePath = path.join(RUNTIME_ROOT, fileName);
   if (fs.existsSync(runtimePath)) {
     return runtimePath;
+  }
+  const configsPath = path.join(CONFIGS_ROOT, fileName);
+  if (fs.existsSync(configsPath)) {
+    return configsPath;
   }
   return path.join(ROOT, fileName);
 }
@@ -42,7 +47,7 @@ function getIntegrationEnvironment() {
     apiHealthUrl: apiOrigin + "/healthz",
     apiOrigin,
     siteApiSessionUrl: siteOrigin + "/api/session",
-    siteConfigUrl: siteOrigin + "/config.yaml",
+    siteConfigUrl: siteOrigin + "/config.yml",
     siteMeUrl: siteOrigin + "/me",
     siteNonceUrl: siteOrigin + "/auth/nonce",
     siteOrigin,
@@ -167,9 +172,9 @@ function assertHeaderEquals(headers, headerName, expectedValue, contextMessage) 
 }
 
 function assertCanonicalLocalOrigin(configText, expectedOrigin) {
-  assertBodyContains(configText, expectedOrigin, "config.yaml");
+  assertBodyContains(configText, expectedOrigin, "config.yml");
   if (configText.indexOf("http://localhost:8080") >= 0) {
-    throw new Error('config.yaml still references "http://localhost:8080"');
+    throw new Error('config.yml still references "http://localhost:8080"');
   }
 }
 
@@ -192,7 +197,7 @@ function assertHelperExports(bodyText, contextMessage) {
 }
 
 async function runAuthPreflight(environment) {
-  const configText = fs.readFileSync(resolveConfigPath("config.yaml"), "utf8");
+  const configText = fs.readFileSync(resolveConfigPath("config.yml"), "utf8");
   const sessionConfig = getSignedSessionConfig();
   const sessionIdentity = createSessionIdentity();
   const sessionCookieHeader = createSessionCookieHeader(sessionIdentity);

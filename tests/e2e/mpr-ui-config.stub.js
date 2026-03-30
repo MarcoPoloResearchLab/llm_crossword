@@ -7,17 +7,25 @@
     element.style.cssText = cssText;
   }
 
-  function readFooterLabel(host) {
-    var linksCollection = host.getAttribute("links-collection");
-    if (typeof linksCollection === "string" && linksCollection.trim().length > 0) {
-      try {
-        var parsed = JSON.parse(linksCollection);
-        if (parsed && typeof parsed.text === "string" && parsed.text.trim().length > 0) {
-          return parsed.text.trim();
-        }
-      } catch (error) {}
+  function parseJSONAttribute(host, attributeName) {
+    var rawValue = host.getAttribute(attributeName);
+    if (typeof rawValue !== "string" || rawValue.trim().length === 0) {
+      return null;
     }
-    return "Built by Marco Polo Research Lab";
+
+    try {
+      return JSON.parse(rawValue);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function readFooterLabel(host) {
+    var parsed = parseJSONAttribute(host, "links-collection");
+    if (parsed && typeof parsed.text === "string" && parsed.text.trim().length > 0) {
+      return parsed.text.trim();
+    }
+    return "Built by Marco Polo Research Lab LLC";
   }
 
   if (!customElements.get("mpr-header")) {
@@ -83,19 +91,41 @@
         }
 
         var footer = document.createElement("footer");
-        var privacyLink = document.createElement("a");
+        var legalLinks = document.createElement("div");
         var themeToggle = document.createElement("button");
         var builtByButton = document.createElement("button");
+        var horizontalLinksConfig = parseJSONAttribute(this, "horizontal-links");
 
         footer.className = "mpr-footer";
         applyStyles(
           footer,
           "display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;min-height:40px;padding:8px 16px;background:rgb(15,23,42);color:rgb(226,232,240);box-sizing:border-box;"
         );
+        legalLinks.setAttribute("data-mpr-footer", "horizontal-links");
+        applyStyles(legalLinks, "display:flex;align-items:center;flex-wrap:wrap;gap:12px;");
 
-        privacyLink.href = this.getAttribute("privacy-link-href") || "#privacy";
-        privacyLink.textContent = this.getAttribute("privacy-link-label") || "Privacy";
-        applyStyles(privacyLink, "color:inherit;text-decoration:none;");
+        if (horizontalLinksConfig && Array.isArray(horizontalLinksConfig.links) && horizontalLinksConfig.links.length > 0) {
+          horizontalLinksConfig.links.forEach(function appendHorizontalLink(linkConfig) {
+            if (!linkConfig || typeof linkConfig.label !== "string" || typeof linkConfig.href !== "string") {
+              return;
+            }
+
+            var link = document.createElement("a");
+            link.href = linkConfig.href;
+            link.textContent = linkConfig.label;
+            if (typeof linkConfig.target === "string" && linkConfig.target.length > 0) {
+              link.target = linkConfig.target;
+            }
+            applyStyles(link, "color:inherit;text-decoration:none;");
+            legalLinks.appendChild(link);
+          });
+        } else {
+          var privacyLink = document.createElement("a");
+          privacyLink.href = this.getAttribute("privacy-link-href") || "#privacy";
+          privacyLink.textContent = this.getAttribute("privacy-link-label") || "Privacy";
+          applyStyles(privacyLink, "color:inherit;text-decoration:none;");
+          legalLinks.appendChild(privacyLink);
+        }
 
         themeToggle.type = "button";
         themeToggle.setAttribute("data-mpr-footer", "theme-toggle");
@@ -112,7 +142,7 @@
           "padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;"
         );
 
-        footer.appendChild(privacyLink);
+        footer.appendChild(legalLinks);
         footer.appendChild(themeToggle);
         footer.appendChild(builtByButton);
         this.appendChild(footer);

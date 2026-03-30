@@ -158,7 +158,7 @@ async function setupBaseRoutes(page) {
  * @param {number}  [opts.coins=15]          — credit balance
  * @param {number}  [opts.generationCostCoins=4] — generation cost reflected by the backend
  * @param {Array}   [opts.puzzles]           — puzzle payload (defaults to defaultPuzzles)
- * @param {string}  [opts.configYaml=""]     — raw config.yaml text
+ * @param {string}  [opts.configYaml=""]     — raw config.yml text
  * @param {Record<string, (route: import('@playwright/test').Route) => void>} [opts.extra]
  *        — additional route overrides keyed by URL glob
  */
@@ -189,7 +189,7 @@ async function setupLoggedInRoutes(page, opts = {}) {
   await page.route("**/api/puzzles", (route) =>
     route.fulfill(json(200, { puzzles: ownedPuzzles }))
   );
-  await page.route("**/config.yaml", (route) =>
+  await page.route("**/config.yml", (route) =>
     route.fulfill(text(200, configYaml))
   );
   await page.route("**/crosswords.json", (route) =>
@@ -210,7 +210,7 @@ async function setupLoggedInRoutes(page, opts = {}) {
  * @param {object}  [opts]
  * @param {number}  [opts.meStatus=401]      — status code for /me
  * @param {Array}   [opts.puzzles]           — puzzle payload
- * @param {string}  [opts.configYaml=""]     — raw config.yaml text
+ * @param {string}  [opts.configYaml=""]     — raw config.yml text
  * @param {Record<string, (route: import('@playwright/test').Route) => void>} [opts.extra]
  */
 async function setupLoggedOutRoutes(page, opts = {}) {
@@ -222,7 +222,7 @@ async function setupLoggedOutRoutes(page, opts = {}) {
   await page.route("**/me", (route) =>
     route.fulfill(json(meStatus, { error: "unauthorized" }))
   );
-  await page.route("**/config.yaml", (route) =>
+  await page.route("**/config.yml", (route) =>
     route.fulfill(text(200, configYaml))
   );
   await page.route("**/crosswords.json", (route) =>

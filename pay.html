@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta content="width=device-width,initial-scale=1" name="viewport"/>
-  <title>LLM Crossword Checkout</title>
+  <title>LLM Crossword Checkout | Marco Polo Research Lab LLC</title>
   <meta name="description" content="Secure credit-pack checkout for LLM Crossword."/>
   <script src="./js/runtime-auth-config.js"></script>
   <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
@@ -68,6 +68,20 @@
       font-weight: 700;
       text-decoration: none;
     }
+
+    .pay-meta {
+      margin: 1rem 0 0;
+      color: #94a3b8;
+      line-height: 1.6;
+      font-size: .95rem;
+    }
+
+    .pay-legal {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .9rem;
+      margin-top: 1rem;
+    }
   </style>
 </head>
 <body>
@@ -77,6 +91,13 @@
     <h1 class="pay-title">Secure checkout</h1>
     <p id="payStatus" class="pay-copy">Preparing your Paddle checkout...</p>
     <a id="payReturnLink" class="pay-link" href="/">Return to crossword</a>
+    <p class="pay-meta">Operated by Marco Polo Research Lab LLC. Where Paddle processes a transaction, Paddle acts as merchant of record.</p>
+    <nav class="pay-legal" aria-label="Checkout legal links">
+      <a class="pay-link" href="/privacy.html">Privacy</a>
+      <a class="pay-link" href="/tos.html">Terms</a>
+      <a class="pay-link" href="/tos.html#refund-policy">Refunds</a>
+      <a class="pay-link" href="mailto:support@mprlab.com">Support</a>
+    </nav>
   </section>
 </main>
 

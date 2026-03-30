@@ -63,8 +63,10 @@ test.describe("Footer — rendered content", () => {
     await expect(rendered).toBeVisible();
   });
 
-  test("footer contains 'Privacy' link text", async ({ page }) => {
-    await expect(page.locator("footer.mpr-footer").getByText("Privacy")).toBeVisible();
+  test("footer contains Privacy and Terms links", async ({ page }) => {
+    var footer = page.locator("footer.mpr-footer");
+    await expect(footer.getByRole("link", { name: "Privacy" })).toBeVisible();
+    await expect(footer.getByRole("link", { name: "Terms" })).toBeVisible();
   });
 
   test("footer contains theme switcher toggle", async ({ page }) => {
@@ -73,8 +75,8 @@ test.describe("Footer — rendered content", () => {
     await expect(toggle).toBeVisible();
   });
 
-  test("footer contains 'Built by Marco Polo Research Lab' text", async ({ page }) => {
-    await expect(page.locator("footer.mpr-footer").getByRole("button", { name: "Built by Marco Polo Research Lab" })).toBeVisible();
+  test("footer contains 'Built by Marco Polo Research Lab LLC' text", async ({ page }) => {
+    await expect(page.locator("footer.mpr-footer").getByRole("button", { name: "Built by Marco Polo Research Lab LLC" })).toBeVisible();
   });
 
   test("footer has non-zero height (actually rendered)", async ({ page }) => {
@@ -88,5 +90,24 @@ test.describe("Footer — rendered content", () => {
     await expect(page.locator("footer.mpr-footer")).toBeVisible();
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("footer.mpr-footer")).toBeVisible();
+  });
+});
+
+test.describe("Legal pages", () => {
+  test.beforeEach(async ({ page }) => {
+    await setupLoggedOutRoutes(page);
+  });
+
+  test("privacy policy page loads and identifies the LLC operator", async ({ page }) => {
+    await page.goto("/privacy.html", { waitUntil: "networkidle" });
+    await expect(page.getByRole("heading", { name: "Privacy Policy — LLM Crossword" })).toBeVisible();
+    await expect(page.locator("main")).toContainText("Marco Polo Research Lab LLC");
+  });
+
+  test("terms page loads refund policy and LLC operator text", async ({ page }) => {
+    await page.goto("/tos.html", { waitUntil: "networkidle" });
+    await expect(page.getByRole("heading", { name: "Terms of Service — LLM Crossword" })).toBeVisible();
+    await expect(page.locator("#refund-policy")).toBeVisible();
+    await expect(page.locator("main")).toContainText("Marco Polo Research Lab LLC");
   });
 });

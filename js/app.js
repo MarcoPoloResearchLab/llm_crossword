@@ -4,6 +4,10 @@
 
   var authCheckPendingAttribute = "data-auth-check";
   var authPendingRetryDelayMs = 1000;
+  var balanceStatusError = "error";
+  var balanceStatusIdle = "idle";
+  var balanceStatusReady = "ready";
+  var balanceStatusLoading = "loading";
   var creditPopoverHideDelayMs = 140;
   var authStateFetch = window.authFetch || null;
   var nativeFetch = window.fetch.bind(window);
@@ -35,6 +39,8 @@
     }),
   });
   var defaultGenerationCostCredits = 4;
+  var generationBalanceLoadingMessage = "Loading your credit balance...";
+  var generationBalanceUnavailableMessage = "We couldn't load your credit balance. Refresh and try again.";
 
   function requireElement(id) {
     var element = document.getElementById(id);
@@ -160,8 +166,11 @@
   }
 
   var state = {
+    activeGenerateRequestFingerprint: null,
+    activeGenerateRequestId: null,
     authCheckPending: !isAuthPending(),
     authStateVersion: 0,
+    balanceStatus: balanceStatusIdle,
     currentCoins: null,
     currentShareToken: null,
     currentView: isAuthPending() ? "puzzle" : "landing",
@@ -178,6 +187,34 @@
     return state.generationCostCredits;
   }
 
+  function isBalanceReady() {
+    return state.balanceStatus === balanceStatusReady;
+  }
+
+  function createGenerateRequestFingerprint(topic, wordCount) {
+    return topic + "|" + String(wordCount);
+  }
+
+  function createGenerateRequestID() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    return "generate-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  }
+
+  function getOrCreateGenerateRequestID(requestFingerprint) {
+    if (!state.activeGenerateRequestId || state.activeGenerateRequestFingerprint !== requestFingerprint) {
+      state.activeGenerateRequestFingerprint = requestFingerprint;
+      state.activeGenerateRequestId = createGenerateRequestID();
+    }
+    return state.activeGenerateRequestId;
+  }
+
+  function clearGenerateRequestState() {
+    state.activeGenerateRequestFingerprint = null;
+    state.activeGenerateRequestId = null;
+  }
+
   function getGenerateButtonLabel() {
     return "Generate (" + getGenerationCostCredits() + " credits)";
   }
@@ -191,7 +228,7 @@
   }
 
   function hasEnoughCreditsForGeneration() {
-    return state.currentCoins === null || state.currentCoins >= getGenerationCostCredits();
+    return state.currentCoins !== null && state.currentCoins >= getGenerationCostCredits();
   }
 
   elements.generateBtn.textContent = getGenerateButtonLabel();
@@ -299,6 +336,11 @@
     elements.generateStatus.textContent = "";
     elements.generateStatus.classList.remove("loading");
     setGenerateBuyCreditsVisible(false);
+  }
+
+  function syncGenerateButtonState() {
+    if (elements.generateStatus.classList.contains("loading")) return;
+    elements.generateBtn.disabled = !(state.loggedIn && isBalanceReady() && hasEnoughCreditsForGeneration());
   }
 
   function showInsufficientCreditsMessage(message) {
@@ -580,9 +622,8 @@
   }
 
   function updateAuthUI() {
-    elements.generateBtn.disabled = !state.loggedIn;
-
     if (!state.loggedIn) {
+      elements.generateBtn.disabled = true;
       elements.generateBtn.textContent = "Generate";
       elements.creditBadge.textContent = "";
       elements.creditBadge.style.display = "none";
@@ -601,6 +642,7 @@
     elements.creditBadge.setAttribute("aria-expanded", "false");
     clearGenerateStatus();
     elements.landingSignIn.textContent = "Go to generator";
+    syncGenerateButtonState();
   }
 
   function updateBalance(balance) {
@@ -617,6 +659,7 @@
     }
 
     coins = balance.coins != null ? balance.coins : Math.floor(balance.available_cents / 100);
+    state.balanceStatus = balanceStatusReady;
     state.currentCoins = coins;
     elements.creditBadge.textContent = coins + " credits";
     if (previousCoins !== null && coins > previousCoins) {
@@ -626,7 +669,14 @@
     positionCreditPopover();
     if (state.loggedIn && hasEnoughCreditsForGeneration()) {
       setGenerateBuyCreditsVisible(false);
-      if (elements.generatePanel.style.display !== "none" && elements.generateStatus.textContent.indexOf("Not enough credits") === 0) {
+      if (
+        elements.generatePanel.style.display !== "none" &&
+        (
+          elements.generateStatus.textContent.indexOf("Not enough credits") === 0 ||
+          elements.generateStatus.textContent === generationBalanceLoadingMessage ||
+          elements.generateStatus.textContent === generationBalanceUnavailableMessage
+        )
+      ) {
         elements.generateStatus.textContent = "Credits updated. You can generate a new puzzle.";
       }
       if (!elements.generateStatus.classList.contains("loading")) {
@@ -637,6 +687,15 @@
 
     if (state.loggedIn && !elements.generateStatus.classList.contains("loading")) {
       elements.generateBtn.disabled = true;
+      if (
+        elements.generatePanel.style.display !== "none" &&
+        (
+          elements.generateStatus.textContent === generationBalanceLoadingMessage ||
+          elements.generateStatus.textContent === generationBalanceUnavailableMessage
+        )
+      ) {
+        showInsufficientCreditsMessage(getInsufficientCreditsGenerateMessage());
+      }
     }
   }
 
@@ -795,6 +854,9 @@
     var postLoginView = getPostLoginView();
 
     clearPendingAuthRestoreTimer();
+    clearGenerateRequestState();
+    state.balanceStatus = balanceStatusLoading;
+    state.currentCoins = null;
     state.loggedIn = true;
     state.authStateVersion += 1;
     clearAuthPending();
@@ -817,19 +879,43 @@
         return resp.json();
       })
       .then(function (data) {
-        if (data && data.balance) updateBalance(data.balance);
-        if (window.CrosswordApp && window.CrosswordApp.loadOwnedPuzzles) {
-          return window.CrosswordApp.loadOwnedPuzzles();
+        if (data && data.balance) {
+          updateBalance(data.balance);
+        } else {
+          state.balanceStatus = balanceStatusError;
+          state.currentCoins = null;
+          syncGenerateButtonState();
+          if (elements.generatePanel.style.display !== "none") {
+            elements.generateStatus.textContent = generationBalanceUnavailableMessage;
+            setGenerateBuyCreditsVisible(false);
+          }
+          return null;
         }
         return null;
       })
       .catch(function (err) {
+        state.balanceStatus = balanceStatusError;
+        state.currentCoins = null;
+        syncGenerateButtonState();
+        if (elements.generatePanel.style.display !== "none") {
+          elements.generateStatus.textContent = generationBalanceUnavailableMessage;
+          setGenerateBuyCreditsVisible(false);
+        }
         console.warn("bootstrap failed:", err);
+      })
+      .then(function () {
+        if (window.CrosswordApp && window.CrosswordApp.loadOwnedPuzzles) {
+          return window.CrosswordApp.loadOwnedPuzzles();
+        }
+        return null;
       });
   }
 
   function onLogout() {
     clearPendingAuthRestoreTimer();
+    clearGenerateRequestState();
+    state.balanceStatus = balanceStatusIdle;
+    state.currentCoins = null;
     state.loggedIn = false;
     state.authStateVersion += 1;
     clearAuthPending();
@@ -853,6 +939,9 @@
     if (state.loggedIn) return;
 
     clearPendingAuthRestoreTimer();
+    clearGenerateRequestState();
+    state.balanceStatus = balanceStatusIdle;
+    state.currentCoins = null;
     clearAuthPending();
     clearPostLoginView();
     setAuthCheckPending(false);
@@ -874,6 +963,9 @@
     if (state.loggedIn) return;
 
     clearPendingAuthRestoreTimer();
+    clearGenerateRequestState();
+    state.balanceStatus = balanceStatusIdle;
+    state.currentCoins = null;
     clearAuthPending();
     clearPostLoginView();
     setAuthCheckPending(false);
@@ -913,6 +1005,22 @@
   }
 
   elements.newCrosswordCard.addEventListener("click", function () {
+    if (state.balanceStatus === balanceStatusLoading) {
+      showGenerateForm();
+      elements.generateBtn.disabled = true;
+      elements.generateStatus.textContent = generationBalanceLoadingMessage;
+      setGenerateBuyCreditsVisible(false);
+      return;
+    }
+
+    if (state.balanceStatus === balanceStatusError) {
+      showGenerateForm();
+      elements.generateBtn.disabled = true;
+      elements.generateStatus.textContent = generationBalanceUnavailableMessage;
+      setGenerateBuyCreditsVisible(false);
+      return;
+    }
+
     if (!hasEnoughCreditsForGeneration()) {
       showGenerateForm();
       elements.generateBtn.disabled = true;
@@ -1004,6 +1112,8 @@
   elements.generateBtn.addEventListener("click", function () {
     var topic = elements.topicInput.value.trim();
     var selectedWordCount = Number(elements.wordCountSelect.value);
+    var requestFingerprint;
+    var requestID;
 
     if (!topic) {
       elements.generateStatus.textContent = "Please enter a topic.";
@@ -1015,6 +1125,17 @@
       setGenerateBuyCreditsVisible(false);
       return;
     }
+    if (!isBalanceReady()) {
+      elements.generateStatus.textContent = state.balanceStatus === balanceStatusError
+        ? generationBalanceUnavailableMessage
+        : generationBalanceLoadingMessage;
+      setGenerateBuyCreditsVisible(false);
+      elements.generateBtn.disabled = true;
+      return;
+    }
+
+    requestFingerprint = createGenerateRequestFingerprint(topic, selectedWordCount);
+    requestID = getOrCreateGenerateRequestID(requestFingerprint);
 
     elements.generateBtn.disabled = true;
     elements.generateStatus.textContent = "Generating crossword...";
@@ -1025,6 +1146,7 @@
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        request_id: requestID,
         topic: topic,
         word_count: selectedWordCount,
       }),
@@ -1036,6 +1158,14 @@
       })
       .then(function (result) {
         if (!result.ok) {
+          if (result.data.error === "generation_in_progress") {
+            elements.generateStatus.textContent = "Your previous generation is still finishing. Try again in a moment.";
+            setGenerateBuyCreditsVisible(false);
+            return;
+          }
+
+          clearGenerateRequestState();
+
           if (result.data.error === "insufficient_credits") {
             showInsufficientCreditsMessage(getInsufficientCreditsGenerateMessage());
           } else if (result.data.error === "llm_timeout") {
@@ -1063,6 +1193,7 @@
           return;
         }
 
+        clearGenerateRequestState();
         if (result.data.balance) updateBalance(result.data.balance);
 
         setShareToken(result.data.share_token || null);
@@ -1275,7 +1406,7 @@
       setGenerateBuyCreditsVisible(false);
       return;
     }
-    if (state.loggedIn && !hasEnoughCreditsForGeneration()) {
+    if (state.loggedIn && isBalanceReady() && !hasEnoughCreditsForGeneration()) {
       setGenerateBuyCreditsVisible(true);
     }
   });
@@ -1303,6 +1434,8 @@
         generationCostCredits: state.generationCostCredits,
         loggedIn: state.loggedIn,
         pendingCompletionKey: state.pendingCompletionKey,
+        balanceStatus: state.balanceStatus,
+        activeGenerateRequestId: state.activeGenerateRequestId,
       };
     },
     isAuthPending: isAuthPending,
