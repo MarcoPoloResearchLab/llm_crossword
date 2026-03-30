@@ -205,6 +205,17 @@ test.describe("App — updateBalance with available_cents", () => {
     await page.goto("/");
     await expect(page.locator("#headerCreditBadge")).toContainText("25 credits", { timeout: 5000 });
   });
+
+  test("bootstrap with a non-numeric generation cost falls back to the default cost", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      coins: 5,
+      generationCostCoins: "bad-cost",
+    });
+    await page.goto("/");
+    await page.locator("#newCrosswordCard").click();
+    await expect(page.locator("#generateBtn")).toContainText("(4 credits)", { timeout: 5000 });
+    await expect(page.locator("#generateBtn")).toBeEnabled({ timeout: 5000 });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -490,8 +501,8 @@ test.describe("Crossword — puzzle select change", () => {
     await page.locator("#puzzleCardList .puzzle-card").nth(1).click();
     await expect(page.locator("#title")).toContainText("Puzzle Two", { timeout: 5000 });
 
-    // Review button should reset after the puzzle changes.
-    await expect(page.locator("#reveal")).toHaveText("Review");
+    // Reveal button should reset after the puzzle changes.
+    await expect(page.locator("#reveal")).toHaveText("Reveal");
   });
 });
 

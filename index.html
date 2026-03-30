@@ -67,24 +67,6 @@
   logout-url="/"
   sign-out-label="Log out"
 >
-  <div
-    id="headerPuzzleTabs"
-    slot="nav-right"
-    class="controls__actions header-puzzle-tabs"
-    role="group"
-    aria-label="Puzzle actions"
-    hidden
-  >
-    <button id="check" class="header-puzzle-tabs__tab header-puzzle-tabs__tab--check" type="button">Check</button>
-    <button
-      id="reveal"
-      class="header-puzzle-tabs__tab header-puzzle-tabs__tab--review"
-      type="button"
-      data-label-reveal="Review"
-      data-label-hide="Hide"
-    >Review</button>
-    <button id="shareBtn" class="header-puzzle-tabs__tab header-puzzle-tabs__tab--share" type="button" disabled>Share</button>
-  </div>
   <button id="headerCreditBadge" slot="aux" class="header-credit-badge" type="button" style="display:none;" aria-label="Open billing"></button>
   <mpr-user
     id="userMenu"
@@ -98,6 +80,14 @@
   // Set base-url to current origin before mpr-ui initializes.
   document.getElementById('app-header').setAttribute('base-url', window.location.origin);
 </script>
+<div id="creditDetailsPopover" class="credit-popover" hidden>
+  <div class="credit-popover__surface" role="dialog" aria-label="Credit details">
+    <div class="credit-popover__eyebrow">Credits</div>
+    <div id="creditPopoverBalance" class="credit-popover__balance">0 credits</div>
+    <div id="creditPopoverSections" class="credit-popover__sections"></div>
+    <button id="creditPopoverBillingButton" class="credit-popover__billing" type="button">Open billing</button>
+  </div>
+</div>
 
 <!-- ========== Landing page (shown when no puzzle is active) ========== -->
 <section id="landingPage" class="landing" aria-label="Welcome">
@@ -176,8 +166,24 @@
   <div id="puzzleMain" class="puzzle-main">
     <div class="hdr">
       <div class="hdr__copy">
-        <h1 id="title">Crossword Puzzle</h1>
+        <div class="hdr__title-row">
+          <h1 id="title">Crossword Puzzle</h1>
+          <button
+            id="puzzleInfoButton"
+            class="puzzle-info-button"
+            type="button"
+            aria-label="About this crossword"
+            aria-controls="puzzleInfoPopover"
+            aria-expanded="false"
+            hidden
+          >
+            <span aria-hidden="true">i</span>
+          </button>
+        </div>
         <div class="sub" id="subtitle">Loading...</div>
+        <div id="puzzleInfoPopover" class="puzzle-popover puzzle-info-popover" hidden>
+          <p id="puzzleInfoContent" class="puzzle-popover__body"></p>
+        </div>
       </div>
     </div>
 
@@ -208,6 +214,28 @@
         <div class="grid" id="grid"></div>
       </div>
       <div class="clues">
+        <div
+          id="puzzleToolbar"
+          class="controls__actions clue-toolbar"
+          role="group"
+          aria-label="Puzzle actions"
+          hidden
+        >
+          <div class="clue-toolbar__actions">
+            <button id="check" class="clue-toolbar__button clue-toolbar__button--check" type="button">Check</button>
+            <button
+              id="reveal"
+              class="clue-toolbar__button clue-toolbar__button--reveal"
+              type="button"
+              data-label-reveal="Reveal"
+              data-label-hide="Hide"
+            >Reveal</button>
+          </div>
+          <button id="shareBtn" class="clue-toolbar__share" type="button" aria-label="Share" title="Share" disabled>
+            <span class="clue-toolbar__share-icon" aria-hidden="true" data-share-icon>&#x2197;</span>
+            <span class="sr-only">Share</span>
+          </button>
+        </div>
         <div id="descriptionPanel" class="clues__header" hidden>
           <p id="descriptionContent" class="clues__description" hidden></p>
         </div>

@@ -90,21 +90,21 @@ test.describe("Solver view — no tabs", () => {
     await expect(page.locator("#puzzleView").getByText("Down")).toBeVisible();
   });
 
-  test("solver view hides the description header for puzzles without descriptions", async ({ page }) => {
+  test("solver view hides the info button for puzzles without descriptions", async ({ page }) => {
     await setupLoggedOutRoutes(page, { puzzles: testPuzzleData });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
-    await expect(page.locator("#descriptionPanel")).toBeHidden();
+    await expect(page.locator("#puzzleInfoButton")).toBeHidden();
   });
 
-  test("solver view keeps Check, Review, and Share visible in the header", async ({ page }) => {
+  test("solver view keeps Check, Reveal, and Share visible in the puzzle toolbar", async ({ page }) => {
     await setupLoggedOutRoutes(page, { puzzles: testPuzzleData });
     await page.goto("/");
     await page.getByRole("button", { name: "Try a pre-built puzzle" }).click();
     await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#headerPuzzleTabs")).toBeVisible();
+    await expect(page.locator("#puzzleToolbar")).toBeVisible();
     await expect(page.getByRole("button", { name: "Check" })).toBeVisible();
-    await expect(page.locator("#reveal")).toHaveText("Review");
+    await expect(page.locator("#reveal")).toHaveText("Reveal");
     await expect(page.getByRole("button", { name: "Share" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
   });
@@ -167,19 +167,10 @@ test.describe("Generate flow — landing to solver", () => {
     // Solver should show the generated puzzle title
     await expect(page.locator("#title")).toContainText("Greek Gods");
     await expect(page.locator("#subtitle")).toContainText("Olympian clue set");
-    await expect(page.locator("#descriptionPanel")).toBeVisible();
-    await expect(page.locator("#descriptionContent")).toContainText("major Olympian deities");
-    var layout = await page.evaluate(() => {
-      var title = document.getElementById("title");
-      var clues = document.querySelector("#puzzleView .clues");
-      if (!title || !clues) return null;
-      return {
-        titleTop: title.getBoundingClientRect().top,
-        cluesTop: clues.getBoundingClientRect().top,
-      };
-    });
-    expect(layout).not.toBeNull();
-    expect(Math.abs(layout.cluesTop - layout.titleTop)).toBeLessThanOrEqual(8);
+    await expect(page.locator("#puzzleInfoButton")).toBeVisible();
+    await page.locator("#puzzleInfoButton").click();
+    await expect(page.locator("#puzzleInfoPopover")).toBeVisible();
+    await expect(page.locator("#puzzleInfoContent")).toContainText("major Olympian deities");
     // Generate panel should be hidden after successful generation
     await expect(page.locator("#generatePanel")).toBeHidden();
   });

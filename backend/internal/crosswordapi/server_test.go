@@ -224,6 +224,42 @@ func testSessionCookie(t *testing.T, cfg Config, claims *sessionvalidator.Claims
 	}
 }
 
+func TestOptionalSessionMiddleware_UsesDefaultContextKey(t *testing.T) {
+	cfg := testConfig()
+	validator, err := newTestValidator(cfg)
+	if err != nil {
+		t.Fatalf("validator: %v", err)
+	}
+
+	router := gin.New()
+	router.GET(
+		"/session",
+		optionalSessionMiddleware(validator, "   "),
+		func(ctx *gin.Context) {
+			rawClaims, exists := ctx.Get(sessionvalidator.DefaultContextKey)
+			if !exists {
+				t.Fatal("expected claims under default context key")
+			}
+
+			claims, ok := rawClaims.(*sessionvalidator.Claims)
+			if !ok {
+				t.Fatalf("expected *sessionvalidator.Claims, got %T", rawClaims)
+			}
+			if claims.GetUserID() != "solver-1" {
+				t.Fatalf("expected solver-1, got %q", claims.GetUserID())
+			}
+
+			ctx.Status(http.StatusNoContent)
+		},
+	)
+
+	cookie := testSessionCookie(t, cfg, &sessionvalidator.Claims{UserID: "solver-1"})
+	response := doRequestWithCookies(router, http.MethodGet, "/session", "", cookie)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", response.Code)
+	}
+}
+
 func testLLMResponseServer(t *testing.T, responses ...string) *httptest.Server {
 	t.Helper()
 

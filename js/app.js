@@ -4,11 +4,14 @@
 
   var authCheckPendingAttribute = "data-auth-check";
   var authPendingRetryDelayMs = 1000;
+  var creditPopoverHideDelayMs = 140;
   var authStateFetch = window.authFetch || null;
   var nativeFetch = window.fetch.bind(window);
   var _fetch = window.authFetch || nativeFetch;
   var fetchTauth = window.fetchTauth || nativeFetch;
   var rootElement = document.documentElement;
+  var shareButtonDefaultIcon = "\u2197";
+  var shareButtonCopiedIcon = "\u2713";
   var persistedValues = Object.freeze({
     authPending: Object.freeze({
       storageKey: "llm-crossword-auth-pending",
@@ -69,18 +72,25 @@
     completionSummary: requireElement("completionSummary"),
     completionTitle: requireElement("completionTitle"),
     creditBadge: requireElement("headerCreditBadge"),
+    creditDetailsPopover: document.getElementById("creditDetailsPopover"),
+    creditPopoverBalance: document.getElementById("creditPopoverBalance"),
+    creditPopoverBillingButton: document.getElementById("creditPopoverBillingButton"),
+    creditPopoverSections: document.getElementById("creditPopoverSections"),
     descriptionContent: document.getElementById("descriptionContent"),
     descriptionPanel: document.getElementById("descriptionPanel"),
     generateBtn: requireElement("generateBtn"),
     generateBuyCreditsButton: document.getElementById("generateBuyCreditsButton"),
     generatePanel: requireElement("generatePanel"),
     generateStatus: requireElement("generateStatus"),
-    headerPuzzleTabs: document.getElementById("headerPuzzleTabs"),
+    puzzleToolbar: document.getElementById("puzzleToolbar"),
     landingPage: requireElement("landingPage"),
     landingSignIn: requireElement("landingSignIn"),
     landingTryBtn: requireElement("landingTryPrebuilt"),
     newCrosswordCard: requireElement("newCrosswordCard"),
     puzzleControls: null,
+    puzzleInfoButton: document.getElementById("puzzleInfoButton"),
+    puzzleInfoContent: document.getElementById("puzzleInfoContent"),
+    puzzleInfoPopover: document.getElementById("puzzleInfoPopover"),
     puzzlePane: null,
     puzzleView: requireElement("puzzleView"),
     shareBtn: requireElement("shareBtn"),
@@ -155,6 +165,8 @@
     currentCoins: null,
     currentShareToken: null,
     currentView: isAuthPending() ? "puzzle" : "landing",
+    creditPopoverHideTimer: null,
+    creditPopoverPinned: false,
     generationCostCredits: defaultGenerationCostCredits,
     loggedIn: false,
     pendingCompletionKey: null,
@@ -207,13 +219,13 @@
     var showLandingView = state.currentView === "landing";
     elements.landingPage.style.display = showLandingView ? "" : "none";
     elements.puzzleView.style.display = showLandingView ? "none" : "";
-    syncHeaderPuzzleTabsVisibility();
+    syncPuzzleToolbarVisibility();
   }
 
-  function syncHeaderPuzzleTabsVisibility() {
-    if (!elements.headerPuzzleTabs) return;
+  function syncPuzzleToolbarVisibility() {
+    if (!elements.puzzleToolbar) return;
     var shouldShowTabs = state.currentView === "puzzle" && elements.generatePanel.style.display === "none";
-    elements.headerPuzzleTabs.hidden = !shouldShowTabs;
+    elements.puzzleToolbar.hidden = !shouldShowTabs;
   }
 
   function setPuzzleContentVisible(isVisible) {
@@ -244,8 +256,9 @@
     var rewardStrip = document.getElementById("rewardStrip");
     var shareHint = document.getElementById("shareHint");
 
+    closePuzzleInfoPopover();
     elements.generatePanel.style.display = "";
-    syncHeaderPuzzleTabsVisibility();
+    syncPuzzleToolbarVisibility();
     setPuzzleContentVisible(false);
     elements.title.textContent = "Generate a New Crossword";
     elements.subtitle.textContent = "Enter a topic and choose the number of words.";
@@ -263,6 +276,7 @@
       elements.descriptionContent.hidden = true;
       elements.descriptionContent.textContent = "";
     }
+    syncPuzzleInfoButton();
     if (window.CrosswordApp && window.CrosswordApp.setActiveCard) {
       window.CrosswordApp.setActiveCard(elements.newCrosswordCard);
     }
@@ -271,8 +285,9 @@
 
   function hideGenerateForm() {
     elements.generatePanel.style.display = "none";
-    syncHeaderPuzzleTabsVisibility();
+    syncPuzzleToolbarVisibility();
     setPuzzleContentVisible(true);
+    syncPuzzleInfoButton();
   }
 
   function setGenerateBuyCreditsVisible(isVisible) {
@@ -315,6 +330,182 @@
   function updateShareButton() {
     elements.shareBtn.style.display = "";
     elements.shareBtn.disabled = !state.currentShareToken;
+    setShareButtonCopiedState(false);
+  }
+
+  function getTrimmedText(element) {
+    if (!element || typeof element.textContent !== "string") return "";
+    return element.textContent.trim();
+  }
+
+  function getShareButtonIconElement() {
+    return elements.shareBtn.querySelector("[data-share-icon]");
+  }
+
+  function setShareButtonCopiedState(isCopied) {
+    var iconElement = getShareButtonIconElement();
+    var nextLabel = isCopied ? "Copied share link" : "Share";
+
+    if (iconElement) {
+      iconElement.textContent = isCopied ? shareButtonCopiedIcon : shareButtonDefaultIcon;
+    }
+
+    elements.shareBtn.setAttribute("aria-label", nextLabel);
+    elements.shareBtn.setAttribute("title", nextLabel);
+  }
+
+  function closePuzzleInfoPopover() {
+    if (!elements.puzzleInfoPopover || !elements.puzzleInfoButton) return;
+    elements.puzzleInfoPopover.hidden = true;
+    elements.puzzleInfoButton.setAttribute("aria-expanded", "false");
+  }
+
+  function syncPuzzleInfoButton() {
+    var description = getTrimmedText(elements.descriptionContent);
+    var hasDescription = description !== "";
+
+    if (!elements.puzzleInfoButton || !elements.puzzleInfoContent) return;
+
+    elements.puzzleInfoContent.textContent = description;
+    elements.puzzleInfoButton.hidden = !hasDescription;
+
+    if (!hasDescription) {
+      closePuzzleInfoPopover();
+    }
+  }
+
+  function togglePuzzleInfoPopover() {
+    if (!elements.puzzleInfoPopover || !elements.puzzleInfoButton || elements.puzzleInfoButton.hidden) return;
+
+    if (elements.puzzleInfoPopover.hidden) {
+      elements.puzzleInfoPopover.hidden = false;
+      elements.puzzleInfoButton.setAttribute("aria-expanded", "true");
+      return;
+    }
+
+    closePuzzleInfoPopover();
+  }
+
+  function clearCreditPopoverHideTimer() {
+    if (!state.creditPopoverHideTimer) return;
+    window.clearTimeout(state.creditPopoverHideTimer);
+    state.creditPopoverHideTimer = null;
+  }
+
+  function buildCreditPopoverSections() {
+    var sections = [];
+    var rewardLabel = getTrimmedText(document.getElementById("rewardStripLabel"));
+    var rewardMeta = getTrimmedText(document.getElementById("rewardStripMeta"));
+    var shareMeta = getTrimmedText(document.getElementById("shareHint"));
+
+    if (rewardLabel && rewardMeta) {
+      sections.push({
+        title: rewardLabel,
+        body: rewardMeta,
+      });
+    }
+
+    if (shareMeta) {
+      sections.push({
+        title: "Share to earn",
+        body: shareMeta,
+      });
+    }
+
+    if (sections.length > 0) {
+      return sections;
+    }
+
+    return [{
+      title: "Generate new crosswords",
+      body: "Each new crossword costs " + getGenerationCostCredits() + " credits.",
+    }];
+  }
+
+  function renderCreditPopoverSection(section) {
+    var container = document.createElement("section");
+    var titleElement = document.createElement("div");
+    var bodyElement = document.createElement("div");
+
+    container.className = "credit-popover__section";
+    titleElement.className = "credit-popover__section-title";
+    bodyElement.className = "credit-popover__section-body";
+
+    titleElement.textContent = section.title;
+    bodyElement.textContent = section.body;
+
+    container.appendChild(titleElement);
+    container.appendChild(bodyElement);
+    return container;
+  }
+
+  function syncCreditPopoverContent() {
+    var sections;
+    var index;
+
+    if (!elements.creditPopoverBalance || !elements.creditPopoverSections) return;
+
+    elements.creditPopoverBalance.textContent =
+      state.currentCoins === null ? "Credits" : state.currentCoins + " credits";
+    elements.creditPopoverSections.innerHTML = "";
+
+    sections = buildCreditPopoverSections();
+    for (index = 0; index < sections.length; index++) {
+      elements.creditPopoverSections.appendChild(renderCreditPopoverSection(sections[index]));
+    }
+  }
+
+  function positionCreditPopover() {
+    var badgeRect;
+    var popoverRect;
+    var left;
+    var top;
+    var spacing = 10;
+    var viewportPadding = 12;
+
+    if (!elements.creditDetailsPopover || elements.creditDetailsPopover.hidden) return;
+
+    badgeRect = elements.creditBadge.getBoundingClientRect();
+    popoverRect = elements.creditDetailsPopover.getBoundingClientRect();
+    left = Math.min(
+      Math.max(viewportPadding, badgeRect.right - popoverRect.width),
+      window.innerWidth - popoverRect.width - viewportPadding
+    );
+    top = badgeRect.bottom + spacing;
+
+    if (top + popoverRect.height > window.innerHeight - viewportPadding) {
+      top = Math.max(viewportPadding, badgeRect.top - popoverRect.height - spacing);
+    }
+
+    elements.creditDetailsPopover.style.left = left + "px";
+    elements.creditDetailsPopover.style.top = top + "px";
+  }
+
+  function hideCreditPopover() {
+    clearCreditPopoverHideTimer();
+    state.creditPopoverPinned = false;
+    if (!elements.creditDetailsPopover) return;
+    elements.creditDetailsPopover.hidden = true;
+    elements.creditBadge.setAttribute("aria-expanded", "false");
+  }
+
+  function scheduleCreditPopoverHide() {
+    if (state.creditPopoverPinned) return;
+    clearCreditPopoverHideTimer();
+    state.creditPopoverHideTimer = window.setTimeout(function () {
+      hideCreditPopover();
+    }, creditPopoverHideDelayMs);
+  }
+
+  function showCreditPopover(isPinned) {
+    if (!state.loggedIn || !elements.creditDetailsPopover) return;
+
+    clearCreditPopoverHideTimer();
+    state.creditPopoverPinned = !!isPinned;
+    syncCreditPopoverContent();
+    elements.creditDetailsPopover.hidden = false;
+    elements.creditBadge.setAttribute("aria-expanded", "true");
+    positionCreditPopover();
   }
 
   function setShareToken(value) {
@@ -396,6 +587,7 @@
       elements.creditBadge.textContent = "";
       elements.creditBadge.style.display = "none";
       elements.creditBadge.disabled = true;
+      hideCreditPopover();
       clearGenerateStatus();
       elements.landingSignIn.textContent = "Sign in to generate";
       hideGenerateForm();
@@ -406,6 +598,7 @@
     elements.creditBadge.style.display = "";
     elements.creditBadge.disabled = false;
     elements.creditBadge.classList.remove("logged-out");
+    elements.creditBadge.setAttribute("aria-expanded", "false");
     clearGenerateStatus();
     elements.landingSignIn.textContent = "Go to generator";
   }
@@ -429,6 +622,8 @@
     if (previousCoins !== null && coins > previousCoins) {
       pulseCreditBadge();
     }
+    syncCreditPopoverContent();
+    positionCreditPopover();
     if (state.loggedIn && hasEnoughCreditsForGeneration()) {
       setGenerateBuyCreditsVisible(false);
       if (elements.generatePanel.style.display !== "none" && elements.generateStatus.textContent.indexOf("Not enough credits") === 0) {
@@ -911,6 +1106,9 @@
   window.addEventListener("crossword:active-puzzle", function (event) {
     var puzzle = event && event.detail ? event.detail : null;
     setShareToken(puzzle && puzzle.shareToken ? puzzle.shareToken : null);
+    syncPuzzleInfoButton();
+    syncCreditPopoverContent();
+    positionCreditPopover();
   });
 
   window.addEventListener("crossword:completed", function (event) {
@@ -929,12 +1127,12 @@
     url = window.location.origin + window.location.pathname + "?puzzle=" + state.currentShareToken;
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(url).then(function () {
-        elements.shareBtn.textContent = "Copied!";
+        setShareButtonCopiedState(true);
         elements.shareBtn.classList.add("copied-flash");
         elements.shareBtn.addEventListener("animationend", function onEnd() {
           elements.shareBtn.removeEventListener("animationend", onEnd);
           elements.shareBtn.classList.remove("copied-flash");
-          elements.shareBtn.textContent = "Share";
+          setShareButtonCopiedState(false);
         });
       });
       return;
@@ -943,9 +1141,96 @@
     window.prompt("Copy this link to share:", url);
   });
 
-  elements.creditBadge.addEventListener("click", function () {
-    if (!state.loggedIn) return;
-    openBillingDrawer("header_credit_badge");
+  setShareButtonCopiedState(false);
+
+  if (elements.puzzleInfoButton) {
+    elements.puzzleInfoButton.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      togglePuzzleInfoPopover();
+    });
+  }
+
+  if (elements.creditDetailsPopover) {
+    elements.creditBadge.addEventListener("mouseenter", function () {
+      showCreditPopover(false);
+    });
+    elements.creditBadge.addEventListener("mouseleave", function () {
+      scheduleCreditPopoverHide();
+    });
+    elements.creditBadge.addEventListener("focus", function () {
+      showCreditPopover(false);
+    });
+    elements.creditBadge.addEventListener("focusout", function (event) {
+      if (elements.creditDetailsPopover.contains(event.relatedTarget)) return;
+      scheduleCreditPopoverHide();
+    });
+    elements.creditBadge.addEventListener("click", function (event) {
+      if (!state.loggedIn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!elements.creditDetailsPopover.hidden && state.creditPopoverPinned) {
+        hideCreditPopover();
+        return;
+      }
+      showCreditPopover(true);
+    });
+    elements.creditDetailsPopover.addEventListener("mouseenter", function () {
+      clearCreditPopoverHideTimer();
+    });
+    elements.creditDetailsPopover.addEventListener("mouseleave", function () {
+      scheduleCreditPopoverHide();
+    });
+    elements.creditDetailsPopover.addEventListener("focusin", function () {
+      clearCreditPopoverHideTimer();
+    });
+    elements.creditDetailsPopover.addEventListener("focusout", function (event) {
+      if (elements.creditDetailsPopover.contains(event.relatedTarget) || elements.creditBadge.contains(event.relatedTarget)) {
+        return;
+      }
+      scheduleCreditPopoverHide();
+    });
+    window.addEventListener("resize", positionCreditPopover);
+    window.addEventListener("scroll", positionCreditPopover, true);
+  } else {
+    elements.creditBadge.addEventListener("click", function () {
+      if (!state.loggedIn) return;
+      openBillingDrawer("header_credit_badge");
+    });
+  }
+
+  if (elements.creditPopoverBillingButton) {
+    elements.creditPopoverBillingButton.addEventListener("click", function () {
+      hideCreditPopover();
+      openBillingDrawer("header_credit_popover");
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    if (
+      elements.puzzleInfoButton &&
+      elements.puzzleInfoPopover &&
+      !elements.puzzleInfoPopover.hidden &&
+      !elements.puzzleInfoPopover.contains(event.target) &&
+      !elements.puzzleInfoButton.contains(event.target)
+    ) {
+      closePuzzleInfoPopover();
+    }
+
+    if (
+      elements.creditDetailsPopover &&
+      !elements.creditDetailsPopover.hidden &&
+      !elements.creditDetailsPopover.contains(event.target) &&
+      !elements.creditBadge.contains(event.target)
+    ) {
+      hideCreditPopover();
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    closePuzzleInfoPopover();
+    hideCreditPopover();
   });
 
   if (elements.generateBuyCreditsButton) {
