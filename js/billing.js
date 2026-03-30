@@ -214,10 +214,10 @@
   function pollForTransactionResult() {
     if (!state.activeTransactionId || !state.loggedIn) {
       stopTransactionPolling();
-      return;
+      return Promise.resolve();
     }
 
-    loadSummary({ force: true, suppressErrors: true })
+    return loadSummary({ force: true, suppressErrors: true })
       .then(function (summary) {
         var activity = findTransactionActivity(summary, state.activeTransactionId);
 
@@ -274,7 +274,7 @@
       transaction_id: normalizedTransactionID,
     });
     updateBillingStatus("Waiting for payment confirmation...", "", true);
-    pollForTransactionResult();
+    return pollForTransactionResult();
   }
 
   function requestCheckout(packID) {
@@ -415,12 +415,25 @@
   (window.__LLM_CROSSWORD_TEST__ || (window.__LLM_CROSSWORD_TEST__ = {})).billing = {
     applySummary: applySummary,
     clearReturnTransactionID: clearReturnTransactionID,
+    clearPollTimer: clearPollTimer,
     createEmptySummary: createEmptySummary,
+    describeBillingError: describeBillingError,
+    dispatchBillingEvent: dispatchBillingEvent,
     findTransactionActivity: findTransactionActivity,
     getReturnTransactionID: getReturnTransactionID,
     isCompletedTransactionActivity: isCompletedTransactionActivity,
+    loadSummary: loadSummary,
+    normalizeSummary: normalizeSummary,
+    openAccountBilling: openAccountBilling,
+    pollForTransactionResult: pollForTransactionResult,
+    requestCheckout: requestCheckout,
+    requestPortalSession: requestPortalSession,
+    setState: function (nextState) {
+      Object.assign(state, nextState || {});
+    },
     setLoggedIn: setLoggedIn,
     setRestoreDrawerPending: setRestoreDrawerPending,
     startTransactionPolling: startTransactionPolling,
+    updateBillingStatus: updateBillingStatus,
   };
 })();

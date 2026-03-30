@@ -421,7 +421,7 @@ test.describe("Crossword — check all correct", () => {
 
   test("check shows 'All correct' when all cells are correct", async ({ page }) => {
     // Reveal all answers
-    await page.getByRole("button", { name: "Reveal" }).click();
+    await page.locator("#reveal").click();
     // Now check — should be all correct
     // First hide (to restore prev values which are now the correct ones)
     // Actually reveal sets the correct values, and check reads them
@@ -439,7 +439,7 @@ test.describe("Crossword — reveal/hide toggle with clue solved state", () => {
   });
 
   test("reveal marks clues as solved, hide restores them", async ({ page }) => {
-    await page.getByRole("button", { name: "Reveal" }).click();
+    await page.locator("#reveal").click();
     // All clues should have clueSolved class
     var solvedCount = await page.locator(".clueSolved").count();
     expect(solvedCount).toBeGreaterThan(0);
@@ -483,15 +483,15 @@ test.describe("Crossword — puzzle select change", () => {
     await goToPuzzleWithGrid(page);
 
     // Reveal the first puzzle
-    await page.getByRole("button", { name: "Reveal" }).click();
+    await page.locator("#reveal").click();
     await expect(page.getByRole("button", { name: "Hide" })).toBeVisible();
 
     // Change to second puzzle by clicking the second card in the sidebar
     await page.locator("#puzzleCardList .puzzle-card").nth(1).click();
     await expect(page.locator("#title")).toContainText("Puzzle Two", { timeout: 5000 });
 
-    // Reveal button should say "Reveal" again (reset by selectChange listener)
-    await expect(page.getByRole("button", { name: "Reveal" })).toBeVisible();
+    // Review button should reset after the puzzle changes.
+    await expect(page.locator("#reveal")).toHaveText("Review");
   });
 });
 
@@ -999,7 +999,7 @@ test.describe("Crossword — hint reveal on already-solved entry", () => {
     await goToPuzzleWithGrid(page);
 
     // Reveal all answers to fill cells correctly
-    await page.getByRole("button", { name: "Reveal" }).click();
+    await page.locator("#reveal").click();
     // Now try to use hint on a clue — the reveal step should find no unsolved cell
     await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // verbal
     await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // letter — null since all correct
@@ -1020,11 +1020,11 @@ test.describe("Crossword — hint reset without prior reveal", () => {
     await goToPuzzleWithGrid(page);
 
     // Reveal all, then hide
-    await page.getByRole("button", { name: "Reveal" }).click();
+    await page.locator("#reveal").click();
     await page.getByRole("button", { name: "Hide" }).click();
 
     // Now fill cells correctly by revealing again
-    await page.getByRole("button", { name: "Reveal" }).click();
+    await page.locator("#reveal").click();
 
     // Try hint on a solved word — clicking through all 3 stages
     await page.evaluate(() => document.querySelector("#puzzleView .hintButton").click()); // verbal

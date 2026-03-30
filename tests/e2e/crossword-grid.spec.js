@@ -21,7 +21,7 @@ test.describe("Crossword grid interactions", () => {
 
   test("check button marks correct and wrong cells", async ({ page }) => {
     // Click reveal to get all correct answers
-    await page.getByRole("button", { name: "Reveal" }).click();
+    await page.locator("#reveal").click();
     await expect(page.getByText("Revealed.")).toBeVisible();
 
     // Click hide to go back
@@ -38,7 +38,7 @@ test.describe("Crossword grid interactions", () => {
   });
 
   test("reveal button shows all answers", async ({ page }) => {
-    await page.getByRole("button", { name: "Reveal" }).click();
+    await page.locator("#reveal").click();
     await expect(page.getByText("Revealed.")).toBeVisible();
 
     // All cells should be filled
