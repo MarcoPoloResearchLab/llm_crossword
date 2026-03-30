@@ -71,6 +71,46 @@ func TestBuildGenerateRefundIdempotencyKey_BlankRequestIDUsesGeneratedSuffix(t *
 	}
 }
 
+func TestGenerationRequestMatchesPayload_CoversNilAndMatchCases(t *testing.T) {
+	tests := []struct {
+		name      string
+		record    *GenerationRequestRecord
+		topic     string
+		wordCount int
+		wantMatch bool
+	}{
+		{
+			name:      "nil record",
+			record:    nil,
+			topic:     "test",
+			wordCount: 8,
+			wantMatch: false,
+		},
+		{
+			name:      "matching payload",
+			record:    &GenerationRequestRecord{Topic: "test", WordCount: 8},
+			topic:     "test",
+			wordCount: 8,
+			wantMatch: true,
+		},
+		{
+			name:      "mismatched payload",
+			record:    &GenerationRequestRecord{Topic: "saved", WordCount: 8},
+			topic:     "test",
+			wordCount: 8,
+			wantMatch: false,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := generationRequestMatchesPayload(testCase.record, testCase.topic, testCase.wordCount); got != testCase.wantMatch {
+				t.Fatalf("expected %t, got %t", testCase.wantMatch, got)
+			}
+		})
+	}
+}
+
 func TestGenerationFailureResponse_CoversAllCases(t *testing.T) {
 	tests := []struct {
 		name           string
