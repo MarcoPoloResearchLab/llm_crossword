@@ -6,6 +6,8 @@ A crossword puzzle builder, powered by LLM.
 
 Set `GOOGLE_CLIENT_ID` in `.env.tauth`. The browser runtime auth config is generated into `js/runtime-auth-config.js`, and the Docker and Playwright entry points render it automatically before startup.
 
+The committed `js/runtime-auth-config.js` is the production-safe default used by direct GitHub Pages publishing. Local scripts may overwrite it for development and tests.
+
 For split-origin deployments, the browser runtime config also supports explicit service URLs:
 
 - `LLM_CROSSWORD_API_BASE_URL` — browser origin for `LLM Crossword API`
@@ -14,6 +16,10 @@ For split-origin deployments, the browser runtime config also supports explicit 
 - `LLM_CROSSWORD_TAUTH_SCRIPT_URL` — explicit `tauth.js` URL override
 
 If these are unset, local startup keeps the existing same-origin behaviour by defaulting service URLs to `SITE_ORIGIN`. When `LLM_CROSSWORD_API_BASE_URL` is set and `LLM_CROSSWORD_CONFIG_URL` is not, the frontend defaults the config document to `<api-base>/config.yml`.
+
+## GitHub Pages
+
+The repository includes `.nojekyll` so branch-based GitHub Pages publishing can serve the static frontend directly from the repository contents without relying on a Jekyll build step or a Pages Actions workflow.
 
 ## Local Docker
 
