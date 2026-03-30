@@ -31,10 +31,7 @@
       },
     }),
   });
-  var generationCostCredits = 4;
-  var generateButtonLabel = "Generate (" + generationCostCredits + " credits)";
-  var insufficientCreditsCardMessage = "Not enough credits. You need " + generationCostCredits + " credits to generate a puzzle.";
-  var insufficientCreditsGenerateMessage = "Not enough credits. You need " + generationCostCredits + " credits per puzzle.";
+  var defaultGenerationCostCredits = 4;
 
   function requireElement(id) {
     var element = document.getElementById(id);
@@ -50,6 +47,16 @@
       throw new Error("Missing required app element " + label);
     }
     return element;
+  }
+
+  function normalizeGenerationCostCredits(value) {
+    var normalizedValue = Number(value);
+
+    if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
+      return defaultGenerationCostCredits;
+    }
+
+    return Math.floor(normalizedValue);
   }
 
   var elements = {
@@ -148,11 +155,34 @@
     currentCoins: null,
     currentShareToken: null,
     currentView: isAuthPending() ? "puzzle" : "landing",
+    generationCostCredits: defaultGenerationCostCredits,
     loggedIn: false,
     pendingCompletionKey: null,
     pendingAuthRestoreTimer: null,
     pendingSessionVerification: null,
   };
+
+  function getGenerationCostCredits() {
+    return state.generationCostCredits;
+  }
+
+  function getGenerateButtonLabel() {
+    return "Generate (" + getGenerationCostCredits() + " credits)";
+  }
+
+  function getInsufficientCreditsCardMessage() {
+    return "Not enough credits. You need " + getGenerationCostCredits() + " credits to generate a puzzle.";
+  }
+
+  function getInsufficientCreditsGenerateMessage() {
+    return "Not enough credits. You need " + getGenerationCostCredits() + " credits per puzzle.";
+  }
+
+  function hasEnoughCreditsForGeneration() {
+    return state.currentCoins === null || state.currentCoins >= getGenerationCostCredits();
+  }
+
+  elements.generateBtn.textContent = getGenerateButtonLabel();
 
   function applyAuthCheckState() {
     if (state.authCheckPending) {
@@ -372,7 +402,7 @@
       return;
     }
 
-    elements.generateBtn.textContent = generateButtonLabel;
+    elements.generateBtn.textContent = getGenerateButtonLabel();
     elements.creditBadge.style.display = "";
     elements.creditBadge.disabled = false;
     elements.creditBadge.classList.remove("logged-out");
@@ -386,13 +416,20 @@
 
     if (!balance) return;
 
+    if (balance.generation_cost_coins != null) {
+      state.generationCostCredits = normalizeGenerationCostCredits(balance.generation_cost_coins);
+      if (state.loggedIn) {
+        elements.generateBtn.textContent = getGenerateButtonLabel();
+      }
+    }
+
     coins = balance.coins != null ? balance.coins : Math.floor(balance.available_cents / 100);
     state.currentCoins = coins;
     elements.creditBadge.textContent = coins + " credits";
     if (previousCoins !== null && coins > previousCoins) {
       pulseCreditBadge();
     }
-    if (state.loggedIn && coins >= generationCostCredits) {
+    if (state.loggedIn && hasEnoughCreditsForGeneration()) {
       setGenerateBuyCreditsVisible(false);
       if (elements.generatePanel.style.display !== "none" && elements.generateStatus.textContent.indexOf("Not enough credits") === 0) {
         elements.generateStatus.textContent = "Credits updated. You can generate a new puzzle.";
@@ -400,6 +437,11 @@
       if (!elements.generateStatus.classList.contains("loading")) {
         elements.generateBtn.disabled = false;
       }
+      return;
+    }
+
+    if (state.loggedIn && !elements.generateStatus.classList.contains("loading")) {
+      elements.generateBtn.disabled = true;
     }
   }
 
@@ -676,10 +718,10 @@
   }
 
   elements.newCrosswordCard.addEventListener("click", function () {
-    if (state.currentCoins !== null && state.currentCoins < generationCostCredits) {
+    if (!hasEnoughCreditsForGeneration()) {
       showGenerateForm();
       elements.generateBtn.disabled = true;
-      showInsufficientCreditsMessage(insufficientCreditsCardMessage);
+      showInsufficientCreditsMessage(getInsufficientCreditsCardMessage());
       return;
     }
 
@@ -800,7 +842,7 @@
       .then(function (result) {
         if (!result.ok) {
           if (result.data.error === "insufficient_credits") {
-            showInsufficientCreditsMessage(insufficientCreditsGenerateMessage);
+            showInsufficientCreditsMessage(getInsufficientCreditsGenerateMessage());
           } else if (result.data.error === "llm_timeout") {
             elements.generateStatus.textContent = "The AI model timed out. Your credits have been refunded — please try again.";
             setGenerateBuyCreditsVisible(false);
@@ -948,7 +990,7 @@
       setGenerateBuyCreditsVisible(false);
       return;
     }
-    if (state.loggedIn && state.currentCoins !== null && state.currentCoins < generationCostCredits) {
+    if (state.loggedIn && !hasEnoughCreditsForGeneration()) {
       setGenerateBuyCreditsVisible(true);
     }
   });
@@ -973,6 +1015,7 @@
         currentCoins: state.currentCoins,
         currentShareToken: state.currentShareToken,
         currentView: state.currentView,
+        generationCostCredits: state.generationCostCredits,
         loggedIn: state.loggedIn,
         pendingCompletionKey: state.pendingCompletionKey,
       };

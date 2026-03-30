@@ -30,6 +30,7 @@ test.describe("App auth — logged in state", () => {
 
     await setupLoggedInRoutes(page, {
       coins: 4,
+      generationCostCoins: 4,
       extra: {
         "**/api/generate": (route) => {
           generateCalls += 1;
@@ -64,6 +65,22 @@ test.describe("App auth — logged in state", () => {
     expect(generateCalls).toBe(1);
     await expect(page.locator("#title")).toContainText("Four Credit Puzzle", { timeout: 5000 });
     await expect(page.getByText("Not enough credits")).toHaveCount(0);
+  });
+
+  test("generation gate follows the backend cost from balance data", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      coins: 5,
+      generationCostCoins: 6,
+    });
+
+    await page.goto("/");
+    await expect(page.locator("#landingPage")).toBeHidden({ timeout: 5000 });
+    await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
+    await page.locator("#newCrosswordCard").click();
+
+    await expect(page.locator("#generateBtn")).toBeDisabled({ timeout: 5000 });
+    await expect(page.locator("#generateBtn")).toContainText("(6 credits)");
+    await expect(page.locator("#generateStatus")).toContainText("You need 6 credits");
   });
 
   test("credit badge shows balance after login", async ({ page }) => {

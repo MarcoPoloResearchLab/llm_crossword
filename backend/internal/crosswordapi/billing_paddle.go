@@ -393,12 +393,13 @@ func (provider *paddleBillingProvider) CreateCheckout(ctx context.Context, userI
 		return billingCheckoutSession{}, err
 	}
 
-	resolvedReturnURL := replaceCheckoutTransactionPlaceholder(returnURL, transactionID)
+	resolvedCheckoutURL := appendCheckoutReturnURL(checkoutURL, returnURL)
+	resolvedCheckoutURL = replaceCheckoutTransactionPlaceholder(resolvedCheckoutURL, transactionID)
 
 	return billingCheckoutSession{
 		ProviderCode:  provider.Code(),
 		TransactionID: transactionID,
-		CheckoutURL:   appendCheckoutReturnURL(checkoutURL, resolvedReturnURL),
+		CheckoutURL:   resolvedCheckoutURL,
 	}, nil
 }
 
@@ -436,7 +437,13 @@ func replaceCheckoutTransactionPlaceholder(returnURL string, transactionID strin
 	if strings.TrimSpace(returnURL) == "" || trimmedTransactionID == "" {
 		return returnURL
 	}
-	return strings.ReplaceAll(returnURL, checkoutTransactionIDPlaceholder, trimmedTransactionID)
+	encodedPlaceholder := url.QueryEscape(checkoutTransactionIDPlaceholder)
+	encodedTransactionID := url.QueryEscape(trimmedTransactionID)
+	placeholderReplacer := strings.NewReplacer(
+		checkoutTransactionIDPlaceholder, trimmedTransactionID,
+		encodedPlaceholder, encodedTransactionID,
+	)
+	return placeholderReplacer.Replace(returnURL)
 }
 
 func (client *paddleAPIClient) ResolveCustomerID(ctx context.Context, userEmail string) (string, error) {
