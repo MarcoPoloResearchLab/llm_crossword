@@ -11,6 +11,7 @@
     throw new Error("CrosswordWidget is required before crossword.js");
   }
 
+  var services = window.LLMCrosswordServices || null;
   var _fetch = window.fetch.bind(window);
   var documentElement = document.documentElement;
   var emptyString = "";
@@ -24,6 +25,13 @@
   var sharedPuzzleFallbackTitle = "Shared Crossword";
   var sharedPuzzleQueryParam = "puzzle";
   var sidebarCollapsedStorageKey = "llm-crossword-sidebar-collapsed";
+
+  function buildApiUrl(path) {
+    if (services && typeof services.buildApiUrl === "function") {
+      return services.buildApiUrl(path);
+    }
+    return path;
+  }
 
   var elements = {
     acrossOl: document.getElementById("across"),
@@ -771,7 +779,7 @@
   function loadSharedPuzzle(sharedToken) {
     if (!sharedToken) return Promise.resolve(null);
 
-    return _fetch("/api/shared/" + encodeURIComponent(sharedToken))
+    return _fetch(buildApiUrl("/api/shared/" + encodeURIComponent(sharedToken)))
       .then(function (response) {
         if (!response.ok) {
           throw new Error("Shared puzzle not found");
@@ -890,7 +898,7 @@
 
     if (state.ownedLoadPromise) return state.ownedLoadPromise;
 
-    state.ownedLoadPromise = _fetch("/api/puzzles", {
+    state.ownedLoadPromise = _fetch(buildApiUrl("/api/puzzles"), {
       credentials: "include",
     })
       .then(function (response) {

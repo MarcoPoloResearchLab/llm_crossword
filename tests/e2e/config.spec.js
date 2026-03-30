@@ -47,6 +47,63 @@ test.describe("Config — default behavior", () => {
     expect(fetchedUrls).toContain(absoluteConfigUrl);
     expect(tauthUrl).toBe("https://tauth.example.test");
   });
+
+  test("config.js prefers runtime service config when present", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent("<!doctype html><html><body><mpr-header id=\"app-header\"></mpr-header></body></html>");
+    await page.evaluate(() => {
+      window.LLMCrosswordRuntimeConfig = {
+        services: {
+          authBaseUrl: "https://tauth.example.test",
+          configUrl: "https://config.example.test/runtime-config.yml",
+        },
+      };
+      window.__configFetches = [];
+      window.fetch = function (url) {
+        window.__configFetches.push(String(url));
+        return Promise.resolve({
+          text: function () {
+            return Promise.resolve("environments:\n  - description: \"Other\"\n    origins:\n      - \"https://elsewhere.example.test\"\n    auth:\n      tauthUrl: \"https://ignored.example.test\"");
+          },
+        });
+      };
+    });
+    await page.addScriptTag({ url: "/js/service-config.js" });
+    await page.addScriptTag({ url: "/js/config.js" });
+
+    var fetchedUrls = await page.evaluate(() => window.__configFetches.slice());
+    var tauthUrl = await page.locator("#app-header").getAttribute("tauth-url");
+
+    expect(fetchedUrls).toEqual(["https://config.example.test/runtime-config.yml"]);
+    expect(tauthUrl).toBe("https://tauth.example.test");
+  });
+
+  test("service-config defaults config.yml to the API origin when apiBaseUrl is set", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent("<!doctype html><html><body><mpr-header id=\"app-header\"></mpr-header></body></html>");
+    await page.evaluate(() => {
+      window.LLMCrosswordRuntimeConfig = {
+        services: {
+          apiBaseUrl: "https://llm-crossword-api.mprlab.com",
+        },
+      };
+      window.__configFetches = [];
+      window.fetch = function (url) {
+        window.__configFetches.push(String(url));
+        return Promise.resolve({
+          text: function () {
+            return Promise.resolve("");
+          },
+        });
+      };
+    });
+    await page.addScriptTag({ url: "/js/service-config.js" });
+    await page.addScriptTag({ url: "/js/config.js" });
+
+    expect(await page.evaluate(() => window.__configFetches.slice())).toEqual([
+      "https://llm-crossword-api.mprlab.com/config.yml",
+    ]);
+  });
 });
 
 test.describe("Config — fetch failure", () => {

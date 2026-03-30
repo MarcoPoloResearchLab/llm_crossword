@@ -2,9 +2,17 @@
 (function () {
   "use strict";
 
+  var services = window.LLMCrosswordServices || null;
   var _fetch = window.authFetch || window.fetch.bind(window);
   var billingRestoreDrawerStorageKey = "llm-crossword-billing-restore-drawer";
   var placeholderValue = "—";
+
+  function buildApiUrl(path) {
+    if (services && typeof services.buildApiUrl === "function") {
+      return services.buildApiUrl(path);
+    }
+    return path;
+  }
 
   // --- Settings modal DOM ---
   var settingsDrawer    = document.getElementById("settingsDrawer");
@@ -602,7 +610,7 @@
 
   // --- Check admin status using the server session as the single source of truth ---
   function checkAdminStatus() {
-    _fetch("/api/session", { credentials: "include" })
+    _fetch(buildApiUrl("/api/session"), { credentials: "include" })
       .then(function (resp) {
         if (!resp.ok) return null;
         return resp.json();
@@ -699,7 +707,7 @@
   // --- Load users ---
   function loadUsers() {
     setStatus(adminUsersStatus, "Loading users...");
-    _fetch("/api/admin/users", { credentials: "include" })
+    _fetch(buildApiUrl("/api/admin/users"), { credentials: "include" })
       .then(function (resp) {
         if (!resp.ok) throw new Error("Failed to load users");
         return resp.json();
@@ -813,7 +821,7 @@
     adminBalanceCoins.textContent = "...";
     adminBalanceTotal.textContent = "...";
     setStatus(adminBalanceStatus, "");
-    _fetch("/api/admin/balance?user_id=" + encodeURIComponent(uid), { credentials: "include" })
+    _fetch(buildApiUrl("/api/admin/balance?user_id=" + encodeURIComponent(uid)), { credentials: "include" })
       .then(function (resp) {
         if (!resp.ok) throw new Error("Failed to load balance");
         return resp.json();
@@ -878,7 +886,7 @@
     if (!adminGrantHistoryList || !adminGrantHistoryStatus) return;
 
     setStatus(adminGrantHistoryStatus, "Loading grant history...");
-    _fetch("/api/admin/grants?user_id=" + encodeURIComponent(uid), { credentials: "include" })
+    _fetch(buildApiUrl("/api/admin/grants?user_id=" + encodeURIComponent(uid)), { credentials: "include" })
       .then(function (resp) {
         if (!resp.ok) throw new Error("Failed to load grant history");
         return resp.json();
@@ -919,7 +927,7 @@
       adminGrantBtn.disabled = true;
       setStatus(adminGrantStatus, "Granting...");
 
-      _fetch("/api/admin/grant", {
+      _fetch(buildApiUrl("/api/admin/grant"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

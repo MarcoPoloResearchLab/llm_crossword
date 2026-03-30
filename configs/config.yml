@@ -1,4 +1,4 @@
-# Public browser config served via the backend at /config.yml.
+# Public browser config for frontend boot. Local Docker still exposes it at /config.yml.
 # Keep administrator allowlists in CROSSWORDAPI_ADMIN_EMAILS, not here.
 
 billing:

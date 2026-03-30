@@ -5,6 +5,7 @@
   var nativeFetch = window.fetch.bind(window);
   var refreshing = null;
   var tenantHeaderName = "X-TAuth-Tenant";
+  var services = window.LLMCrosswordServices || null;
 
   function getTauthTenantId() {
     var attributedElement = document.querySelector("[tauth-tenant-id]");
@@ -16,8 +17,73 @@
 
   function isTauthPath(url) {
     if (typeof url !== "string") return false;
-    if (url === "/me") return true;
-    return url.indexOf("/auth/") === 0;
+    if (url === "/me" || url.indexOf("/auth/") === 0) return true;
+    return isResolvedTauthUrl(url);
+  }
+
+  function isAPIPath(url) {
+    if (typeof url !== "string") return false;
+    if (url.indexOf("/api/") === 0) return true;
+    return isResolvedAPIUrl(url);
+  }
+
+  function getConfiguredAuthBaseUrl() {
+    if (!services || typeof services.getAuthBaseUrl !== "function") return "";
+    return services.getAuthBaseUrl();
+  }
+
+  function getConfiguredAPIBaseUrl() {
+    if (!services || typeof services.getApiBaseUrl !== "function") return "";
+    return services.getApiBaseUrl();
+  }
+
+  function matchesResolvedPath(url, baseUrl, pathPrefix) {
+    if (typeof url !== "string" || typeof baseUrl !== "string" || typeof pathPrefix !== "string") {
+      return false;
+    }
+    if (!baseUrl || !pathPrefix) {
+      return false;
+    }
+    if (url === baseUrl + pathPrefix) {
+      return true;
+    }
+    return url.indexOf(baseUrl + pathPrefix + "?") === 0;
+  }
+
+  function isResolvedTauthUrl(url) {
+    var authBaseUrl = getConfiguredAuthBaseUrl();
+
+    return matchesResolvedPath(url, authBaseUrl, "/me")
+      || matchesResolvedPath(url, authBaseUrl, "/auth/")
+      || url.indexOf(authBaseUrl + "/auth/") === 0;
+  }
+
+  function isResolvedAPIUrl(url) {
+    var apiBaseUrl = getConfiguredAPIBaseUrl();
+
+    return url.indexOf(apiBaseUrl + "/api/") === 0;
+  }
+
+  function buildTauthUrl(url) {
+    if (typeof url !== "string") return url;
+    if (!services || typeof services.buildAuthUrl !== "function") return url;
+    return services.buildAuthUrl(url);
+  }
+
+  function buildAPIUrl(url) {
+    if (typeof url !== "string") return url;
+    if (!services || typeof services.buildApiUrl !== "function") return url;
+    return services.buildApiUrl(url);
+  }
+
+  function resolveRequestUrl(url) {
+    if (isTauthPath(url)) {
+      return buildTauthUrl(url);
+    }
+    if (isAPIPath(url)) {
+      return buildAPIUrl(url);
+    }
+    return url;
   }
 
   function buildTauthFetchOptions(options) {
@@ -34,7 +100,7 @@
   }
 
   function fetchTauth(url, options) {
-    return nativeFetch(url, buildTauthFetchOptions(options));
+    return nativeFetch(buildTauthUrl(url), buildTauthFetchOptions(options));
   }
 
   /**
@@ -59,15 +125,16 @@
    * response is returned as-is so callers can handle logout.
    */
   function authFetch(url, options) {
+    var resolvedUrl = resolveRequestUrl(url);
     var requestFetch = isTauthPath(url) ? fetchTauth : nativeFetch;
 
-    return requestFetch(url, options).then(function (resp) {
+    return requestFetch(resolvedUrl, options).then(function (resp) {
       if (resp.status !== 401) return resp;
 
       return refreshSession().then(function (refreshed) {
         if (!refreshed) return resp;
         // Replay the original request.
-        return requestFetch(url, options);
+        return requestFetch(resolvedUrl, options);
       });
     });
   }

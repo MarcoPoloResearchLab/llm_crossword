@@ -1586,6 +1586,46 @@ test.describe("Isolated script coverage", () => {
     expect(result.calls[1].urlType).toBe("object");
   });
 
+  test("covers auth-fetch runtime service URL resolution", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent("<!doctype html><html><body></body></html>");
+    await page.evaluate(() => {
+      window.LLMCrosswordRuntimeConfig = {
+        services: {
+          apiBaseUrl: "https://api.example.test",
+          authBaseUrl: "https://tauth.example.test",
+        },
+      };
+      window.__serviceFetchCalls = [];
+      window.fetch = function (url, options) {
+        window.__serviceFetchCalls.push({
+          credentials: options && options.credentials,
+          url: String(url),
+        });
+        return Promise.resolve({ status: 200, ok: true });
+      };
+    });
+    await loadScript(page, "service-config.js");
+    await loadScript(page, "auth-fetch.js");
+
+    var result = await page.evaluate(async () => {
+      await window.fetchTauth("/me");
+      await window.authFetch("/api/protected", { credentials: "include" });
+      return window.__serviceFetchCalls.slice();
+    });
+
+    expect(result).toEqual([
+      {
+        credentials: "include",
+        url: "https://tauth.example.test/me",
+      },
+      {
+        credentials: "include",
+        url: "https://api.example.test/api/protected",
+      },
+    ]);
+  });
+
   test("covers config.js early return without a header", async ({ page }) => {
     await page.goto("/blank.html");
     await page.setContent("<!doctype html><html><body></body></html>");

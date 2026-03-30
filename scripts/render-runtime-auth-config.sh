@@ -59,11 +59,28 @@ resolve_crosswordapi_value() {
   printf '%s' "$resolved_value"
 }
 
+resolve_runtime_value() {
+  local variable_name="$1"
+  local fallback_value="${2:-}"
+  local resolved_value="${!variable_name:-}"
+
+  if [ -n "$resolved_value" ]; then
+    printf '%s' "$resolved_value"
+    return 0
+  fi
+
+  printf '%s' "$fallback_value"
+}
+
 render_runtime_auth_config() {
   local google_client_id="$1"
   local billing_provider="$2"
   local paddle_environment="$3"
   local paddle_client_token="$4"
+  local api_base_url="$5"
+  local auth_base_url="$6"
+  local config_url="$7"
+  local tauth_script_url="$8"
   local billing_enabled="false"
 
   if [ "$billing_provider" = "paddle" ] && [ -n "$paddle_environment" ] && [ -n "$paddle_client_token" ]; then
@@ -83,6 +100,12 @@ render_runtime_auth_config() {
       providerCode: "${billing_provider}",
     }),
     googleClientId: "${google_client_id}",
+    services: Object.freeze({
+      apiBaseUrl: "${api_base_url}",
+      authBaseUrl: "${auth_base_url}",
+      configUrl: "${config_url}",
+      tauthScriptUrl: "${tauth_script_url}",
+    }),
   });
 })(window);
 EOF
@@ -93,12 +116,30 @@ main() {
   local billing_provider
   local paddle_environment
   local paddle_client_token
+  local site_origin
+  local api_base_url
+  local auth_base_url
+  local config_url
+  local tauth_script_url
 
   google_client_id="$(resolve_google_client_id)"
   billing_provider="$(resolve_crosswordapi_value "CROSSWORDAPI_BILLING_PROVIDER")"
   paddle_environment="$(resolve_crosswordapi_value "CROSSWORDAPI_PADDLE_ENVIRONMENT")"
   paddle_client_token="$(resolve_crosswordapi_value "CROSSWORDAPI_PADDLE_CLIENT_TOKEN")"
-  render_runtime_auth_config "$google_client_id" "$billing_provider" "$paddle_environment" "$paddle_client_token"
+  site_origin="$(resolve_runtime_value "SITE_ORIGIN" "")"
+  api_base_url="$(resolve_runtime_value "LLM_CROSSWORD_API_BASE_URL" "$site_origin")"
+  auth_base_url="$(resolve_runtime_value "LLM_CROSSWORD_AUTH_BASE_URL" "$site_origin")"
+  config_url="$(resolve_runtime_value "LLM_CROSSWORD_CONFIG_URL" "${api_base_url%/}/config.yml")"
+  tauth_script_url="$(resolve_runtime_value "LLM_CROSSWORD_TAUTH_SCRIPT_URL" "${auth_base_url%/}/tauth.js")"
+  render_runtime_auth_config \
+    "$google_client_id" \
+    "$billing_provider" \
+    "$paddle_environment" \
+    "$paddle_client_token" \
+    "$api_base_url" \
+    "$auth_base_url" \
+    "$config_url" \
+    "$tauth_script_url"
 }
 
 main "$@"

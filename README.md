@@ -6,6 +6,15 @@ A crossword puzzle builder, powered by LLM.
 
 Set `GOOGLE_CLIENT_ID` in `.env.tauth`. The browser runtime auth config is generated into `js/runtime-auth-config.js`, and the Docker and Playwright entry points render it automatically before startup.
 
+For split-origin deployments, the browser runtime config also supports explicit service URLs:
+
+- `LLM_CROSSWORD_API_BASE_URL` — browser origin for `LLM Crossword API`
+- `LLM_CROSSWORD_AUTH_BASE_URL` — browser origin for `TAuth`
+- `LLM_CROSSWORD_CONFIG_URL` — public config document URL used by the frontend
+- `LLM_CROSSWORD_TAUTH_SCRIPT_URL` — explicit `tauth.js` URL override
+
+If these are unset, local startup keeps the existing same-origin behaviour by defaulting service URLs to `SITE_ORIGIN`. When `LLM_CROSSWORD_API_BASE_URL` is set and `LLM_CROSSWORD_CONFIG_URL` is not, the frontend defaults the config document to `<api-base>/config.yml`.
+
 ## Local Docker
 
 Use `make up` to start the stack and `make down` to stop it. If the default site port `8000` or one of the other exposed host ports is already occupied, `make up` automatically picks the next available port and writes the resolved values to `.runtime/ports.env`.

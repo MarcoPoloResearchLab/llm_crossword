@@ -10,6 +10,7 @@
   var balanceStatusLoading = "loading";
   var creditPopoverHideDelayMs = 140;
   var authStateFetch = window.authFetch || null;
+  var services = window.LLMCrosswordServices || null;
   var nativeFetch = window.fetch.bind(window);
   var _fetch = window.authFetch || nativeFetch;
   var fetchTauth = window.fetchTauth || nativeFetch;
@@ -41,6 +42,20 @@
   var defaultGenerationCostCredits = 4;
   var generationBalanceLoadingMessage = "Loading your credit balance...";
   var generationBalanceUnavailableMessage = "We couldn't load your credit balance. Refresh and try again.";
+
+  function buildApiUrl(path) {
+    if (services && typeof services.buildApiUrl === "function") {
+      return services.buildApiUrl(path);
+    }
+    return path;
+  }
+
+  function buildAuthUrl(path) {
+    if (services && typeof services.buildAuthUrl === "function") {
+      return services.buildAuthUrl(path);
+    }
+    return path;
+  }
 
   function requireElement(id) {
     var element = document.getElementById(id);
@@ -712,10 +727,10 @@
   function getCompletionEndpoint(puzzle) {
     if (!puzzle) return null;
     if (puzzle.source === "shared" && puzzle.shareToken) {
-      return "/api/shared/" + encodeURIComponent(puzzle.shareToken) + "/complete";
+      return buildApiUrl("/api/shared/" + encodeURIComponent(puzzle.shareToken) + "/complete");
     }
     if (puzzle.id) {
-      return "/api/puzzles/" + encodeURIComponent(puzzle.id) + "/complete";
+      return buildApiUrl("/api/puzzles/" + encodeURIComponent(puzzle.id) + "/complete");
     }
     return null;
   }
@@ -831,7 +846,7 @@
   function verifySessionStillValid() {
     if (state.pendingSessionVerification) return state.pendingSessionVerification;
 
-    state.pendingSessionVerification = _fetch("/me", {
+    state.pendingSessionVerification = _fetch(buildAuthUrl("/me"), {
       cache: "no-store",
       credentials: "include",
     })
@@ -873,7 +888,7 @@
       showGenerateForm();
     }
 
-    _fetch("/api/bootstrap", { method: "POST", credentials: "include" })
+    _fetch(buildApiUrl("/api/bootstrap"), { method: "POST", credentials: "include" })
       .then(function (resp) {
         if (!resp.ok) return null;
         return resp.json();
@@ -984,7 +999,7 @@
     state.pendingAuthRestoreTimer = window.setTimeout(function () {
       state.pendingAuthRestoreTimer = null;
 
-      (authStateFetch || fetchTauth)("/me", { cache: "no-store", credentials: "include" })
+      (authStateFetch || fetchTauth)(buildAuthUrl("/me"), { cache: "no-store", credentials: "include" })
         .then(function (resp) {
           if (resp.ok) {
             if (!state.loggedIn) onLogin();
@@ -1077,7 +1092,7 @@
 
   applyAuthCheckState();
 
-  (authStateFetch || fetchTauth)("/me", { cache: "no-store", credentials: "include" })
+  (authStateFetch || fetchTauth)(buildAuthUrl("/me"), { cache: "no-store", credentials: "include" })
     .then(function (resp) {
       if (resp.ok) {
         if (!state.loggedIn) onLogin();
@@ -1141,7 +1156,7 @@
     elements.generateStatus.textContent = "Generating crossword...";
     elements.generateStatus.classList.add("loading");
 
-    _fetch("/api/generate", {
+    _fetch(buildApiUrl("/api/generate"), {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -1180,7 +1195,7 @@
           }
 
           if (result.data.error === "llm_timeout" || result.data.error === "llm_error") {
-            _fetch("/api/balance", { credentials: "include" })
+            _fetch(buildApiUrl("/api/balance"), { credentials: "include" })
               .then(function (resp) {
                 return resp.ok ? resp.json() : null;
               })

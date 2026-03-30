@@ -3,15 +3,21 @@
   "use strict";
 
   var _fetch = window.fetch.bind(window);
+  var services = window.LLMCrosswordServices || null;
 
   var header = document.getElementById("app-header");
   if (!header) return;
 
-  // Default: tauth is proxied through the same origin via ghttp.
-  var tauthUrl = window.location.origin;
+  // Default to the explicitly configured auth origin when available.
+  var tauthUrl = services && typeof services.getAuthBaseUrl === "function"
+    ? services.getAuthBaseUrl()
+    : window.location.origin;
+  var configUrl = header.getAttribute("data-config-url")
+    || (services && typeof services.getConfigUrl === "function" ? services.getConfigUrl() : "")
+    || (window.location.origin + "/config.yml");
 
   // Fetch the public config document to check for environment-specific overrides.
-  _fetch(header.getAttribute("data-config-url") || (window.location.origin + "/config.yml"))
+  _fetch(configUrl)
     .then(function (resp) { return resp.text(); })
     .then(function (text) {
       var match = matchEnvironment(text, window.location.origin);

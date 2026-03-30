@@ -2,14 +2,23 @@
 (function () {
   "use strict";
 
-  var billingSummaryPath = "/api/billing/summary";
-  var billingCheckoutPath = "/api/billing/checkout";
-  var billingPortalPath = "/api/billing/portal";
+  var services = window.LLMCrosswordServices || null;
   var completedTransactionEventType = "transaction.completed";
   var returnTransactionQueryKey = "billing_transaction_id";
   var restoreDrawerStorageKey = "llm-crossword-billing-restore-drawer";
   var pollIntervalMs = 2500;
   var pollTimeoutMs = 90000;
+
+  function buildApiUrl(path) {
+    if (services && typeof services.buildApiUrl === "function") {
+      return services.buildApiUrl(path);
+    }
+    return path;
+  }
+
+  var billingSummaryPath = buildApiUrl("/api/billing/summary");
+  var billingCheckoutPath = buildApiUrl("/api/billing/checkout");
+  var billingPortalPath = buildApiUrl("/api/billing/portal");
 
   var state = {
     activeTransactionId: "",

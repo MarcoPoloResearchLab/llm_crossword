@@ -3,7 +3,10 @@
 (function (global) {
   "use strict";
 
-  var DEFAULT_CONFIG_URL = "/config.yml";
+  var runtimeServices = global.LLMCrosswordServices;
+  var DEFAULT_CONFIG_URL = runtimeServices && typeof runtimeServices.getConfigUrl === "function"
+    ? runtimeServices.getConfigUrl()
+    : "/config.yml";
   var DEFAULT_YAML_PARSER_URL = "https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js";
   var DEFAULT_HEADER_SELECTOR = "mpr-header";
   var DEFAULT_LOGIN_BUTTON_SELECTOR = "mpr-login-button";

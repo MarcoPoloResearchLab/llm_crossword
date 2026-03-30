@@ -7,6 +7,7 @@
   }
   window.__LLM_CROSSWORD_LANDING_SAMPLE_BOOTED__ = true;
 
+  var services = window.LLMCrosswordServices || null;
   var _fetch = window.fetch.bind(window);
   var container = document.getElementById("landingSamplePuzzle");
   var landingTitle = document.querySelector(".landing__title");
@@ -14,6 +15,13 @@
 
   if (!container || typeof generateCrossword !== "function" || typeof window.CrosswordWidget !== "function") {
     return;
+  }
+
+  function buildApiUrl(path) {
+    if (services && typeof services.buildApiUrl === "function") {
+      return services.buildApiUrl(path);
+    }
+    return path;
   }
 
   function createWidgetPayload(items, title, subtitle) {
@@ -65,7 +73,7 @@
   function renderSharedPuzzle(sharedToken) {
     container.textContent = "Loading shared puzzle...";
 
-    _fetch("/api/shared/" + encodeURIComponent(sharedToken))
+    _fetch(buildApiUrl("/api/shared/" + encodeURIComponent(sharedToken)))
       .then(function (response) {
         if (!response.ok) throw new Error("Puzzle not found");
         return response.json();

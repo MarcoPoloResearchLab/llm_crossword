@@ -50,10 +50,22 @@
   <link rel="stylesheet" href="css/crossword.css">
 
   <!-- TAuth + Google Identity Services -->
-  <script defer src="/tauth.js"></script>
+  <script src="./js/runtime-auth-config.js"></script>
+  <script src="./js/service-config.js"></script>
+  <script>
+    (function loadTauthScript() {
+      var services = window.LLMCrosswordServices;
+      var scriptElement = document.createElement("script");
+
+      scriptElement.defer = true;
+      scriptElement.src = services && typeof services.getTauthScriptUrl === "function"
+        ? services.getTauthScriptUrl()
+        : "/tauth.js";
+      document.head.appendChild(scriptElement);
+    })();
+  </script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
-  <script defer src="./js/runtime-auth-config.js"></script>
   <script src="./mpr-ui-config.js" defer></script>
   <script id="mpr-ui-bundle" type="application/json" data-mpr-ui-bundle-src="https://cdn.jsdelivr.net/gh/MarcoPoloResearchLab/mpr-ui@latest/mpr-ui.js"></script>
 </head>
@@ -77,8 +89,19 @@
   ></mpr-user>
 </mpr-header>
 <script>
-  // Set base-url to current origin before mpr-ui initializes.
-  document.getElementById('app-header').setAttribute('base-url', window.location.origin);
+  (function configureHeaderRuntimeUrls() {
+    var header = document.getElementById("app-header");
+    var services = window.LLMCrosswordServices;
+
+    if (!header) {
+      return;
+    }
+
+    header.setAttribute("base-url", window.location.origin);
+    if (services && typeof services.getConfigUrl === "function") {
+      header.setAttribute("data-config-url", services.getConfigUrl());
+    }
+  })();
 </script>
 <div id="creditDetailsPopover" class="credit-popover" hidden>
   <div class="credit-popover__surface" role="dialog" aria-label="Credit details">
