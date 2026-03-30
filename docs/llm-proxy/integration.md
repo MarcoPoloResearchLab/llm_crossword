@@ -4,6 +4,8 @@
 
 LLM Proxy is a lightweight HTTP service that forwards user prompts to OpenAI's Responses API and audio transcription API. It exposes protected HTTP endpoints requiring a shared secret, simplifying provider integration without embedding API credentials in clients.
 
+Illustration-mode extensions proposed for crossword generation are documented separately in [illustration-api-contract.md](./illustration-api-contract.md). This integration guide describes the currently implemented surface plus the baseline proxy architecture.
+
 **Module:** `github.com/temirov/llm-proxy`
 **Go Version:** 1.24
 
@@ -18,6 +20,8 @@ LLM Proxy is a lightweight HTTP service that forwards user prompts to OpenAI's R
 | `go.uber.org/zap` v1.27.0 | Structured logging |
 
 ## API Endpoints
+
+Current implemented endpoints:
 
 ### GET `/` — LLM Request
 
@@ -192,3 +196,7 @@ var ErrMissingOpenAIKey = errors.New("OPENAI_API_KEY must be set")
 - `key` parameter redacted from logs
 - Service should not be exposed to public internet without network controls
 - Configurable max audio upload size prevents DoS
+
+## Related Docs
+
+- [Illustration API Contract](./illustration-api-contract.md)

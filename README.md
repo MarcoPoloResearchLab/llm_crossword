@@ -28,5 +28,5 @@ To force a specific host port instead of auto-allocation, pass it explicitly, fo
 
 ## License
 
-This project is proprietary software. All rights reserved by Marco Polo Research Lab.  
+This project is proprietary software. All rights reserved by Marco Polo Research Lab LLC.  
 See the [LICENSE](./LICENSE) file for details.
