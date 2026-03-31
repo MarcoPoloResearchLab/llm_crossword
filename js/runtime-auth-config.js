@@ -10,7 +10,6 @@
       environment: "",
       providerCode: "",
     }),
-    googleClientId: "7962005714-9g4tnvhr0ciml0dt2i5e9pagpcdatpde.apps.googleusercontent.com",
     services: Object.freeze({
       apiBaseUrl: "https://llm-crossword-api.mprlab.com",
       authBaseUrl: "https://tauth.mprlab.com",

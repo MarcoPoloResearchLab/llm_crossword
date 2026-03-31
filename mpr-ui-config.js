@@ -16,7 +16,6 @@
   var SECTION_AUTH = "auth";
   var SECTION_AUTH_BUTTON = "authButton";
   var SECTION_ORIGINS = "origins";
-  var GOOGLE_CLIENT_ID_PLACEHOLDER = "__GOOGLE_CLIENT_ID__";
   var BUNDLE_MARKER_SELECTOR = "script[data-mpr-ui-bundle-src]";
   var EVENT_CONFIG_APPLIED = "mpr-ui:config:applied";
   var EVENT_BUNDLE_LOADED = "mpr-ui:bundle:loaded";
@@ -70,36 +69,14 @@
     return value.trim();
   }
 
-  function readRuntimeGoogleClientId() {
-    var runtimeConfig = global.LLMCrosswordRuntimeConfig;
-
-    if (!isPlainObject(runtimeConfig) || typeof runtimeConfig.googleClientId !== "string") {
-      return "";
-    }
-
-    return runtimeConfig.googleClientId.trim();
-  }
-
   function resolveGoogleClientId(rawGoogleClientId) {
-    var normalizedGoogleClientId = "";
-
     if (typeof rawGoogleClientId !== "string") {
       throw new Error("config.yml missing auth.googleClientId");
     }
 
-    normalizedGoogleClientId = rawGoogleClientId.trim();
-
+    var normalizedGoogleClientId = rawGoogleClientId.trim();
     if (normalizedGoogleClientId.length === 0) {
       throw new Error("config.yml missing auth.googleClientId");
-    }
-
-    if (normalizedGoogleClientId !== GOOGLE_CLIENT_ID_PLACEHOLDER) {
-      return normalizedGoogleClientId;
-    }
-
-    normalizedGoogleClientId = readRuntimeGoogleClientId();
-    if (normalizedGoogleClientId.length === 0) {
-      throw new Error("runtime auth config missing googleClientId");
     }
 
     return normalizedGoogleClientId;

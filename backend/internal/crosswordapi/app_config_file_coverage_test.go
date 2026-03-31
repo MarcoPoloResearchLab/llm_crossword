@@ -8,6 +8,16 @@ import (
 )
 
 func TestLoadAppConfigFileAndPathsCoverage(t *testing.T) {
+	t.Run("empty config text expands to empty", func(t *testing.T) {
+		expandedConfigText, err := expandConfigEnvVariables("")
+		if err != nil {
+			t.Fatalf("expandConfigEnvVariables() error = %v", err)
+		}
+		if expandedConfigText != "" {
+			t.Fatalf("expected empty expanded config text, got %q", expandedConfigText)
+		}
+	})
+
 	t.Run("blank path fails", func(t *testing.T) {
 		_, err := loadAppConfigFile("   ")
 		if err == nil || !strings.Contains(err.Error(), "config path is required") {
@@ -61,6 +71,53 @@ func TestLoadAppConfigFileAndPathsCoverage(t *testing.T) {
 		}
 		if len(wrappedConfig.Billing.Packs) != 1 || wrappedConfig.Billing.Packs[0].Label != "Starter Pack" {
 			t.Fatalf("unexpected wrapped config: %#v", wrappedConfig)
+		}
+	})
+
+	t.Run("environment variables are expanded before yaml parsing", func(t *testing.T) {
+		t.Setenv("PACK_LABEL", "Expanded Starter Pack")
+
+		configPath := filepath.Join(t.TempDir(), "config.yaml")
+		configYAML := strings.Join([]string{
+			"billing:",
+			"  packs:",
+			"    - code: starter",
+			"      label: ${PACK_LABEL}",
+			"      credits: 20",
+			"      price_cents: 2000",
+			"",
+		}, "\n")
+		if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+			t.Fatalf("write config yaml: %v", err)
+		}
+
+		configFile, err := loadAppConfigFile(configPath)
+		if err != nil {
+			t.Fatalf("loadAppConfigFile() error = %v", err)
+		}
+		if len(configFile.Billing.Packs) != 1 || configFile.Billing.Packs[0].Label != "Expanded Starter Pack" {
+			t.Fatalf("expected expanded label, got %#v", configFile.Billing.Packs)
+		}
+	})
+
+	t.Run("missing environment variables fail the load", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "config.yaml")
+		configYAML := strings.Join([]string{
+			"billing:",
+			"  packs:",
+			"    - code: starter",
+			"      label: ${MISSING_PACK_LABEL}",
+			"      credits: 20",
+			"      price_cents: 2000",
+			"",
+		}, "\n")
+		if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+			t.Fatalf("write config yaml: %v", err)
+		}
+
+		_, err := loadAppConfigFile(configPath)
+		if err == nil || !strings.Contains(err.Error(), "missing env variables: MISSING_PACK_LABEL") {
+			t.Fatalf("expected missing env error, got %v", err)
 		}
 	})
 

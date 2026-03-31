@@ -254,8 +254,15 @@ func (handler *httpHandler) handlePublicConfig(ctx *gin.Context) {
 		return
 	}
 
+	expandedConfigText, err := expandConfigEnvVariables(string(configBytes))
+	if err != nil {
+		handler.logger.Error("expand public config env failed", zap.Error(err), zap.String("path", configPath))
+		ctx.JSON(http.StatusInternalServerError, errorResponse("config_read_failed", "could not load config"))
+		return
+	}
+
 	ctx.Header("Cache-Control", "no-store")
-	ctx.Data(http.StatusOK, "text/yaml; charset=utf-8", configBytes)
+	ctx.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(expandedConfigText))
 }
 
 func (handler *httpHandler) handleSession(ctx *gin.Context) {

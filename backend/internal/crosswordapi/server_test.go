@@ -288,6 +288,49 @@ func TestHandlePublicConfig_ServesConfiguredDocument(t *testing.T) {
 	}
 }
 
+func TestHandlePublicConfig_InterpolatesEnvironmentVariables(t *testing.T) {
+	t.Setenv("GOOGLE_CLIENT_ID", "google-client-id-from-env")
+
+	tempDir := t.TempDir()
+	configPath := tempDir + "/config.yml"
+	configBody := "auth:\n  googleClientId: ${GOOGLE_CLIENT_ID}\n"
+	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg := testConfig()
+	cfg.PublicConfigPath = configPath
+	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, cfg)
+	router := testRouterWithClaims(handler, nil)
+
+	response := doRequest(router, http.MethodGet, "/config.yml", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "google-client-id-from-env") {
+		t.Fatalf("expected expanded config body, got %q", response.Body.String())
+	}
+}
+
+func TestHandlePublicConfig_FailsWhenEnvironmentVariableIsMissing(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := tempDir + "/config.yml"
+	configBody := "auth:\n  googleClientId: ${MISSING_GOOGLE_CLIENT_ID}\n"
+	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg := testConfig()
+	cfg.PublicConfigPath = configPath
+	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, cfg)
+	router := testRouterWithClaims(handler, nil)
+
+	response := doRequest(router, http.MethodGet, "/config.yml", "")
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestHandlePublicConfig_NotFoundWhenUnset(t *testing.T) {
 	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, testConfig())
 	router := testRouterWithClaims(handler, nil)

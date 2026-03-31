@@ -1,4 +1,5 @@
 # Public browser config for frontend boot. Local Docker still exposes it at /config.yml.
+# Any $VAR or ${VAR} value is expanded by the Go backend before this file is served.
 # Keep administrator allowlists in CROSSWORDAPI_ADMIN_EMAILS, not here.
 
 billing:
@@ -22,7 +23,7 @@ environments:
       - "http://localhost:8000"
     auth:
       tauthUrl: "http://localhost:8000"
-      googleClientId: "__GOOGLE_CLIENT_ID__"
+      googleClientId: "${GOOGLE_CLIENT_ID}"
       tenantId: "default"
       loginPath: "/auth/google"
       logoutPath: "/auth/logout"
@@ -38,7 +39,7 @@ environments:
       - "https://llm-crossword.mprlab.com"
     auth:
       tauthUrl: "https://tauth.mprlab.com"
-      googleClientId: "__GOOGLE_CLIENT_ID__"
+      googleClientId: "${GOOGLE_CLIENT_ID}"
       tenantId: "default"
       loginPath: "/auth/google"
       logoutPath: "/auth/logout"

@@ -5,7 +5,6 @@ cd "$(dirname "$0")/.."
 
 readonly runtime_config_path="${RUNTIME_AUTH_CONFIG_PATH:-js/runtime-auth-config.js}"
 readonly crosswordapi_env_file="${CROSSWORDAPI_ENV_FILE:-.env.crosswordapi.local}"
-readonly tauth_env_file="${TAUTH_ENV_FILE:-.env.tauth.local}"
 
 read_env_file_value() {
   local env_file_path="$1"
@@ -16,36 +15,6 @@ read_env_file_value() {
   fi
 
   sed -n "s/^${variable_name}=//p" "$env_file_path" | head -n 1 | tr -d '\r'
-}
-
-resolve_google_client_id() {
-  local resolved_google_client_id="${GOOGLE_CLIENT_ID:-}"
-
-  if [ -n "$resolved_google_client_id" ]; then
-    printf '%s' "$resolved_google_client_id"
-    return 0
-  fi
-
-  resolved_google_client_id="$(read_env_file_value "$tauth_env_file" "GOOGLE_CLIENT_ID")"
-  if [ -n "$resolved_google_client_id" ]; then
-    printf '%s' "$resolved_google_client_id"
-    return 0
-  fi
-
-  resolved_google_client_id="$(read_env_file_value "$crosswordapi_env_file" "GOOGLE_CLIENT_ID")"
-  if [ -n "$resolved_google_client_id" ]; then
-    printf '%s' "$resolved_google_client_id"
-    return 0
-  fi
-
-  resolved_google_client_id="$(read_env_file_value "$tauth_env_file" "APP_GOOGLE_WEB_CLIENT_ID")"
-  if [ -n "$resolved_google_client_id" ]; then
-    printf '%s' "$resolved_google_client_id"
-    return 0
-  fi
-
-  echo "Missing GOOGLE_CLIENT_ID. Set it in the shell, $tauth_env_file, or $crosswordapi_env_file." >&2
-  return 1
 }
 
 resolve_crosswordapi_value() {
@@ -75,14 +44,13 @@ resolve_runtime_value() {
 }
 
 render_runtime_auth_config() {
-  local google_client_id="$1"
-  local billing_provider="$2"
-  local paddle_environment="$3"
-  local paddle_client_token="$4"
-  local api_base_url="$5"
-  local auth_base_url="$6"
-  local config_url="$7"
-  local tauth_script_url="$8"
+  local billing_provider="$1"
+  local paddle_environment="$2"
+  local paddle_client_token="$3"
+  local api_base_url="$4"
+  local auth_base_url="$5"
+  local config_url="$6"
+  local tauth_script_url="$7"
   local billing_enabled="false"
 
   if [ "$billing_provider" = "paddle" ] && [ -n "$paddle_environment" ] && [ -n "$paddle_client_token" ]; then
@@ -104,7 +72,6 @@ render_runtime_auth_config() {
       environment: "${paddle_environment}",
       providerCode: "${billing_provider}",
     }),
-    googleClientId: "${google_client_id}",
     services: Object.freeze({
       apiBaseUrl: "${api_base_url}",
       authBaseUrl: "${auth_base_url}",
@@ -117,7 +84,6 @@ EOF
 }
 
 main() {
-  local google_client_id
   local billing_provider
   local paddle_environment
   local paddle_client_token
@@ -127,7 +93,6 @@ main() {
   local config_url
   local tauth_script_url
 
-  google_client_id="$(resolve_google_client_id)"
   billing_provider="$(resolve_crosswordapi_value "CROSSWORDAPI_BILLING_PROVIDER")"
   paddle_environment="$(resolve_crosswordapi_value "CROSSWORDAPI_PADDLE_ENVIRONMENT")"
   paddle_client_token="$(resolve_crosswordapi_value "CROSSWORDAPI_PADDLE_CLIENT_TOKEN")"
@@ -137,7 +102,6 @@ main() {
   config_url="$(resolve_runtime_value "LLM_CROSSWORD_CONFIG_URL" "${api_base_url%/}/config.yml")"
   tauth_script_url="$(resolve_runtime_value "LLM_CROSSWORD_TAUTH_SCRIPT_URL" "${auth_base_url%/}/tauth.js")"
   render_runtime_auth_config \
-    "$google_client_id" \
     "$billing_provider" \
     "$paddle_environment" \
     "$paddle_client_token" \
