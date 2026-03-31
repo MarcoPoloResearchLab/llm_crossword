@@ -1,0 +1,50 @@
+# Public browser config for frontend boot. Local Docker still exposes it at /config.yml.
+# Keep administrator allowlists in CROSSWORDAPI_ADMIN_EMAILS, not here.
+
+billing:
+  packs:
+    - code: "starter"
+      label: "Starter Pack"
+      credits: 20
+      price_cents: 2000
+    - code: "creator"
+      label: "Creator Pack"
+      credits: 60
+      price_cents: 5400
+    - code: "publisher"
+      label: "Publisher Pack"
+      credits: 140
+      price_cents: 11900
+
+environments:
+  - description: "Local development"
+    origins:
+      - "http://localhost:8000"
+    auth:
+      tauthUrl: "http://localhost:8000"
+      googleClientId: "__GOOGLE_CLIENT_ID__"
+      tenantId: "default"
+      loginPath: "/auth/google"
+      logoutPath: "/auth/logout"
+      noncePath: "/auth/nonce"
+    authButton:
+      text: "signin_with"
+      size: "large"
+      theme: "outline"
+      shape: "circle"
+
+  - description: "Production"
+    origins:
+      - "https://llm-crossword.mprlab.com"
+    auth:
+      tauthUrl: "https://tauth.mprlab.com"
+      googleClientId: "__GOOGLE_CLIENT_ID__"
+      tenantId: "default"
+      loginPath: "/auth/google"
+      logoutPath: "/auth/logout"
+      noncePath: "/auth/nonce"
+    authButton:
+      text: "signin_with"
+      size: "large"
+      theme: "outline"
+      shape: "circle"

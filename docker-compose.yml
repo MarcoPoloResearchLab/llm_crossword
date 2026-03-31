@@ -1,0 +1,90 @@
+services:
+  ledger:
+    build:
+      context: ./tools/ledger
+      dockerfile: Dockerfile
+    image: crossword-ledger:local
+    container_name: crossword-ledger
+    environment:
+      DATABASE_URL: "sqlite:///srv/data/ledger.db"
+      GRPC_LISTEN_ADDR: ":50051"
+    ports:
+      - "${LEDGER_HOST_PORT:-50051}:50051"
+    volumes:
+      - crossword_ledger_data:/srv/data
+    restart: unless-stopped
+
+  tauth:
+    image: ghcr.io/tyemirov/tauth:latest
+    container_name: crossword-tauth
+    pull_policy: always
+    env_file:
+      - ${TAUTH_ENV_FILE:-./.env.tauth.local}
+    environment:
+      APP_CORS_ALLOWED_ORIGINS: ${SITE_ORIGIN:-http://localhost:8000}
+    volumes:
+      - crossword_tauth_data:/data
+      - ${TAUTH_CONFIG_SOURCE:-./tauth.config.local.yaml}:/config.yaml:ro
+    ports:
+      - "${TAUTH_HOST_PORT:-8081}:8080"
+    restart: unless-stopped
+
+  crossword-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: crossword-api:local
+    container_name: crossword-api
+    env_file:
+      - ${CROSSWORDAPI_ENV_FILE:-./.env.crosswordapi.local}
+    environment:
+      CROSSWORDAPI_ALLOWED_ORIGINS: ${SITE_ORIGIN:-http://localhost:8000}
+      CROSSWORDAPI_DATABASE_DSN: "/data/crosswords.db"
+    depends_on:
+      - ledger
+      - tauth
+    ports:
+      - "${CROSSWORD_API_HOST_PORT:-9090}:9090"
+    volumes:
+      - crossword_puzzle_data:/data
+      - ${APP_CONFIG_SOURCE:-./.runtime/config.yml}:/configs/config.yml:ro
+    restart: unless-stopped
+
+  ghttp:
+    image: ghcr.io/tyemirov/ghttp:latest
+    container_name: crossword-ghttp
+    pull_policy: always
+    command:
+      [
+        "--directory",
+        "/data",
+        "--proxy",
+        "/api=http://crossword-api:9090",
+        "--proxy",
+        "/auth=http://tauth:8080",
+        "--proxy",
+        "/me=http://tauth:8080",
+        "--proxy",
+        "/tauth.js=http://tauth:8080",
+        "--proxy",
+        "/config.yml=http://crossword-api:9090",
+        "--response-header",
+        "/js/=Cache-Control:public,max-age=86400",
+        "--response-header",
+        "/css/=Cache-Control:public,max-age=86400",
+        "8000",
+      ]
+    ports:
+      - "${CROSSWORD_PORT:-8000}:8000"
+    volumes:
+      - .:/data:ro
+      - ${PUBLIC_CONFIGS_SOURCE:-./.runtime/public-configs}:/data/configs:ro
+    depends_on:
+      - crossword-api
+      - tauth
+    restart: unless-stopped
+
+volumes:
+  crossword_tauth_data:
+  crossword_ledger_data:
+  crossword_puzzle_data:

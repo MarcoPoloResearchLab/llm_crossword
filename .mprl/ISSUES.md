@@ -7,6 +7,9 @@ Working backlog for this repository. Keep it current and small. Use @issues-md-f
 
 ## BugFixes
 
+- [ ] [B001] (P1) Add server-side crossword layout validation before charging for generation.
+  Generated word sets are still trusted after the LLM call, but the browser renderer can reject a saved puzzle when `generateCrossword()` cannot build a valid layout from those words. Add backend-side layout validation, or an equivalent refund path, before generation succeeds.
+
 ## Improvements
 
 ## Maintenance
@@ -51,4 +54,3 @@ Working backlog for this repository. Keep it current and small. Use @issues-md-f
 
 ## Planning
 *do not implement yet*
-

@@ -1,0 +1,21 @@
+server:
+  listen_addr: ":8080"
+  enable_cors: true
+  enable_tenant_header_override: true
+  cors_allowed_origins:
+    - "http://localhost:8000"
+  database_url: "sqlite:///data/tauth.db"
+
+tenants:
+  - id: "default"
+    allow_insecure_http: true
+    cookie_domain: ""
+    google_web_client_id: "${GOOGLE_CLIENT_ID}"
+    jwt_signing_key: "bG9jYWwtc2lnbmluZy1rZXktc2FtcGxlLXRlc3QtMTIzNDU2Nzg5MA=="
+    session_cookie_name: "app_session"
+    refresh_cookie_name: "app_refresh"
+    session_ttl: "24h"
+    refresh_ttl: "720h"
+    nonce_ttl: "5m"
+    tenant_origins:
+      - "http://localhost:8000"

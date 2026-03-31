@@ -1,6 +1,36 @@
-# Managed by ISSUES Managing Director (planning worktree)
-*
-!.gitignore
-!AGENTS.md
-!.mprl/
-!.mprl/**
+# Secrets and local config (never commit)
+.env.crosswordapi
+.env.crosswordapi.local
+.env.crosswordapi.production
+.env.tauth
+.env.tauth.local
+.env.tauth.production
+.env.postgres
+tauth.config.production.yaml
+
+# Build artifacts
+backend/crossword-api
+*.out
+
+# OS files
+.DS_Store
+
+# Node
+node_modules/
+
+# Test artifacts
+test-results/
+playwright-report/
+
+# Coverage output
+.nyc_output/
+coverage/
+
+# Tooling
+tools/
+.claude/
+backend/coverage.html
+.playwright-cli/
+client_secret_*.json
+.runtime/
+js/runtime-auth-config.override.js
