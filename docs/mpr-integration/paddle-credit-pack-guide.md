@@ -33,7 +33,8 @@
     - `CROSSWORDAPI_PADDLE_PRICE_ID_PACK_<PACK_CODE>`
 - Files to touch:
   - [configs/config.yml](/Users/tyemirov/Development/llm_crossword/configs/config.yml)
-  - [.env.crosswordapi.example](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.example)
+  - [.env.crosswordapi.local](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.local)
+  - [.env.crosswordapi.production](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.production)
   - [backend/cmd/crossword-api/main.go](/Users/tyemirov/Development/llm_crossword/backend/cmd/crossword-api/main.go)
   - [backend/internal/crosswordapi/config.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/config.go)
   - [backend/internal/crosswordapi/billing_service.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/billing_service.go)
@@ -60,7 +61,8 @@
 
 - [docs/paddle-credit-pack-runbook.md](/Users/tyemirov/Development/llm_crossword/docs/paddle-credit-pack-runbook.md)
 - [configs/config.yml](/Users/tyemirov/Development/llm_crossword/configs/config.yml)
-- [.env.crosswordapi.example](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.example)
+- [.env.crosswordapi.local](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.local)
+- [.env.crosswordapi.production](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.production)
 - [backend/internal/crosswordapi/billing_service.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/billing_service.go)
 - [backend/internal/crosswordapi/billing_paddle.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/billing_paddle.go)
 - [backend/internal/crosswordapi/server.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/server.go)
@@ -71,7 +73,7 @@
 ## Decision Procedure
 
 1. Read [configs/config.yml](/Users/tyemirov/Development/llm_crossword/configs/config.yml) and fail if `billing.packs[]` is missing or any pack has a blank `code`, blank `label`, non-positive `credits`, or non-positive `price_cents`.
-2. Read [.env.crosswordapi.example](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.example) and fail if the deployment cannot choose one explicit provider with `CROSSWORDAPI_BILLING_PROVIDER=paddle`.
+2. Read the environment-specific crossword API file and fail if the deployment cannot choose one explicit provider with `CROSSWORDAPI_BILLING_PROVIDER=paddle`.
 3. If `CROSSWORDAPI_PADDLE_ENVIRONMENT` is not `sandbox` or `production`, stop and report instead of guessing.
 4. For every configured pack code, require one `CROSSWORDAPI_PADDLE_PRICE_ID_PACK_<PACK_CODE>` env var. If any pack is missing a price ID, stop and report.
 5. Wire the backend billing service so Paddle webhook parsing yields exactly one canonical `BillingGrantEvent` before Ledger settlement.

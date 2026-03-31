@@ -6,6 +6,9 @@ NPM ?= npm
 DOCKER_COMPOSE ?= docker compose
 COMPOSE_UP_ARGS ?=
 COMPOSE_DOWN_ARGS ?=
+LOCAL_CROSSWORDAPI_ENV_FILE ?= .env.crosswordapi.local
+LOCAL_TAUTH_ENV_FILE ?= .env.tauth.local
+LOCAL_TAUTH_CONFIG_TEMPLATE ?= tauth.config.local.yaml
 
 GO_SOURCES := $(shell find backend -name '*.go' -not -path '*/vendor/*' 2>/dev/null)
 GO_PACKAGES := $(shell cd backend && go list ./... 2>/dev/null)
@@ -93,18 +96,22 @@ ci: check-format lint test-backend test-web-coverage
 
 up:
 	@set -eu; \
-	for env_file in .env.crosswordapi .env.tauth; do \
+	for env_file in "$(LOCAL_CROSSWORDAPI_ENV_FILE)" "$(LOCAL_TAUTH_ENV_FILE)"; do \
 		if [ ! -f "$$env_file" ]; then \
-			echo "Missing $$env_file — copy from $${env_file}.example and fill in values."; \
+			echo "Missing $$env_file."; \
 			exit 1; \
 		fi; \
 	done; \
+	if [ ! -f "$(LOCAL_TAUTH_CONFIG_TEMPLATE)" ]; then \
+		echo "Missing $(LOCAL_TAUTH_CONFIG_TEMPLATE)."; \
+		exit 1; \
+	fi; \
 	if [ -f config.yaml ]; then \
 		echo "Legacy root config.yaml is not allowed. Move public config to configs/config.yml."; \
 		exit 1; \
 	fi; \
 	if rg -n '^[[:space:]]*administrators:' configs/config.yml >/dev/null 2>&1; then \
-		echo "configs/config.yml is public and must not contain administrators. Move admin emails to CROSSWORDAPI_ADMIN_EMAILS in .env.crosswordapi."; \
+		echo "configs/config.yml is public and must not contain administrators. Move admin emails to CROSSWORDAPI_ADMIN_EMAILS in $(LOCAL_CROSSWORDAPI_ENV_FILE)."; \
 		exit 1; \
 	fi; \
 	if find . -maxdepth 1 -type f -name 'client_secret_*.json' | grep -q .; then \
@@ -193,11 +200,14 @@ up:
 	export LEDGER_HOST_PORT="$$ledger_resolved_port"; \
 	export TAUTH_HOST_PORT="$$tauth_resolved_port"; \
 	export CROSSWORD_API_HOST_PORT="$$api_resolved_port"; \
-	export CROSSWORD_PORT="$$site_resolved_port"; \
-	export SITE_ORIGIN="http://localhost:$$site_resolved_port"; \
-	export APP_CONFIG_SOURCE="./$(RUNTIME_DIR)/config.yml"; \
-	export PUBLIC_CONFIGS_SOURCE="./$(RUNTIME_DIR)/public-configs"; \
-	export TAUTH_CONFIG_SOURCE="./$(RUNTIME_DIR)/tauth.config.yaml"; \
+		export CROSSWORD_PORT="$$site_resolved_port"; \
+		export SITE_ORIGIN="http://localhost:$$site_resolved_port"; \
+		export CROSSWORDAPI_ENV_FILE="./$(LOCAL_CROSSWORDAPI_ENV_FILE)"; \
+		export TAUTH_ENV_FILE="./$(LOCAL_TAUTH_ENV_FILE)"; \
+		export TAUTH_CONFIG_TEMPLATE="./$(LOCAL_TAUTH_CONFIG_TEMPLATE)"; \
+		export APP_CONFIG_SOURCE="./$(RUNTIME_DIR)/config.yml"; \
+		export PUBLIC_CONFIGS_SOURCE="./$(RUNTIME_DIR)/public-configs"; \
+		export TAUTH_CONFIG_SOURCE="./$(RUNTIME_DIR)/tauth.config.yaml"; \
 	export RUNTIME_AUTH_CONFIG_PATH="js/runtime-auth-config.override.js"; \
 	bash ./scripts/render-runtime-auth-config.sh; \
 	bash ./scripts/render-runtime-compose-configs.sh; \

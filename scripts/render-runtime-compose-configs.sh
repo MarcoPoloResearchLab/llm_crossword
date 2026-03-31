@@ -9,6 +9,7 @@ readonly site_port="${CROSSWORD_PORT:-8000}"
 readonly tauth_host_port="${TAUTH_HOST_PORT:-8081}"
 readonly api_host_port="${CROSSWORD_API_HOST_PORT:-9090}"
 readonly ledger_host_port="${LEDGER_HOST_PORT:-50051}"
+readonly tauth_config_template="${TAUTH_CONFIG_TEMPLATE:-tauth.config.local.yaml}"
 readonly public_configs_directory="${runtime_directory}/public-configs"
 
 escape_sed_replacement() {
@@ -58,7 +59,7 @@ main() {
   rm -rf "$public_configs_directory"
   mkdir -p "$public_configs_directory"
   render_local_origin_copy "configs/config.yml" "$runtime_directory/config.yml"
-  render_local_origin_copy "tauth.config.yaml" "$runtime_directory/tauth.config.yaml"
+  render_local_origin_copy "$tauth_config_template" "$runtime_directory/tauth.config.yaml"
   render_ports_file "$runtime_directory/ports.env"
 }
 

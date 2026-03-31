@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 readonly runtime_config_path="${RUNTIME_AUTH_CONFIG_PATH:-js/runtime-auth-config.js}"
+readonly crosswordapi_env_file="${CROSSWORDAPI_ENV_FILE:-.env.crosswordapi.local}"
+readonly tauth_env_file="${TAUTH_ENV_FILE:-.env.tauth.local}"
 
 read_env_file_value() {
   local env_file_path="$1"
@@ -24,25 +26,25 @@ resolve_google_client_id() {
     return 0
   fi
 
-  resolved_google_client_id="$(read_env_file_value ".env.tauth" "GOOGLE_CLIENT_ID")"
+  resolved_google_client_id="$(read_env_file_value "$tauth_env_file" "GOOGLE_CLIENT_ID")"
   if [ -n "$resolved_google_client_id" ]; then
     printf '%s' "$resolved_google_client_id"
     return 0
   fi
 
-  resolved_google_client_id="$(read_env_file_value ".env.crosswordapi" "GOOGLE_CLIENT_ID")"
+  resolved_google_client_id="$(read_env_file_value "$crosswordapi_env_file" "GOOGLE_CLIENT_ID")"
   if [ -n "$resolved_google_client_id" ]; then
     printf '%s' "$resolved_google_client_id"
     return 0
   fi
 
-  resolved_google_client_id="$(read_env_file_value ".env.tauth" "APP_GOOGLE_WEB_CLIENT_ID")"
+  resolved_google_client_id="$(read_env_file_value "$tauth_env_file" "APP_GOOGLE_WEB_CLIENT_ID")"
   if [ -n "$resolved_google_client_id" ]; then
     printf '%s' "$resolved_google_client_id"
     return 0
   fi
 
-  echo "Missing GOOGLE_CLIENT_ID. Set it in the shell, .env.tauth, or .env.crosswordapi." >&2
+  echo "Missing GOOGLE_CLIENT_ID. Set it in the shell, $tauth_env_file, or $crosswordapi_env_file." >&2
   return 1
 }
 
@@ -55,7 +57,7 @@ resolve_crosswordapi_value() {
     return 0
   fi
 
-  resolved_value="$(read_env_file_value ".env.crosswordapi" "$variable_name")"
+  resolved_value="$(read_env_file_value "$crosswordapi_env_file" "$variable_name")"
   printf '%s' "$resolved_value"
 }
 

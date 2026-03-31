@@ -1,7 +1,12 @@
 # Secrets and local config (never commit)
 .env.crosswordapi
+.env.crosswordapi.local
+.env.crosswordapi.production
 .env.tauth
+.env.tauth.local
+.env.tauth.production
 .env.postgres
+tauth.config.production.yaml
 
 # Build artifacts
 backend/crossword-api

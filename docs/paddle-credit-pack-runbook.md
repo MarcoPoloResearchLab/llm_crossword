@@ -30,7 +30,7 @@ The app expects:
 
 ## Required Env Vars
 
-Copy [.env.crosswordapi.example](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.example) and set:
+Set these in the crossword API profile file you are using, typically [.env.crosswordapi.local](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.local) for local work or [.env.crosswordapi.production](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.production) for production:
 
 - `CROSSWORDAPI_BILLING_PROVIDER=paddle`
 - `CROSSWORDAPI_PADDLE_ENVIRONMENT=sandbox|production`

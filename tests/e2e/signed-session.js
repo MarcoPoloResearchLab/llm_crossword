@@ -7,6 +7,8 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "../..");
 const RUNTIME_ROOT = path.join(ROOT, ".runtime");
+const DEFAULT_CROSSWORD_API_ENV_FILE = ".env.crosswordapi.local";
+const DEFAULT_TAUTH_CONFIG_FILE = "tauth.config.local.yaml";
 const DEFAULT_INTEGRATION_USER_ID = "integration-user";
 const DEFAULT_INTEGRATION_USER_EMAIL = "integration-user@example.com";
 const DEFAULT_INTEGRATION_USER_NAME = "Integration User";
@@ -14,12 +16,23 @@ const DEFAULT_INTEGRATION_USER_AVATAR = "https://example.com/avatar.png";
 const DEFAULT_SESSION_LIFETIME_SECONDS = 3600;
 const CLOCK_SKEW_SECONDS = 30;
 
-function resolveConfigPath(fileName) {
-  const runtimePath = path.join(RUNTIME_ROOT, fileName);
+function resolveConfigPath(runtimeFileName, fallbackFileName) {
+  const runtimePath = path.join(RUNTIME_ROOT, runtimeFileName);
   if (fs.existsSync(runtimePath)) {
     return runtimePath;
   }
-  return path.join(ROOT, fileName);
+  return path.join(ROOT, fallbackFileName);
+}
+
+function resolveEnvPath(variableName, defaultFileName) {
+  const configuredPath = process.env[variableName];
+  if (typeof configuredPath === "string" && configuredPath.trim().length > 0) {
+    if (path.isAbsolute(configuredPath)) {
+      return configuredPath;
+    }
+    return path.join(ROOT, configuredPath);
+  }
+  return path.join(ROOT, defaultFileName);
 }
 
 function parseEnvFile(filePath) {
@@ -68,24 +81,24 @@ function assertMatchingValue(actualValue, expectedValue, description) {
 }
 
 function getSignedSessionConfig() {
-  const crosswordApiEnvPath = path.join(ROOT, ".env.crosswordapi");
-  const tauthConfigPath = resolveConfigPath("tauth.config.yaml");
+  const crosswordApiEnvPath = resolveEnvPath("CROSSWORDAPI_ENV_FILE", DEFAULT_CROSSWORD_API_ENV_FILE);
+  const tauthConfigPath = resolveConfigPath("tauth.config.yaml", DEFAULT_TAUTH_CONFIG_FILE);
   const crosswordApiEnv = parseEnvFile(crosswordApiEnvPath);
 
   const signingKey = readRequiredValue(
     crosswordApiEnv,
     "CROSSWORDAPI_JWT_SIGNING_KEY",
-    ".env.crosswordapi",
+    path.basename(crosswordApiEnvPath),
   );
   const issuer = readRequiredValue(
     crosswordApiEnv,
     "CROSSWORDAPI_JWT_ISSUER",
-    ".env.crosswordapi",
+    path.basename(crosswordApiEnvPath),
   );
   const cookieName = readRequiredValue(
     crosswordApiEnv,
     "CROSSWORDAPI_JWT_COOKIE_NAME",
-    ".env.crosswordapi",
+    path.basename(crosswordApiEnvPath),
   );
 
   const tauthSigningKey = readFirstMatch(

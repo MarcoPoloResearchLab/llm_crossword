@@ -19,12 +19,12 @@ services:
     container_name: crossword-tauth
     pull_policy: always
     env_file:
-      - ./.env.tauth
+      - ${TAUTH_ENV_FILE:-./.env.tauth.local}
     environment:
       APP_CORS_ALLOWED_ORIGINS: ${SITE_ORIGIN:-http://localhost:8000}
     volumes:
       - crossword_tauth_data:/data
-      - ${TAUTH_CONFIG_SOURCE:-./tauth.config.yaml}:/config.yaml:ro
+      - ${TAUTH_CONFIG_SOURCE:-./tauth.config.local.yaml}:/config.yaml:ro
     ports:
       - "${TAUTH_HOST_PORT:-8081}:8080"
     restart: unless-stopped
@@ -36,7 +36,7 @@ services:
     image: crossword-api:local
     container_name: crossword-api
     env_file:
-      - ./.env.crosswordapi
+      - ${CROSSWORDAPI_ENV_FILE:-./.env.crosswordapi.local}
     environment:
       CROSSWORDAPI_ALLOWED_ORIGINS: ${SITE_ORIGIN:-http://localhost:8000}
       CROSSWORDAPI_DATABASE_DSN: "/data/crosswords.db"
