@@ -198,6 +198,7 @@ up:
 	export APP_CONFIG_SOURCE="./$(RUNTIME_DIR)/config.yml"; \
 	export PUBLIC_CONFIGS_SOURCE="./$(RUNTIME_DIR)/public-configs"; \
 	export TAUTH_CONFIG_SOURCE="./$(RUNTIME_DIR)/tauth.config.yaml"; \
+	export RUNTIME_AUTH_CONFIG_PATH="js/runtime-auth-config.override.js"; \
 	bash ./scripts/render-runtime-auth-config.sh; \
 	bash ./scripts/render-runtime-compose-configs.sh; \
 	$(DOCKER_COMPOSE) up -d --build --remove-orphans $(COMPOSE_UP_ARGS); \

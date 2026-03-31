@@ -573,28 +573,27 @@ func TestGetPuzzleRewardStats_QueryErrors(t *testing.T) {
 
 // mockStore implements Store for handler testing.
 type mockStore struct {
-	createFunc                                    func(puzzle *Puzzle) error
-	createGenerationRequestFunc                   func(record *GenerationRequestRecord) error
-	listFunc                                      func(userID string) ([]Puzzle, error)
-	getFunc                                       func(id, userID string) (*Puzzle, error)
-	deleteFunc                                    func(id, userID string) error
-	getGenerationRequestFunc                      func(userID string, requestID string) (*GenerationRequestRecord, error)
-	getByShareFunc                                func(token string) (*Puzzle, error)
-	getSolveRecordFunc                            func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error)
-	createSolveRecordFunc                         func(record *PuzzleSolveRecord) error
-	countOwnerSolvesFunc                          func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error)
-	getRewardStatsFunc                            func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error)
-	updateGenerationRequestFunc                   func(record *GenerationRequestRecord) error
-	upsertUserProfileFunc                         func(profile *UserProfile) error
-	listUsersFunc                                 func() ([]AdminUser, error)
-	createGrantRecordFunc                         func(record *AdminGrantRecord) error
-	listGrantRecordsFunc                          func(targetUserID string, limit int) ([]AdminGrantRecord, error)
-	upsertBillingCustomerLinkFunc                 func(link *BillingCustomerLink) error
-	getBillingCustomerLinkFunc                    func(userID string, provider string) (*BillingCustomerLink, error)
-	getBillingCustomerLinkByPaddleIDFunc          func(provider string, paddleCustomerID string) (*BillingCustomerLink, error)
-	createBillingEventRecordFunc                  func(record *BillingEventRecord) error
-	listBillingEventRecordsFunc                   func(userID string, provider string, limit int) ([]BillingEventRecord, error)
-	getLatestBillingEventRecordForTransactionFunc func(provider string, transactionID string) (*BillingEventRecord, error)
+	createFunc                           func(puzzle *Puzzle) error
+	createGenerationRequestFunc          func(record *GenerationRequestRecord) error
+	listFunc                             func(userID string) ([]Puzzle, error)
+	getFunc                              func(id, userID string) (*Puzzle, error)
+	deleteFunc                           func(id, userID string) error
+	getGenerationRequestFunc             func(userID string, requestID string) (*GenerationRequestRecord, error)
+	getByShareFunc                       func(token string) (*Puzzle, error)
+	getSolveRecordFunc                   func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error)
+	createSolveRecordFunc                func(record *PuzzleSolveRecord) error
+	countOwnerSolvesFunc                 func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error)
+	getRewardStatsFunc                   func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error)
+	updateGenerationRequestFunc          func(record *GenerationRequestRecord) error
+	upsertUserProfileFunc                func(profile *UserProfile) error
+	listUsersFunc                        func() ([]AdminUser, error)
+	createGrantRecordFunc                func(record *AdminGrantRecord) error
+	listGrantRecordsFunc                 func(targetUserID string, limit int) ([]AdminGrantRecord, error)
+	upsertBillingCustomerLinkFunc        func(link *BillingCustomerLink) error
+	getBillingCustomerLinkFunc           func(userID string, provider string) (*BillingCustomerLink, error)
+	getBillingCustomerLinkByPaddleIDFunc func(provider string, paddleCustomerID string) (*BillingCustomerLink, error)
+	createBillingEventRecordFunc         func(record *BillingEventRecord) error
+	listBillingEventRecordsFunc          func(userID string, provider string, limit int) ([]BillingEventRecord, error)
 }
 
 func (m *mockStore) CreatePuzzle(puzzle *Puzzle) error {
@@ -746,11 +745,4 @@ func (m *mockStore) ListBillingEventRecords(userID string, provider string, limi
 		return m.listBillingEventRecordsFunc(userID, provider, limit)
 	}
 	return nil, nil
-}
-
-func (m *mockStore) GetLatestBillingEventRecordForTransaction(provider string, transactionID string) (*BillingEventRecord, error) {
-	if m.getLatestBillingEventRecordForTransactionFunc != nil {
-		return m.getLatestBillingEventRecordForTransactionFunc(provider, transactionID)
-	}
-	return nil, gorm.ErrRecordNotFound
 }

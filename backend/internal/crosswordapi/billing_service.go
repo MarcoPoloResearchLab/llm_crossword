@@ -186,10 +186,6 @@ func (service *billingService) HandleWebhook(ctx context.Context, signatureHeade
 		return fmt.Errorf("%w: %v", ErrBillingWebhookInvalid, err)
 	}
 
-	if service.shouldIgnoreStaleEvent(providerEvent.EventRecord) {
-		return nil
-	}
-
 	if providerEvent.GrantEvent != nil {
 		if err := service.applyGrantEvent(ctx, *providerEvent.GrantEvent); err != nil {
 			return err
@@ -211,17 +207,6 @@ func (service *billingService) HandleWebhook(ctx context.Context, signatureHeade
 		return err
 	}
 	return nil
-}
-
-func (service *billingService) shouldIgnoreStaleEvent(record BillingEventRecord) bool {
-	if service == nil || service.store == nil || strings.TrimSpace(record.TransactionID) == "" {
-		return false
-	}
-	latestRecord, err := service.store.GetLatestBillingEventRecordForTransaction(record.Provider, record.TransactionID)
-	if err != nil {
-		return false
-	}
-	return latestRecord.OccurredAt.After(record.OccurredAt)
 }
 
 func (service *billingService) applyGrantEvent(ctx context.Context, grantEvent BillingGrantEvent) error {

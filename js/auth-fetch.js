@@ -61,17 +61,22 @@
   function isResolvedAPIUrl(url) {
     var apiBaseUrl = getConfiguredAPIBaseUrl();
 
+    if (!apiBaseUrl) {
+      return false;
+    }
+
     return url.indexOf(apiBaseUrl + "/api/") === 0;
   }
 
   function buildTauthUrl(url) {
     if (typeof url !== "string") return url;
+    if (isResolvedTauthUrl(url)) return url;
     if (!services || typeof services.buildAuthUrl !== "function") return url;
     return services.buildAuthUrl(url);
   }
 
   function buildAPIUrl(url) {
-    if (typeof url !== "string") return url;
+    if (isResolvedAPIUrl(url)) return url;
     if (!services || typeof services.buildApiUrl !== "function") return url;
     return services.buildApiUrl(url);
   }

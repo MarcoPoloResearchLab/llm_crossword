@@ -126,7 +126,6 @@ type Store interface {
 	GetBillingCustomerLinkByPaddleCustomerID(provider string, paddleCustomerID string) (*BillingCustomerLink, error)
 	CreateBillingEventRecord(record *BillingEventRecord) error
 	ListBillingEventRecords(userID string, provider string, limit int) ([]BillingEventRecord, error)
-	GetLatestBillingEventRecordForTransaction(provider string, transactionID string) (*BillingEventRecord, error)
 }
 
 // gormStore implements Store using GORM.
@@ -364,18 +363,6 @@ func (s *gormStore) ListBillingEventRecords(userID string, provider string, limi
 	}
 	err := query.Limit(limit).Find(&records).Error
 	return records, err
-}
-
-func (s *gormStore) GetLatestBillingEventRecordForTransaction(provider string, transactionID string) (*BillingEventRecord, error) {
-	var record BillingEventRecord
-
-	err := s.db.Where("provider = ? AND transaction_id = ?", provider, transactionID).
-		Order("occurred_at desc, created_at desc").
-		First(&record).Error
-	if err != nil {
-		return nil, err
-	}
-	return &record, nil
 }
 
 func (s *gormStore) ListAdminUsers() ([]AdminUser, error) {

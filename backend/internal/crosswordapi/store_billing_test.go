@@ -133,16 +133,4 @@ func TestBillingEventStoreMethods(t *testing.T) {
 		t.Fatalf("expected limited billing records, got %d", len(limitedRecords))
 	}
 
-	latest, err := s.GetLatestBillingEventRecordForTransaction(billingProviderPaddle, "txn_1")
-	if err != nil {
-		t.Fatalf("GetLatestBillingEventRecordForTransaction() error = %v", err)
-	}
-	if latest.EventID != "evt_2" {
-		t.Fatalf("expected latest event evt_2, got %#v", latest)
-	}
-
-	_, err = s.GetLatestBillingEventRecordForTransaction(billingProviderPaddle, "missing-txn")
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Fatalf("expected missing transaction lookup to return record not found, got %v", err)
-	}
 }

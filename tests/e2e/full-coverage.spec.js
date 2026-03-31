@@ -1350,6 +1350,29 @@ test.describe("App coverage", () => {
     expect(state.currentView).toBe("puzzle");
   });
 
+  test("covers startup share-token sync when the active puzzle already has a share token", async ({ page }) => {
+    await mountAppShell(page);
+    await page.evaluate(() => {
+      window.fetch = function () {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: function () { return Promise.resolve({}); },
+        });
+      };
+      window.CrosswordApp = {
+        getActivePuzzle: function () {
+          return { shareToken: "active-share-token" };
+        },
+      };
+    });
+    await loadScript(page, "app.js");
+
+    var state = await page.evaluate(() => window.__LLM_CROSSWORD_TEST__.app.getState());
+
+    expect(state.currentShareToken).toBe("active-share-token");
+  });
+
   test("covers generate success with the shared shell fixture", async ({ page }) => {
     await mountAppShell(page);
     await page.evaluate((items) => {
@@ -1624,6 +1647,199 @@ test.describe("Isolated script coverage", () => {
         url: "https://api.example.test/api/protected",
       },
     ]);
+  });
+
+  test("covers auth-fetch absolute URL fallbacks with malformed service helpers", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent("<!doctype html><html><body></body></html>");
+    await page.evaluate(() => {
+      window.LLMCrosswordServices = {
+        getApiBaseUrl: function () {
+          return { invalid: true };
+        },
+        getAuthBaseUrl: function () {
+          return { invalid: true };
+        },
+      };
+      window.__malformedServiceFetchCalls = [];
+      window.fetch = function (url, options) {
+        window.__malformedServiceFetchCalls.push({
+          credentials: options && options.credentials,
+          url: String(url),
+        });
+        return Promise.resolve({ ok: true, status: 200 });
+      };
+    });
+    await loadScript(page, "auth-fetch.js");
+
+    var result = await page.evaluate(async () => {
+      await window.fetchTauth("https://tauth.example.test/auth/logout");
+      await window.authFetch("https://api.example.test/api/protected?mode=test", { credentials: "include" });
+      return window.__malformedServiceFetchCalls.slice();
+    });
+
+    expect(result).toEqual([
+      {
+        credentials: "include",
+        url: "https://tauth.example.test/auth/logout",
+      },
+      {
+        credentials: "include",
+        url: "https://api.example.test/api/protected?mode=test",
+      },
+    ]);
+  });
+
+  test("covers auth-fetch direct /me routing, missing API helpers, and object tauth fetches", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent("<!doctype html><html><body></body></html>");
+    await page.evaluate(() => {
+      window.LLMCrosswordServices = {
+        buildApiUrl: function (url) {
+          if (typeof url !== "string" || url.indexOf("https://api.example.test/") === 0) {
+            return url;
+          }
+          return "https://api.example.test" + url;
+        },
+        buildAuthUrl: function (url) {
+          if (typeof url !== "string" || url.indexOf("https://tauth.example.test/") === 0) {
+            return url;
+          }
+          return "https://tauth.example.test" + url;
+        },
+        getApiBaseUrl: function () {
+          return "https://api.example.test";
+        },
+        getAuthBaseUrl: function () {
+          return "https://tauth.example.test";
+        },
+      };
+      window.__directPathFetchCalls = [];
+      window.fetch = function (url, options) {
+        window.__directPathFetchCalls.push({
+          credentials: options && options.credentials,
+          url: typeof url === "string" ? url : null,
+          urlType: typeof url,
+        });
+        return Promise.resolve({ ok: true, status: 200 });
+      };
+    });
+    await loadScript(page, "auth-fetch.js");
+
+    var result = await page.evaluate(async () => {
+      await window.authFetch("/me");
+      await window.authFetch("https://api.example.test/api/direct");
+      delete window.LLMCrosswordServices.getApiBaseUrl;
+      await window.authFetch("https://api.example.test/api/fallback");
+      await window.fetchTauth({ opaque: true });
+      return window.__directPathFetchCalls.slice();
+    });
+
+    expect(result).toEqual([
+      {
+        credentials: "include",
+        url: "https://tauth.example.test/me",
+        urlType: "string",
+      },
+      {
+        credentials: undefined,
+        url: "https://api.example.test/api/direct",
+        urlType: "string",
+      },
+      {
+        credentials: undefined,
+        url: "https://api.example.test/api/fallback",
+        urlType: "string",
+      },
+      {
+        credentials: "include",
+        url: null,
+        urlType: "object",
+      },
+    ]);
+  });
+
+  test("covers auth-fetch API and auth fallbacks without service config", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent("<!doctype html><html><body></body></html>");
+    await page.evaluate(() => {
+      delete window.LLMCrosswordServices;
+      window.__noServiceFetchCalls = [];
+      window.fetch = function (url, options) {
+        window.__noServiceFetchCalls.push({
+          credentials: options && options.credentials,
+          url: String(url),
+        });
+        return Promise.resolve({ ok: true, status: 200 });
+      };
+    });
+    await loadScript(page, "auth-fetch.js");
+
+    var result = await page.evaluate(async () => {
+      await window.authFetch("/api/no-services");
+      await window.fetchTauth("/auth/logout");
+      return window.__noServiceFetchCalls.slice();
+    });
+
+    expect(result).toEqual([
+      {
+        credentials: undefined,
+        url: "/api/no-services",
+      },
+      {
+        credentials: "include",
+        url: "/auth/logout",
+      },
+    ]);
+  });
+
+  test("covers service-config helper fallbacks and joinUrl branches", async ({ page }) => {
+    await page.goto("/blank.html");
+    await page.setContent("<!doctype html><html><body></body></html>");
+    await page.evaluate(() => {
+      delete window.LLMCrosswordRuntimeConfig;
+    });
+    await loadScript(page, "service-config.js");
+
+    var result = await page.evaluate(() => {
+      var services = window.LLMCrosswordServices;
+      return {
+        absoluteFalse: services.isAbsoluteUrl("/api/example"),
+        absoluteTrue: services.isAbsoluteUrl("https://api.example.test/path"),
+        authBaseUrl: services.getAuthBaseUrl(),
+        apiBaseUrl: services.getApiBaseUrl(),
+        configUrl: services.getConfigUrl(),
+        tauthScriptUrl: services.getTauthScriptUrl(),
+        joinedEmptyPath: services.joinUrl("https://api.example.test/", ""),
+        joinedNoBase: services.joinUrl("", "relative/path"),
+        joinedQuery: services.joinUrl("https://api.example.test", "?debug=1"),
+        joinedHash: services.joinUrl("https://api.example.test", "#details"),
+        joinedAbsolute: services.joinUrl("https://api.example.test", "https://cdn.example.test/app.js"),
+        builtApiPath: services.buildApiUrl("/api/puzzles"),
+        builtAuthPath: services.buildAuthUrl("/auth/google"),
+        rawConfig: services.getConfig(),
+      };
+    });
+
+    expect(result.absoluteFalse).toBe(false);
+    expect(result.absoluteTrue).toBe(true);
+    expect(result.authBaseUrl).toBe("http://localhost:8111");
+    expect(result.apiBaseUrl).toBe("http://localhost:8111");
+    expect(result.configUrl).toBe("http://localhost:8111/config.yml");
+    expect(result.tauthScriptUrl).toBe("http://localhost:8111/tauth.js");
+    expect(result.joinedEmptyPath).toBe("https://api.example.test");
+    expect(result.joinedNoBase).toBe("relative/path");
+    expect(result.joinedQuery).toBe("https://api.example.test?debug=1");
+    expect(result.joinedHash).toBe("https://api.example.test#details");
+    expect(result.joinedAbsolute).toBe("https://cdn.example.test/app.js");
+    expect(result.builtApiPath).toBe("http://localhost:8111/api/puzzles");
+    expect(result.builtAuthPath).toBe("http://localhost:8111/auth/google");
+    expect(result.rawConfig).toEqual({
+      apiBaseUrl: "http://localhost:8111",
+      authBaseUrl: "http://localhost:8111",
+      configUrl: "http://localhost:8111/config.yml",
+      tauthScriptUrl: "http://localhost:8111/tauth.js",
+    });
   });
 
   test("covers config.js early return without a header", async ({ page }) => {

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -662,10 +663,7 @@ func TestHandleGenerate_LLMError(t *testing.T) {
 
 func TestHandleGenerate_Success(t *testing.T) {
 	ledger := &mockLedgerClient{}
-	items := []WordItem{
-		{Word: "ZEUS", Definition: "King of gods", Hint: "Lightning thrower"},
-		{Word: "HERA", Definition: "Queen of gods", Hint: "Wife of Zeus"},
-	}
+	items := makeWordItems(8)
 	metadata := PuzzleMetadata{
 		Title:       "Olympian Power Network",
 		Subtitle:    "Zeus and Hera anchor a tightly focused set of Olympian deity answers.",
@@ -683,8 +681,8 @@ func TestHandleGenerate_Success(t *testing.T) {
 	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	respItems, ok := resp["items"].([]any)
-	if !ok || len(respItems) != 2 {
-		t.Fatalf("expected 2 items, got %v", resp["items"])
+	if !ok || len(respItems) != 8 {
+		t.Fatalf("expected 8 items, got %v", resp["items"])
 	}
 	if resp["title"] != metadata.Title {
 		t.Fatalf("expected title %q, got %v", metadata.Title, resp["title"])
@@ -713,9 +711,7 @@ func TestHandleGenerate_UsesStableSpendIdempotencyKey(t *testing.T) {
 			return &creditv1.Empty{}, nil
 		},
 	}
-	items := []WordItem{
-		{Word: "ZEUS", Definition: "King of gods", Hint: "Lightning thrower"},
-	}
+	items := makeWordItems(8)
 	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(llmProxyResponse{Response: mustMarshalJSON(items)})
 	}))
@@ -733,9 +729,7 @@ func TestHandleGenerate_UsesStableSpendIdempotencyKey(t *testing.T) {
 }
 
 func TestHandleGenerate_MetadataRetrySucceeds(t *testing.T) {
-	items := []WordItem{
-		{Word: "FORUM", Definition: "Public square", Hint: "civic center"},
-	}
+	items := makeWordItems(8)
 	metadata := PuzzleMetadata{
 		Title:       "Roman Civic Core",
 		Subtitle:    "The forum-focused answer set highlights the political and commercial heart of the city.",
@@ -762,9 +756,7 @@ func TestHandleGenerate_MetadataRetrySucceeds(t *testing.T) {
 }
 
 func TestHandleGenerate_MetadataFailureFallsBackWithoutRefund(t *testing.T) {
-	items := []WordItem{
-		{Word: "FORUM", Definition: "Public square", Hint: "civic center"},
-	}
+	items := makeWordItems(8)
 	var grantCalls int
 	ledger := &mockLedgerClient{
 		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
@@ -810,9 +802,14 @@ func TestHandleGenerate_WordCountClamping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ledger := &mockLedgerClient{}
-			items := []WordItem{
-				{Word: "TEST", Definition: "A test word", Hint: "Testing"},
+			expectedWordCount := tt.wordCount
+			if expectedWordCount < 5 {
+				expectedWordCount = 8
 			}
+			if expectedWordCount > 15 {
+				expectedWordCount = 15
+			}
+			items := makeWordItems(expectedWordCount)
 			wrapper := llmProxyResponse{Response: mustMarshalJSON(items)}
 			llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(wrapper)
@@ -836,9 +833,7 @@ func TestHandleGenerate_BalanceFetchFailsGracefully(t *testing.T) {
 			return nil, fmt.Errorf("balance unavailable")
 		},
 	}
-	items := []WordItem{
-		{Word: "TEST", Definition: "A test word", Hint: "Testing"},
-	}
+	items := makeWordItems(8)
 	wrapper := llmProxyResponse{Response: mustMarshalJSON(items)}
 	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(wrapper)
@@ -1254,6 +1249,156 @@ func TestHandleCompleteSharedPuzzle_PaysCreatorOnce(t *testing.T) {
 	}
 }
 
+func TestCompletePuzzleSolve_SerializesSharedCreatorRewardCaps(t *testing.T) {
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", ShareToken: "shared-token", Title: "Shared"}
+	var stateMu sync.Mutex
+	recordedSolves := map[string]*PuzzleSolveRecord{}
+	grantStarted := make(chan struct{})
+	releaseGrant := make(chan struct{})
+	secondStarted := make(chan struct{})
+	type solveOutcome struct {
+		solver   string
+		response *completionResponse
+		status   int
+		err      error
+	}
+	outcomes := make(chan solveOutcome, 2)
+	grantCalls := 0
+
+	store := &mockStore{
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			stateMu.Lock()
+			defer stateMu.Unlock()
+			record, ok := recordedSolves[solverUserID]
+			if !ok {
+				return nil, gorm.ErrRecordNotFound
+			}
+			copyRecord := *record
+			return &copyRecord, nil
+		},
+		getRewardStatsFunc: func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error) {
+			stateMu.Lock()
+			defer stateMu.Unlock()
+			stats := &PuzzleRewardStats{}
+			for _, record := range recordedSolves {
+				stats.CreatorCreditsEarned += record.CreatorRewardCoins
+				stats.CreatorCreditsEarnedToday += record.CreatorRewardCoins
+			}
+			return stats, nil
+		},
+		createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+			stateMu.Lock()
+			defer stateMu.Unlock()
+			copyRecord := *record
+			recordedSolves[record.SolverUserID] = &copyRecord
+			return nil
+		},
+	}
+	ledger := &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			stateMu.Lock()
+			grantCalls++
+			currentGrantCall := grantCalls
+			stateMu.Unlock()
+
+			if currentGrantCall == 1 {
+				close(grantStarted)
+				<-releaseGrant
+			}
+			return &creditv1.Empty{}, nil
+		},
+	}
+
+	handler := testHandlerWithStore(ledger, nil, store)
+	handler.cfg.CreatorSharedPerPuzzleCap = 1
+	handler.cfg.CreatorSharedDailyCap = 1
+
+	runSolve := func(solverUserID string, started chan<- struct{}) {
+		if started != nil {
+			close(started)
+		}
+		response, statusCode, err := handler.completePuzzleSolve(context.Background(), puzzle, solverUserID, completionRequest{})
+		outcomes <- solveOutcome{
+			solver:   solverUserID,
+			response: response,
+			status:   statusCode,
+			err:      err,
+		}
+	}
+
+	go runSolve("solver-1", nil)
+	<-grantStarted
+	go runSolve("solver-2", secondStarted)
+	<-secondStarted
+	close(releaseGrant)
+
+	firstOutcome := <-outcomes
+	secondOutcome := <-outcomes
+	for _, outcome := range []solveOutcome{firstOutcome, secondOutcome} {
+		if outcome.err != nil {
+			t.Fatalf("unexpected error for %s: %v", outcome.solver, outcome.err)
+		}
+		if outcome.status != http.StatusOK {
+			t.Fatalf("unexpected status for %s: %d", outcome.solver, outcome.status)
+		}
+	}
+
+	if grantCalls != 1 {
+		t.Fatalf("expected exactly one creator grant, got %d", grantCalls)
+	}
+
+	outcomeBySolver := map[string]solveOutcome{
+		firstOutcome.solver:  firstOutcome,
+		secondOutcome.solver: secondOutcome,
+	}
+	if !outcomeBySolver["solver-1"].response.CreatorRewarded {
+		t.Fatalf("expected first solver to reward creator, got %#v", outcomeBySolver["solver-1"].response)
+	}
+	if outcomeBySolver["solver-2"].response.CreatorRewarded {
+		t.Fatalf("expected second solver to skip creator reward, got %#v", outcomeBySolver["solver-2"].response)
+	}
+	if outcomeBySolver["solver-2"].response.Reason != "creator_puzzle_cap_reached" {
+		t.Fatalf("expected cap reason for second solver, got %#v", outcomeBySolver["solver-2"].response)
+	}
+}
+
+func TestCompletePuzzleSolve_SharedRecheckReturnsExistingRecord(t *testing.T) {
+	puzzle := &Puzzle{ID: "puzzle-1", UserID: "owner-1", Title: "Shared"}
+	lookupCalls := 0
+	handler := testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+		getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+			lookupCalls++
+			if lookupCalls == 1 {
+				return nil, gorm.ErrRecordNotFound
+			}
+			return &PuzzleSolveRecord{
+				PuzzleID:           puzzleID,
+				PuzzleOwnerUserID:  "owner-1",
+				SolverUserID:       solverUserID,
+				Source:             "shared",
+				CreatorRewardCoins: 1,
+			}, nil
+		},
+	})
+
+	response, statusCode, err := handler.completePuzzleSolve(context.Background(), puzzle, "solver-1", completionRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if statusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", statusCode)
+	}
+	if !response.CreatorRewarded {
+		t.Fatalf("expected creator reward replay response, got %#v", response)
+	}
+	if response.Reason != "already_recorded" {
+		t.Fatalf("expected already_recorded reason, got %#v", response)
+	}
+	if lookupCalls != 2 {
+		t.Fatalf("expected two lookup calls, got %d", lookupCalls)
+	}
+}
+
 func TestSetupRouter_HandleCompleteSharedPuzzle_UsesSessionWhenPresent(t *testing.T) {
 	var grantUserID string
 	var grantAmount int64
@@ -1622,6 +1767,25 @@ func TestCompletePuzzleSolve_ErrorPaths(t *testing.T) {
 			wantStatus: http.StatusInternalServerError,
 		},
 		{
+			name: "shared reread error after lock",
+			handler: func() *httpHandler {
+				lookupCalls := 0
+				return testHandlerWithStore(&mockLedgerClient{}, nil, &mockStore{
+					getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+						lookupCalls++
+						if lookupCalls == 1 {
+							return nil, gorm.ErrRecordNotFound
+						}
+						return nil, errors.New("reread failed")
+					},
+				})
+			}(),
+			puzzle:     sharedPuzzle,
+			solverUser: "solver-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
 			name: "shared grant error",
 			handler: testHandlerWithStore(&mockLedgerClient{
 				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
@@ -1659,6 +1823,28 @@ func TestCompletePuzzleSolve_ErrorPaths(t *testing.T) {
 			}),
 			puzzle:     sharedPuzzle,
 			solverUser: "solver-1",
+			req:        completionRequest{},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "owner create record error after reward",
+			handler: testHandlerWithStore(&mockLedgerClient{
+				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+					return &creditv1.Empty{}, nil
+				},
+			}, nil, &mockStore{
+				getSolveRecordFunc: func(puzzleID string, solverUserID string) (*PuzzleSolveRecord, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+				countOwnerSolvesFunc: func(userID string, dayStart time.Time, dayEnd time.Time) (int64, error) {
+					return 0, nil
+				},
+				createSolveRecordFunc: func(record *PuzzleSolveRecord) error {
+					return errors.New("create failed")
+				},
+			}),
+			puzzle:     ownerPuzzle,
+			solverUser: "owner-1",
 			req:        completionRequest{},
 			wantStatus: http.StatusInternalServerError,
 		},
@@ -1777,6 +1963,19 @@ func TestClampNonNegative(t *testing.T) {
 	}
 	if got := clampNonNegative(5); got != 5 {
 		t.Fatalf("clampNonNegative(5) = %d, want 5", got)
+	}
+}
+
+func TestCompletionResponseFromRecord_NilRecord(t *testing.T) {
+	response := completionResponseFromRecord("shared", nil)
+	if response == nil {
+		t.Fatal("expected response")
+	}
+	if response.Mode != "shared" {
+		t.Fatalf("expected shared mode, got %#v", response)
+	}
+	if response.Reason != "" {
+		t.Fatalf("expected empty reason for nil record, got %#v", response)
 	}
 }
 
@@ -1986,6 +2185,40 @@ func mustMarshalJSON(v any) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+var generatedTestWords = []string{
+	"ALPHA",
+	"BRAVO",
+	"CHARLIE",
+	"DELTA",
+	"ECHO",
+	"FOXTROT",
+	"GOLF",
+	"HOTEL",
+	"INDIA",
+	"JULIET",
+	"KILO",
+	"LIMA",
+	"MIKE",
+	"NOVEMBER",
+	"OSCAR",
+}
+
+func makeWordItems(count int) []WordItem {
+	if count < 0 || count > len(generatedTestWords) {
+		panic(fmt.Sprintf("unsupported test word count %d", count))
+	}
+	items := make([]WordItem, 0, count)
+	for index := 0; index < count; index++ {
+		word := generatedTestWords[index]
+		items = append(items, WordItem{
+			Word:       word,
+			Definition: fmt.Sprintf("Definition for %s", strings.ToLower(word)),
+			Hint:       fmt.Sprintf("Hint for %s", strings.ToLower(word)),
+		})
+	}
+	return items
 }
 
 // --- Puzzle endpoint tests ---
@@ -2269,11 +2502,7 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 		Subtitle:    "Animal-focused answers keep the generated puzzle tight and familiar.",
 		Description: "This puzzle concentrates on simple animal vocabulary and clueing that stays approachable.",
 	}
-	llmServer := testLLMResponseServer(
-		t,
-		`[{"word":"CAT","definition":"Animal","hint":"meow"}]`,
-		mustMarshalJSON(metadata),
-	)
+	llmServer := testLLMResponseServer(t, mustMarshalJSON(makeWordItems(5)), mustMarshalJSON(metadata))
 	defer llmServer.Close()
 
 	ledger := &mockLedgerClient{
@@ -2305,8 +2534,8 @@ func TestHandleGenerate_SavesPuzzle(t *testing.T) {
 	if savedPuzzle.Description != metadata.Description {
 		t.Errorf("expected description %q, got %q", metadata.Description, savedPuzzle.Description)
 	}
-	if len(savedPuzzle.Words) != 1 {
-		t.Errorf("expected 1 word, got %d", len(savedPuzzle.Words))
+	if len(savedPuzzle.Words) != 5 {
+		t.Errorf("expected 5 words, got %d", len(savedPuzzle.Words))
 	}
 	var body map[string]any
 	json.Unmarshal(resp.Body.Bytes(), &body)
@@ -2380,9 +2609,7 @@ func TestHandleGetSharedPuzzle_NoAuthRequired(t *testing.T) {
 
 func TestHandleGenerate_IncludesShareToken(t *testing.T) {
 	ledger := &mockLedgerClient{}
-	items := []WordItem{
-		{Word: "TEST", Definition: "A trial", Hint: "Exam"},
-	}
+	items := makeWordItems(8)
 	wrapper := llmProxyResponse{Response: mustMarshalJSON(items)}
 	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(wrapper)
@@ -2413,9 +2640,7 @@ func TestHandleGenerate_ReplaysSucceededRequestWithoutSecondSpend(t *testing.T) 
 			return &creditv1.Empty{}, nil
 		},
 	}
-	items := []WordItem{
-		{Word: "TEST", Definition: "A trial", Hint: "Exam"},
-	}
+	items := makeWordItems(8)
 	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(llmProxyResponse{Response: mustMarshalJSON(items)})
 	}))
@@ -2460,9 +2685,7 @@ func TestHandleGenerate_RejectsRequestIDReuseForDifferentPayload(t *testing.T) {
 			return &creditv1.Empty{}, nil
 		},
 	}
-	items := []WordItem{
-		{Word: "TEST", Definition: "A trial", Hint: "Exam"},
-	}
+	items := makeWordItems(8)
 	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(llmProxyResponse{Response: mustMarshalJSON(items)})
 	}))
@@ -2502,7 +2725,7 @@ func TestHandleGenerate_SaveFailureRefundsAndFails(t *testing.T) {
 	}
 	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{
-			"response": `[{"word":"DOG","definition":"Animal","hint":"bark"}]`,
+			"response": mustMarshalJSON(makeWordItems(5)),
 		})
 	}))
 	defer llmServer.Close()

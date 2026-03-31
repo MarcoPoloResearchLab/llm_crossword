@@ -407,29 +407,6 @@ func TestBillingServiceHandleWebhookCoverage(t *testing.T) {
 }
 
 func TestBillingServiceHelperCoverage(t *testing.T) {
-	service := &billingService{}
-	if service.shouldIgnoreStaleEvent(BillingEventRecord{}) {
-		t.Fatal("expected empty transaction record to not be stale")
-	}
-
-	service.store = &mockStore{
-		getLatestBillingEventRecordForTransactionFunc: func(provider string, transactionID string) (*BillingEventRecord, error) {
-			return nil, errors.New("lookup failed")
-		},
-	}
-	if service.shouldIgnoreStaleEvent(BillingEventRecord{Provider: billingProviderPaddle, TransactionID: "txn_1", OccurredAt: time.Now().UTC()}) {
-		t.Fatal("expected lookup error to skip stale detection")
-	}
-
-	service.store = &mockStore{
-		getLatestBillingEventRecordForTransactionFunc: func(provider string, transactionID string) (*BillingEventRecord, error) {
-			return &BillingEventRecord{OccurredAt: time.Date(2026, time.March, 29, 11, 0, 0, 0, time.UTC)}, nil
-		},
-	}
-	if service.shouldIgnoreStaleEvent(BillingEventRecord{Provider: billingProviderPaddle, TransactionID: "txn_1", OccurredAt: time.Date(2026, time.March, 29, 12, 0, 0, 0, time.UTC)}) {
-		t.Fatal("expected newer incoming event to not be stale")
-	}
-
 	if err := (*billingService)(nil).applyGrantEvent(context.Background(), BillingGrantEvent{}); err == nil || !strings.Contains(err.Error(), "ledger client is required") {
 		t.Fatalf("expected nil ledger client error, got %v", err)
 	}

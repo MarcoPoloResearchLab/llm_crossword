@@ -13,7 +13,7 @@
   }
 
   function trimLeadingSlashes(value) {
-    return hasDisplayValue(value) ? value.trim().replace(/^\/+/, "") : "";
+    return value.trim().replace(/^\/+/, "");
   }
 
   function isAbsoluteUrl(value) {
@@ -21,9 +21,6 @@
   }
 
   function getLocationOrigin() {
-    if (!window.location || !hasDisplayValue(window.location.origin)) {
-      return "";
-    }
     return trimTrailingSlashes(window.location.origin);
   }
 
@@ -55,7 +52,7 @@
       return candidate;
     }
 
-    return hasDisplayValue(fallbackValue) ? fallbackValue.trim() : "";
+    return fallbackValue.trim();
   }
 
   function joinUrl(baseUrl, path) {

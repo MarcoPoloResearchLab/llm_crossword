@@ -28,3 +28,4 @@ backend/coverage.html
 .playwright-cli/
 client_secret_*.json
 .runtime/
+js/runtime-auth-config.override.js

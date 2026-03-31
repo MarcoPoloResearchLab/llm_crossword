@@ -215,59 +215,6 @@ func TestBillingServiceHandleWebhook_GrantsCreditsAndPersistsEvent(t *testing.T)
 	}
 }
 
-func TestBillingServiceHandleWebhook_IgnoresStaleEvents(t *testing.T) {
-	var grantCalled bool
-	var createCalled bool
-
-	service := &billingService{
-		cfg: validBillingConfig(),
-		ledgerClient: &mockLedgerClient{
-			grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
-				grantCalled = true
-				return &creditv1.Empty{}, nil
-			},
-		},
-		logger: zap.NewNop(),
-		provider: &mockBillingProvider{
-			code: billingProviderPaddle,
-			eventRecord: BillingEventRecord{
-				EventID:       "evt_stale",
-				EventType:     paddleEventTypeTransactionUpdated,
-				Provider:      billingProviderPaddle,
-				TransactionID: "txn_123",
-				OccurredAt:    time.Date(2026, time.March, 28, 18, 30, 0, 0, time.UTC),
-			},
-			grantEvent: &BillingGrantEvent{
-				User:     "user-123",
-				Credits:  20,
-				Provider: billingProviderPaddle,
-				EventID:  "evt_stale",
-			},
-		},
-		store: &mockStore{
-			getLatestBillingEventRecordForTransactionFunc: func(provider string, transactionID string) (*BillingEventRecord, error) {
-				return &BillingEventRecord{
-					OccurredAt: time.Date(2026, time.March, 28, 18, 31, 0, 0, time.UTC),
-				}, nil
-			},
-			createBillingEventRecordFunc: func(record *BillingEventRecord) error {
-				createCalled = true
-				return nil
-			},
-		},
-	}
-
-	if err := service.HandleWebhook(context.Background(), "ts=1;h1=hash", []byte(`{}`)); err != nil {
-		t.Fatalf("HandleWebhook() error = %v", err)
-	}
-	if grantCalled {
-		t.Fatal("expected stale webhook to skip ledger grant")
-	}
-	if createCalled {
-		t.Fatal("expected stale webhook to skip event persistence")
-	}
-}
-
 func TestHandleBillingSummaryAndCheckout(t *testing.T) {
 	ledger := &mockLedgerClient{
 		getBalanceFunc: func(ctx context.Context, in *creditv1.BalanceRequest, opts ...grpc.CallOption) (*creditv1.BalanceResponse, error) {

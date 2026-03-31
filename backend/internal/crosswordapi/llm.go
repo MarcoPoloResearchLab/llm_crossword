@@ -3,6 +3,7 @@ package crosswordapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,6 +48,7 @@ var whitespacePattern = regexp.MustCompile(`\s+`)
 
 const maxGeneratedTitleLength = 100
 const punctuationTrimCutset = " \t\r\n-–—:|,.;!/?"
+const llmVerificationRetryAttempts = 2
 
 const wordSystemPrompt = `You are a crossword puzzle word generator. Return ONLY a valid JSON array, no markdown fences, no commentary.
 Each element must have exactly three fields: "word", "definition", "hint".
@@ -72,34 +74,19 @@ Rules:
 func (handler *httpHandler) callLLMProxy(ctx context.Context, topic string, wordCount int) ([]WordItem, error) {
 	userPrompt := fmt.Sprintf("Generate exactly %d crossword words about the topic: %q", wordCount, topic)
 
-	responseText, err := handler.callLLMProxyText(ctx, userPrompt, wordSystemPrompt)
-	if err != nil {
-		return nil, err
-	}
-
-	var items []WordItem
-	if err := json.Unmarshal([]byte(responseText), &items); err != nil {
-		return nil, fmt.Errorf("parse word list: %w (response: %s)", err, truncate(responseText, 300))
-	}
-
-	validated := make([]WordItem, 0, len(items))
-	for _, item := range items {
-		cleaned := alphaOnly.ReplaceAllString(item.Word, "")
-		if len(cleaned) < 2 {
-			continue
-		}
-		if strings.TrimSpace(item.Definition) == "" || strings.TrimSpace(item.Hint) == "" {
-			continue
-		}
-		item.Word = strings.ToUpper(cleaned)
-		validated = append(validated, item)
-	}
-
-	if len(validated) == 0 {
-		return nil, fmt.Errorf("llm returned no valid words")
-	}
-
-	return validated, nil
+	return retryVerifiedLLMCall(
+		llmVerificationRetryAttempts,
+		func() ([]WordItem, error) {
+			responseText, err := handler.callLLMProxyText(ctx, userPrompt, wordSystemPrompt)
+			if err != nil {
+				return nil, err
+			}
+			return parseWordItems(responseText)
+		},
+		func(items []WordItem) error {
+			return verifyWordItems(items, wordCount)
+		},
+	)
 }
 
 func (handler *httpHandler) callPuzzleMetadataLLMProxy(ctx context.Context, topic string, items []WordItem) (*PuzzleMetadata, error) {
@@ -117,6 +104,62 @@ func (handler *httpHandler) callPuzzleMetadataLLMProxy(ctx context.Context, topi
 	}
 
 	return parsePuzzleMetadata(responseText, topic)
+}
+
+func retryVerifiedLLMCall[T any](attempts int, invoke func() (T, error), verify func(T) error) (T, error) {
+	var zero T
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	lastErr := errors.New("llm call failed")
+	for attempt := 0; attempt < attempts; attempt++ {
+		value, err := invoke()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if verify != nil {
+			if err := verify(value); err != nil {
+				lastErr = err
+				continue
+			}
+		}
+		return value, nil
+	}
+
+	return zero, lastErr
+}
+
+func parseWordItems(responseText string) ([]WordItem, error) {
+	var items []WordItem
+	if err := json.Unmarshal([]byte(responseText), &items); err != nil {
+		return nil, fmt.Errorf("parse word list: %w (response: %s)", err, truncate(responseText, 300))
+	}
+
+	validated := make([]WordItem, 0, len(items))
+	for _, item := range items {
+		cleaned := alphaOnly.ReplaceAllString(item.Word, "")
+		if len(cleaned) < 2 {
+			continue
+		}
+		if strings.TrimSpace(item.Definition) == "" || strings.TrimSpace(item.Hint) == "" {
+			continue
+		}
+		item.Word = strings.ToUpper(cleaned)
+		validated = append(validated, item)
+	}
+	return validated, nil
+}
+
+func verifyWordItems(items []WordItem, expectedWordCount int) error {
+	if len(items) == 0 {
+		return fmt.Errorf("llm returned no valid words")
+	}
+	if expectedWordCount > 0 && len(items) != expectedWordCount {
+		return fmt.Errorf("llm returned %d valid words, want %d", len(items), expectedWordCount)
+	}
+	return nil
 }
 
 func (handler *httpHandler) callLLMProxyText(ctx context.Context, userPrompt string, systemPrompt string) (string, error) {

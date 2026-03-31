@@ -300,12 +300,45 @@ func TestCallLLMProxy_FiltersInvalidWords(t *testing.T) {
 	defer server.Close()
 
 	handler := newTestHandler(server)
-	result, err := handler.callLLMProxy(context.Background(), "test", 5)
+	result, err := handler.callLLMProxy(context.Background(), "test", 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result) != 2 {
 		t.Fatalf("expected 2 valid items, got %d: %+v", len(result), result)
+	}
+}
+
+func TestCallLLMProxy_RetriesOnWordCountMismatch(t *testing.T) {
+	responses := []string{
+		mustMarshal(t, []WordItem{
+			{Word: "ZEUS", Definition: "King of gods", Hint: "Olympian ruler"},
+		}),
+		mustMarshal(t, []WordItem{
+			{Word: "ZEUS", Definition: "King of gods", Hint: "Olympian ruler"},
+			{Word: "HERA", Definition: "Queen of gods", Hint: "Olympian queen"},
+		}),
+	}
+	callIndex := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmProxyResponse{
+			Request:  "test",
+			Response: responses[callIndex],
+		})
+		callIndex++
+	}))
+	defer server.Close()
+
+	handler := newTestHandler(server)
+	result, err := handler.callLLMProxy(context.Background(), "Greek gods", 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 items after retry, got %d", len(result))
+	}
+	if callIndex != 2 {
+		t.Fatalf("expected retry after count mismatch, got %d calls", callIndex)
 	}
 }
 
@@ -371,6 +404,24 @@ func TestCallLLMProxy_ReadBodyErrorViaTransport(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "read llm response") {
 		t.Fatalf("expected 'read llm response' error, got: %v", err)
+	}
+}
+
+func TestRetryVerifiedLLMCall_ClampsAttemptsToOne(t *testing.T) {
+	callCount := 0
+
+	value, err := retryVerifiedLLMCall(0, func() (string, error) {
+		callCount++
+		return "ok", nil
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if value != "ok" {
+		t.Fatalf("expected ok, got %q", value)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected one call after attempt clamp, got %d", callCount)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	creditv1 "github.com/MarkoPoloResearchLab/ledger/api/credit/v1"
@@ -227,6 +228,7 @@ type httpHandler struct {
 	llmHTTPClient  *http.Client
 	store          Store
 	billingService *billingService
+	sharedSolveMu  sync.Mutex
 }
 
 const (
@@ -809,18 +811,15 @@ func (handler *httpHandler) handleGenerate(ctx *gin.Context) {
 }
 
 func (handler *httpHandler) generatePuzzleMetadata(ctx context.Context, topic string, items []WordItem) (*PuzzleMetadata, error) {
-	var lastErr error
-
-	for attempt := 0; attempt < 2; attempt++ {
-		metadataCtx, metadataCancel := context.WithTimeout(ctx, handler.cfg.LLMProxyTimeout)
-		metadata, err := handler.callPuzzleMetadataLLMProxy(metadataCtx, topic, items)
-		metadataCancel()
-		if err == nil {
-			return metadata, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
+	return retryVerifiedLLMCall(
+		llmVerificationRetryAttempts,
+		func() (*PuzzleMetadata, error) {
+			metadataCtx, metadataCancel := context.WithTimeout(ctx, handler.cfg.LLMProxyTimeout)
+			defer metadataCancel()
+			return handler.callPuzzleMetadataLLMProxy(metadataCtx, topic, items)
+		},
+		nil,
+	)
 }
 
 func fallbackPuzzleMetadata(topic string) *PuzzleMetadata {
@@ -874,6 +873,29 @@ type completionResponse struct {
 	CreatorCoins    int64                     `json:"creator_coins"`
 	Reason          string                    `json:"reason,omitempty"`
 	RewardSummary   *RewardSummary            `json:"reward_summary,omitempty"`
+}
+
+func completionResponseFromRecord(mode string, record *PuzzleSolveRecord) *completionResponse {
+	if record == nil {
+		return &completionResponse{Mode: mode}
+	}
+
+	response := &completionResponse{
+		Mode: mode,
+		Reward: completionRewardBreakdown{
+			Base:        record.OwnerBaseRewardCoins,
+			NoHintBonus: record.OwnerNoHintBonusCoins,
+			DailyBonus:  record.OwnerDailyBonusCoins,
+			Total:       record.SolverRewardCoins,
+		},
+		CreatorRewarded: record.CreatorRewardCoins > 0,
+		CreatorCoins:    record.CreatorRewardCoins,
+		Reason:          record.IneligibilityReason,
+	}
+	if response.Reason == "" {
+		response.Reason = "already_recorded"
+	}
+	return response
 }
 
 func (handler *httpHandler) fetchBalance(ctx context.Context, userID string) (*balanceResponse, error) {
@@ -1258,21 +1280,7 @@ func (handler *httpHandler) completePuzzleSolve(ctx context.Context, puzzle *Puz
 		return nil, http.StatusInternalServerError, err
 	}
 	if existingRecord != nil {
-		response := &completionResponse{
-			Mode: mode,
-			Reward: completionRewardBreakdown{
-				Base:        existingRecord.OwnerBaseRewardCoins,
-				NoHintBonus: existingRecord.OwnerNoHintBonusCoins,
-				DailyBonus:  existingRecord.OwnerDailyBonusCoins,
-				Total:       existingRecord.SolverRewardCoins,
-			},
-			CreatorRewarded: existingRecord.CreatorRewardCoins > 0,
-			CreatorCoins:    existingRecord.CreatorRewardCoins,
-			Reason:          existingRecord.IneligibilityReason,
-		}
-		if response.Reason == "" {
-			response.Reason = "already_recorded"
-		}
+		response := completionResponseFromRecord(mode, existingRecord)
 		if isOwner {
 			balance, balanceErr := handler.fetchBalance(ctx, solverUserID)
 			if balanceErr != nil {
@@ -1357,6 +1365,18 @@ func (handler *httpHandler) completePuzzleSolve(ctx context.Context, puzzle *Puz
 			return nil, http.StatusBadGateway, grantErr
 		}
 	} else {
+		// Serialize shared-solve reward decisions so cap checks and grants see a consistent view.
+		handler.sharedSolveMu.Lock()
+		defer handler.sharedSolveMu.Unlock()
+
+		existingRecord, err = handler.store.GetPuzzleSolveRecord(puzzle.ID, solverUserID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, http.StatusInternalServerError, err
+		}
+		if existingRecord != nil {
+			return completionResponseFromRecord(mode, existingRecord), http.StatusOK, nil
+		}
+
 		stats, statsErr := handler.store.GetPuzzleRewardStats(puzzle.ID, puzzle.UserID, dayStart, dayEnd)
 		if statsErr != nil {
 			return nil, http.StatusInternalServerError, statsErr
@@ -1387,6 +1407,11 @@ func (handler *httpHandler) completePuzzleSolve(ctx context.Context, puzzle *Puz
 			response.CreatorCoins = record.CreatorRewardCoins
 		}
 		response.Reason = record.IneligibilityReason
+
+		if err := handler.store.CreatePuzzleSolveRecord(record); err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
+		return response, http.StatusOK, nil
 	}
 
 	if err := handler.store.CreatePuzzleSolveRecord(record); err != nil {

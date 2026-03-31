@@ -4,9 +4,9 @@ A crossword puzzle builder, powered by LLM.
 
 ## Auth config
 
-Set `GOOGLE_CLIENT_ID` in `.env.tauth`. The browser runtime auth config is generated into `js/runtime-auth-config.js`, and the Docker and Playwright entry points render it automatically before startup.
+Set `GOOGLE_CLIENT_ID` in `.env.tauth`. The committed `js/runtime-auth-config.js` is the production-safe browser default. Local Docker and Playwright entry points render overrides into `js/runtime-auth-config.override.js` before startup.
 
-The committed `js/runtime-auth-config.js` is the production-safe default used by direct GitHub Pages publishing. Local scripts may overwrite it for development and tests.
+Direct GitHub Pages publishing uses the committed `js/runtime-auth-config.js`. If you intentionally need to regenerate that tracked file, run `bash scripts/render-runtime-auth-config.sh` without `RUNTIME_AUTH_CONFIG_PATH`. Automated local and test flows use the override file instead.
 
 For split-origin deployments, the browser runtime config also supports explicit service URLs:
 
