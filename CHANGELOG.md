@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [v0.1.3] - 2026-03-31
+
+### Features ✨
+- Replace share button arrow with Bootstrap Icons for consistent UI.
+- Hide the share button when disabled to reduce clutter.
+
+### Improvements ⚙️
+- Update tenant ID to "crossword" in configuration and test setups.
+- Load Bootstrap Icons stylesheet from CDN.
+- Adjust E2E tests to match UI changes for share button.
+
+### Bug Fixes 🐛
+- Correct share button icon updates in app logic using innerHTML.
+
+### Testing 🧪
+- Refine E2E tests to verify share button visibility and icon updates.
+- Validate tenant header wiring in isolated script tests.
+
+### Docs 📚
+- _No changes._
+
 ## [v0.1.2] - 2026-03-31
 
 ### Features ✨
