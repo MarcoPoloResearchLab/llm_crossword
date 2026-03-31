@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [v0.1.2] - 2026-03-31
+
+### Features ✨
+- _No changes._
+
+### Improvements ⚙️
+- Updated default TAuth URLs to use `https://tauth-api.mprlab.com` as auth base URL.
+- Changed default `tauth.js` CDN fallback to a pinned CDN URL for better reliability.
+- Enhanced runtime configuration script to default `tauth.js` to the pinned CDN helper when unset.
+
+### Bug Fixes 🐛
+- _No changes._
+
+### Testing 🧪
+- _No changes._
+
+### Docs 📚
+- Clarified environment variable descriptions regarding TAuth URLs and script overrides.
+- Updated documentation with new default URLs for production deployments.
+
 ## [v0.1.1] - 2026-03-31
 
 ### Features ✨
