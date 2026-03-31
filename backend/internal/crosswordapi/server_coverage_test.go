@@ -14,6 +14,25 @@ import (
 	"google.golang.org/grpc"
 )
 
+func TestLedgerBearerAuth_GetRequestMetadata(t *testing.T) {
+	auth := ledgerBearerAuth{token: "my-secret"}
+	md, err := auth.GetRequestMetadata(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "Bearer my-secret"
+	if got := md["authorization"]; got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestLedgerBearerAuth_RequireTransportSecurity(t *testing.T) {
+	auth := ledgerBearerAuth{token: "x"}
+	if auth.RequireTransportSecurity() {
+		t.Fatal("expected RequireTransportSecurity to return false")
+	}
+}
+
 func TestWithStore_SetsStore(t *testing.T) {
 	options := runOptions{}
 	store := &mockStore{}
@@ -41,6 +60,7 @@ func TestRun_UsesInjectedStore(t *testing.T) {
 		LedgerAddress:     addr,
 		LedgerInsecure:    true,
 		LedgerTimeout:     5 * time.Second,
+		LedgerSecretKey:   "test-secret",
 		DefaultTenantID:   "tenant-1",
 		DefaultLedgerID:   "ledger-1",
 		AllowedOrigins:    []string{"http://localhost"},
@@ -83,6 +103,7 @@ func TestRun_DatabaseOpenError(t *testing.T) {
 		LedgerAddress:     addr,
 		LedgerInsecure:    true,
 		LedgerTimeout:     5 * time.Second,
+		LedgerSecretKey:   "test-secret",
 		DefaultTenantID:   "tenant-1",
 		DefaultLedgerID:   "ledger-1",
 		AllowedOrigins:    []string{"http://localhost"},

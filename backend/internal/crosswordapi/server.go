@@ -27,6 +27,18 @@ import (
 	"gorm.io/gorm"
 )
 
+type ledgerBearerAuth struct {
+	token string
+}
+
+func (a ledgerBearerAuth) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	return map[string]string{"authorization": "Bearer " + a.token}, nil
+}
+
+func (a ledgerBearerAuth) RequireTransportSecurity() bool {
+	return false
+}
+
 type runOptions struct {
 	loggerFactory   func() (*zap.Logger, error)
 	grpcDialFunc    func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error)
@@ -81,6 +93,7 @@ func Run(ctx context.Context, cfg Config, opts ...RunOption) error {
 	} else {
 		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")))
 	}
+	dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(ledgerBearerAuth{token: cfg.LedgerSecretKey}))
 	conn, err := o.grpcDialFunc(cfg.LedgerAddress, dialOptions...)
 	if err != nil {
 		return fmt.Errorf("connect ledger: %w", err)

@@ -13,6 +13,7 @@ func validConfig() Config {
 		LedgerAddress:     "localhost:50051",
 		LedgerInsecure:    true,
 		LedgerTimeout:     5 * time.Second,
+		LedgerSecretKey:   "test-secret",
 		DefaultTenantID:   "tenant-1",
 		DefaultLedgerID:   "ledger-1",
 		AllowedOrigins:    []string{"http://localhost:8000"},
@@ -122,6 +123,8 @@ func TestValidate_MissingFields(t *testing.T) {
 		{"empty cookie name", func(c *Config) { c.SessionCookieName = "" }},
 		{"empty tauth url", func(c *Config) { c.TAuthBaseURL = "" }},
 		{"empty llm proxy url", func(c *Config) { c.LLMProxyURL = "" }},
+		{"empty ledger secret key", func(c *Config) { c.LedgerSecretKey = "" }},
+		{"whitespace ledger secret key", func(c *Config) { c.LedgerSecretKey = "   " }},
 		{"empty llm proxy key", func(c *Config) { c.LLMProxyKey = "" }},
 	}
 	for _, tt := range tests {

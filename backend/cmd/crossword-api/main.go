@@ -18,6 +18,7 @@ const (
 	flagLedgerAddr      = "ledger-addr"
 	flagLedgerInsecure  = "ledger-insecure"
 	flagLedgerTimeout   = "ledger-timeout"
+	flagLedgerSecretKey = "ledger-secret-key"
 	flagDefaultTenant   = "default-tenant-id"
 	flagDefaultLedger   = "default-ledger-id"
 	flagAllowedOrigins  = "allowed-origins"
@@ -81,6 +82,7 @@ func newRootCommand() *cobra.Command {
 	cmd.Flags().String(flagLedgerAddr, "", "ledger gRPC address")
 	cmd.Flags().Bool(flagLedgerInsecure, false, "use insecure ledger connection")
 	cmd.Flags().Duration(flagLedgerTimeout, 0, "ledger RPC timeout")
+	cmd.Flags().String(flagLedgerSecretKey, "", "ledger per-tenant secret key")
 	cmd.Flags().String(flagDefaultTenant, "", "default tenant id")
 	cmd.Flags().String(flagDefaultLedger, "", "default ledger id")
 	cmd.Flags().String(flagAllowedOrigins, "", "comma-separated CORS origins")
@@ -110,7 +112,7 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	v.AutomaticEnv()
 
 	allFlags := []string{
-		flagListenAddr, flagLedgerAddr, flagLedgerInsecure, flagLedgerTimeout,
+		flagListenAddr, flagLedgerAddr, flagLedgerInsecure, flagLedgerTimeout, flagLedgerSecretKey,
 		flagDefaultTenant, flagDefaultLedger, flagAllowedOrigins,
 		flagJWTSigningKey, flagJWTIssuer, flagJWTCookieName, flagTAuthBaseURL,
 		flagLLMProxyURL, flagLLMProxyKey, flagLLMProxyTimeout,
@@ -125,7 +127,7 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	}
 
 	required := []string{
-		flagListenAddr, flagLedgerAddr, flagLedgerInsecure, flagLedgerTimeout,
+		flagListenAddr, flagLedgerAddr, flagLedgerInsecure, flagLedgerTimeout, flagLedgerSecretKey,
 		flagDefaultTenant, flagDefaultLedger, flagAllowedOrigins,
 		flagJWTSigningKey, flagJWTIssuer, flagJWTCookieName, flagTAuthBaseURL,
 		flagLLMProxyURL, flagLLMProxyKey,
@@ -140,6 +142,7 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	cfg.LedgerAddress = strings.TrimSpace(v.GetString(flagLedgerAddr))
 	cfg.LedgerInsecure = v.GetBool(flagLedgerInsecure)
 	cfg.LedgerTimeout = v.GetDuration(flagLedgerTimeout)
+	cfg.LedgerSecretKey = v.GetString(flagLedgerSecretKey)
 	cfg.DefaultTenantID = strings.TrimSpace(v.GetString(flagDefaultTenant))
 	cfg.DefaultLedgerID = strings.TrimSpace(v.GetString(flagDefaultLedger))
 	cfg.AllowedOrigins = crosswordapi.ParseAllowedOrigins(v.GetString(flagAllowedOrigins))

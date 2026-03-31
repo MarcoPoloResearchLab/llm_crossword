@@ -87,6 +87,7 @@ func testConfig() Config {
 		LedgerAddress:     "localhost:50051",
 		LedgerInsecure:    true,
 		LedgerTimeout:     5 * time.Second,
+		LedgerSecretKey:   "test-secret",
 		DefaultTenantID:   "tenant-1",
 		DefaultLedgerID:   "ledger-1",
 		AllowedOrigins:    []string{"http://localhost:8000"},

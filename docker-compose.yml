@@ -8,6 +8,7 @@ services:
     environment:
       DATABASE_URL: "sqlite:///srv/data/ledger.db"
       GRPC_LISTEN_ADDR: ":50051"
+      DEFAULT_TENANT_SECRET: "crossword-default-secret"
     ports:
       - "${LEDGER_HOST_PORT:-50051}:50051"
     volumes:
@@ -40,6 +41,7 @@ services:
     environment:
       CROSSWORDAPI_ALLOWED_ORIGINS: ${SITE_ORIGIN:-http://localhost:8000}
       CROSSWORDAPI_DATABASE_DSN: "/data/crosswords.db"
+      CROSSWORDAPI_LEDGER_SECRET_KEY: "crossword-default-secret"
     depends_on:
       - ledger
       - tauth

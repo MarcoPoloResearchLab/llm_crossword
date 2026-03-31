@@ -16,6 +16,7 @@ func setRequiredConfigEnv(t *testing.T) {
 	t.Setenv("CROSSWORDAPI_LEDGER_ADDR", "localhost:50051")
 	t.Setenv("CROSSWORDAPI_LEDGER_INSECURE", "true")
 	t.Setenv("CROSSWORDAPI_LEDGER_TIMEOUT", "5s")
+	t.Setenv("CROSSWORDAPI_LEDGER_SECRET_KEY", "test-secret")
 	t.Setenv("CROSSWORDAPI_DEFAULT_TENANT_ID", "tenant-1")
 	t.Setenv("CROSSWORDAPI_DEFAULT_LEDGER_ID", "ledger-1")
 	t.Setenv("CROSSWORDAPI_ALLOWED_ORIGINS", "http://localhost:8000")
