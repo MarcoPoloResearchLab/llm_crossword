@@ -3,7 +3,16 @@ GOFMT ?= gofmt
 STATICCHECK ?= staticcheck
 INEFFASSIGN ?= ineffassign
 NPM ?= npm
+DOCKER ?= docker
 DOCKER_COMPOSE ?= docker compose
+DOCKER_BUILDX ?= $(DOCKER) buildx
+DOCKER_BUILD_PLATFORMS ?= linux/amd64,linux/arm64
+GHCR_REGISTRY ?= ghcr.io
+GHCR_OWNER ?= marcopoloresearchlab
+GHCR_VERSION_TAG ?= $(shell git describe --tags --exact-match HEAD 2>/dev/null || true)
+GHCR_CROSSWORD_API_REPO ?= $(GHCR_REGISTRY)/$(GHCR_OWNER)/llm-crossword-api
+GHCR_CROSSWORD_API_LATEST_IMAGE ?= $(GHCR_CROSSWORD_API_REPO):latest
+GHCR_CROSSWORD_API_VERSION_IMAGE ?= $(if $(GHCR_VERSION_TAG),$(GHCR_CROSSWORD_API_REPO):$(GHCR_VERSION_TAG))
 COMPOSE_UP_ARGS ?=
 COMPOSE_DOWN_ARGS ?=
 LOCAL_CROSSWORDAPI_ENV_FILE ?= .env.crosswordapi.local
@@ -23,6 +32,7 @@ endif
 
 .PHONY: format check-format lint test test-unit test-backend test-web test-web-coverage test-integration \
 	playwright-install build clean ci \
+	docker-buildx-bootstrap docker-build-ghcr-image docker-push-ghcr-image publish publish-ghcr \
 	up down logs ps docker-up docker-down docker-logs docker-ps
 
 # ---------- Formatting ----------
@@ -84,6 +94,27 @@ test: test-unit test-integration
 build:
 	mkdir -p $(BIN_DIR)
 	cd $(BACKEND_DIR) && $(GO) build -o bin/crossword-api ./cmd/crossword-api
+
+docker-buildx-bootstrap:
+	@$(DOCKER_BUILDX) inspect >/dev/null 2>&1 || { \
+		$(DOCKER_BUILDX) inspect llm-crossword-multiarch >/dev/null 2>&1 && $(DOCKER_BUILDX) use llm-crossword-multiarch >/dev/null || \
+		$(DOCKER_BUILDX) create --name llm-crossword-multiarch --use >/dev/null; \
+	}
+	@$(DOCKER_BUILDX) inspect --bootstrap >/dev/null
+
+docker-build-ghcr-image:
+	@echo "Building $(GHCR_CROSSWORD_API_LATEST_IMAGE)"
+	@if [ -n "$(GHCR_VERSION_TAG)" ]; then echo "Also tagging $(GHCR_CROSSWORD_API_VERSION_IMAGE)"; else echo "No exact git tag on HEAD; building latest only."; fi
+	$(DOCKER) build -t "$(GHCR_CROSSWORD_API_LATEST_IMAGE)" $(if $(GHCR_VERSION_TAG),-t "$(GHCR_CROSSWORD_API_VERSION_IMAGE)") -f backend/Dockerfile backend
+
+docker-push-ghcr-image:
+	$(DOCKER) push "$(GHCR_CROSSWORD_API_LATEST_IMAGE)"
+	$(if $(GHCR_VERSION_TAG),$(DOCKER) push "$(GHCR_CROSSWORD_API_VERSION_IMAGE)")
+
+publish publish-ghcr: docker-buildx-bootstrap
+	@echo "Publishing $(GHCR_CROSSWORD_API_LATEST_IMAGE) for platforms $(DOCKER_BUILD_PLATFORMS)"
+	@if [ -n "$(GHCR_VERSION_TAG)" ]; then echo "Also publishing $(GHCR_CROSSWORD_API_VERSION_IMAGE)"; else echo "No exact git tag on HEAD; publishing latest only."; fi
+	$(DOCKER_BUILDX) build --platform "$(DOCKER_BUILD_PLATFORMS)" -t "$(GHCR_CROSSWORD_API_LATEST_IMAGE)" $(if $(GHCR_VERSION_TAG),-t "$(GHCR_CROSSWORD_API_VERSION_IMAGE)") -f backend/Dockerfile --push backend
 
 clean:
 	rm -rf $(BIN_DIR) .nyc_output coverage test-results playwright-report $(BACKEND_DIR)/coverage.out

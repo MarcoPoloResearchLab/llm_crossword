@@ -67,6 +67,20 @@ TAUTH_ENV_FILE=.env.tauth.production \
 bash scripts/render-runtime-auth-config.sh
 ```
 
+## Publishing The API Image
+
+Publish the production API image with:
+
+```bash
+make publish
+```
+
+`make publish` pushes `ghcr.io/marcopoloresearchlab/llm-crossword-api:latest`
+as a multi-arch image for `linux/amd64,linux/arm64` using `backend/Dockerfile`.
+When `HEAD` is exactly on a git tag, it also pushes the matching version tag.
+
+This is the image name expected by the `mprlab-gateway` deployment contract.
+
 ## Planning Docs
 
 - [Word Illustration Feature Plan](./docs/word-illustrations-plan.md)
