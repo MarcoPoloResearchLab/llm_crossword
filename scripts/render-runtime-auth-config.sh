@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 
 readonly runtime_config_path="${RUNTIME_AUTH_CONFIG_PATH:-js/runtime-auth-config.js}"
 readonly crosswordapi_env_file="${CROSSWORDAPI_ENV_FILE:-.env.crosswordapi.local}"
+readonly default_tauth_script_url="https://cdn.jsdelivr.net/gh/tyemirov/TAuth@v1.0.1/web/tauth.js"
 
 read_env_file_value() {
   local env_file_path="$1"
@@ -100,7 +101,7 @@ main() {
   api_base_url="$(resolve_runtime_value "LLM_CROSSWORD_API_BASE_URL" "$site_origin")"
   auth_base_url="$(resolve_runtime_value "LLM_CROSSWORD_AUTH_BASE_URL" "$site_origin")"
   config_url="$(resolve_runtime_value "LLM_CROSSWORD_CONFIG_URL" "${api_base_url%/}/config.yml")"
-  tauth_script_url="$(resolve_runtime_value "LLM_CROSSWORD_TAUTH_SCRIPT_URL" "${auth_base_url%/}/tauth.js")"
+  tauth_script_url="$(resolve_runtime_value "LLM_CROSSWORD_TAUTH_SCRIPT_URL" "$default_tauth_script_url")"
   render_runtime_auth_config \
     "$billing_provider" \
     "$paddle_environment" \

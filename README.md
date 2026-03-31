@@ -11,11 +11,11 @@ Direct GitHub Pages publishing uses the committed `js/runtime-auth-config.js`. I
 For split-origin deployments, the browser runtime config also supports explicit service URLs:
 
 - `LLM_CROSSWORD_API_BASE_URL` — browser origin for `LLM Crossword API`
-- `LLM_CROSSWORD_AUTH_BASE_URL` — browser origin for `TAuth`
+- `LLM_CROSSWORD_AUTH_BASE_URL` — browser origin for TAuth auth endpoints
 - `LLM_CROSSWORD_CONFIG_URL` — public config document URL used by the frontend
-- `LLM_CROSSWORD_TAUTH_SCRIPT_URL` — explicit `tauth.js` URL override
+- `LLM_CROSSWORD_TAUTH_SCRIPT_URL` — explicit CDN or alternate `tauth.js` URL override
 
-If these are unset, local startup keeps the existing same-origin behaviour by defaulting service URLs to `SITE_ORIGIN`. When `LLM_CROSSWORD_API_BASE_URL` is set and `LLM_CROSSWORD_CONFIG_URL` is not, the frontend defaults the config document to `<api-base>/config.yml`.
+If these are unset, local startup keeps the existing same-origin behaviour by defaulting service URLs to `SITE_ORIGIN`. When `LLM_CROSSWORD_API_BASE_URL` is set and `LLM_CROSSWORD_CONFIG_URL` is not, the frontend defaults the config document to `<api-base>/config.yml`. When `LLM_CROSSWORD_TAUTH_SCRIPT_URL` is unset, the frontend defaults `tauth.js` to the pinned CDN helper.
 
 ## GitHub Pages
 
@@ -41,7 +41,8 @@ For the current production topology:
 
 - frontend origin: `https://llm-crossword.mprlab.com`
 - API origin: `https://llm-crossword-api.mprlab.com`
-- TAuth origin: `https://tauth.mprlab.com`
+- TAuth auth origin: `https://tauth-api.mprlab.com`
+- TAuth script URL: `https://cdn.jsdelivr.net/gh/tyemirov/TAuth@v1.0.1/web/tauth.js`
 
 Production deployments should align all three places:
 
@@ -51,13 +52,17 @@ Production deployments should align all three places:
 
 Typical production inputs are:
 
+- browser runtime:
+  `LLM_CROSSWORD_API_BASE_URL=https://llm-crossword-api.mprlab.com`
+  `LLM_CROSSWORD_AUTH_BASE_URL=https://tauth-api.mprlab.com`
+  `LLM_CROSSWORD_TAUTH_SCRIPT_URL=https://cdn.jsdelivr.net/gh/tyemirov/TAuth@v1.0.1/web/tauth.js`
 - crossword API:
   `CROSSWORDAPI_ALLOWED_ORIGINS=https://llm-crossword.mprlab.com`
-  `CROSSWORDAPI_TAUTH_BASE_URL=https://tauth.mprlab.com`
+  `CROSSWORDAPI_TAUTH_BASE_URL=http://tauth-api:8080`
 - TAuth:
-  `APP_CORS_ALLOWED_ORIGINS=https://llm-crossword.mprlab.com`
-  `APP_COOKIE_DOMAIN=.mprlab.com`
-  `APP_DEV_INSECURE_HTTP=false`
+  allow `https://llm-crossword.mprlab.com` for credentialed browser traffic
+  keep cookie domain `.mprlab.com`
+  keep insecure HTTP disabled in hosted TLS deployments
 
 To render browser runtime config against a specific profile, point the script at that profile's env files:
 

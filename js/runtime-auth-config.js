@@ -12,9 +12,9 @@
     }),
     services: Object.freeze({
       apiBaseUrl: "https://llm-crossword-api.mprlab.com",
-      authBaseUrl: "https://tauth.mprlab.com",
+      authBaseUrl: "https://tauth-api.mprlab.com",
       configUrl: "https://llm-crossword-api.mprlab.com/config.yml",
-      tauthScriptUrl: "https://tauth.mprlab.com/tauth.js",
+      tauthScriptUrl: "https://cdn.jsdelivr.net/gh/tyemirov/TAuth@v1.0.1/web/tauth.js",
     }),
   });
 })(window);
