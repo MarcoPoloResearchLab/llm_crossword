@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [v0.1.4] - 2026-03-31
+
+### Features ✨
+- Add mandatory ledger secret key for per-RPC authentication to enhance security
+
+### Improvements ⚙️
+- Require ledger secret key in configuration validation
+- Pass ledger secret key as authorization bearer token for gRPC requests
+- Add new flag and environment variable support for ledger secret key configuration
+- Update docker-compose environment to set default ledger secret key
+
+### Bug Fixes 🐛
+- _No changes._
+
+### Testing 🧪
+- Add tests for ledger bearer authentication metadata and transport security
+- Include ledger secret key in unit, integration, and coverage tests for coverage
+
+### Docs 📚
+- _No changes._
+
 ## [v0.1.3] - 2026-03-31
 
 ### Features ✨
