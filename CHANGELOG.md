@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [v0.1.1] - 2026-03-31
+
+### Features ✨
+- Expand environment variables (e.g. `${GOOGLE_CLIENT_ID}`) in `config.yml` before serving and loading in Go backend.
+- Added error handling for missing environment variables during configuration expansion.
+
+### Improvements ⚙️
+- Updated public config endpoint to serve expanded YAML with environment variables replaced.
+- Cleaned up runtime auth config rendering script, removing embedded Google client ID and related resolution logic.
+- Updated README and sample configs to document environment variable expansion in config file.
+
+### Bug Fixes 🐛
+- Fail startup or config load gracefully if required environment variables are missing.
+- Prevent invalid config serving by expanding and validating env vars in config YAML.
+
+### Testing 🧪
+- Added tests for environment variable expansion in config file loading.
+- Added tests for public config endpoint behavior with environment variable interpolation and error on missing vars.
+
+### Docs 📚
+- Clarified environment variable usage in `README.md` auth config section.
+- Documented config file env var expansion behavior in `configs/config.yml`.
+
 ## [v0.1.0] - 2026-03-31
 
 ### Features ✨
