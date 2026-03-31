@@ -889,7 +889,7 @@ test.describe("App coverage", () => {
       var copiedState = {
         ariaLabel: shareBtn.getAttribute("aria-label"),
         icon: shareBtn.querySelector("[data-share-icon]")
-          ? shareBtn.querySelector("[data-share-icon]").textContent
+          ? shareBtn.querySelector("[data-share-icon]").innerHTML
           : null,
         className: shareBtn.className,
       };
@@ -907,7 +907,7 @@ test.describe("App coverage", () => {
         copiedState: copiedState,
         finalAriaLabel: shareBtn.getAttribute("aria-label"),
         finalIcon: shareBtn.querySelector("[data-share-icon]")
-          ? shareBtn.querySelector("[data-share-icon]").textContent
+          ? shareBtn.querySelector("[data-share-icon]").querySelector(".bi-share") !== null
           : null,
       };
     });
@@ -926,7 +926,7 @@ test.describe("App coverage", () => {
     expect(result.copiedState.icon).toBe("✓");
     expect(result.copiedState.className).toContain("copied-flash");
     expect(result.finalAriaLabel).toBe("Share");
-    expect(result.finalIcon).toBe("↗");
+    expect(result.finalIcon).toBe(true);
   });
 
   test("covers info and credit popover interaction branches", async ({ page }) => {
@@ -1527,7 +1527,7 @@ test.describe("Isolated script coverage", () => {
 
   test("covers auth-fetch tenant header wiring", async ({ page }) => {
     await page.goto("/blank.html");
-    await page.setContent('<!doctype html><html><body><mpr-header tauth-tenant-id=" default "></mpr-header></body></html>');
+    await page.setContent('<!doctype html><html><body><mpr-header tauth-tenant-id=" crossword "></mpr-header></body></html>');
     await page.evaluate(() => {
       window.__tenantFetchCalls = [];
       window.fetch = function (url, options) {
@@ -1559,10 +1559,10 @@ test.describe("Isolated script coverage", () => {
       };
     });
 
-    expect(result.tenantId).toBe("default");
+    expect(result.tenantId).toBe("crossword");
     expect(result.request.url).toBe("/me");
     expect(result.request.credentials).toBe("include");
-    expect(result.request.headers["x-tauth-tenant"]).toBe("default");
+    expect(result.request.headers["x-tauth-tenant"]).toBe("crossword");
     expect(result.request.headers["x-test-header"]).toBe("present");
   });
 

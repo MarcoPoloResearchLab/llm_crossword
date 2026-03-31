@@ -105,8 +105,7 @@ test.describe("Solver view — no tabs", () => {
     await expect(page.locator("#puzzleToolbar")).toBeVisible();
     await expect(page.getByRole("button", { name: "Check" })).toBeVisible();
     await expect(page.locator("#reveal")).toHaveText("Reveal");
-    await expect(page.getByRole("button", { name: "Share" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
+    await expect(page.locator("#shareBtn")).toBeHidden();
   });
 
   test("generate form is hidden in solver when logged out", async ({ page }) => {

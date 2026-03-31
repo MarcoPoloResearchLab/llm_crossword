@@ -853,11 +853,14 @@ li {
     line-height: 1;
 }
 
-.clue-toolbar__button:disabled,
-.clue-toolbar__share:disabled {
+.clue-toolbar__button:disabled {
     opacity: .52;
     box-shadow: none;
     cursor: not-allowed;
+}
+
+.clue-toolbar__share:disabled {
+    display: none;
 }
 
 .share-hint {

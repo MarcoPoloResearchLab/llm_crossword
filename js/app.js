@@ -15,7 +15,7 @@
   var _fetch = window.authFetch || nativeFetch;
   var fetchTauth = window.fetchTauth || nativeFetch;
   var rootElement = document.documentElement;
-  var shareButtonDefaultIcon = "\u2197";
+  var shareButtonDefaultIcon = '<i class="bi bi-share"></i>';
   var shareButtonCopiedIcon = "\u2713";
   var persistedValues = Object.freeze({
     authPending: Object.freeze({
@@ -404,7 +404,7 @@
     var nextLabel = isCopied ? "Copied share link" : "Share";
 
     if (iconElement) {
-      iconElement.textContent = isCopied ? shareButtonCopiedIcon : shareButtonDefaultIcon;
+      iconElement.innerHTML = isCopied ? shareButtonCopiedIcon : shareButtonDefaultIcon;
     }
 
     elements.shareBtn.setAttribute("aria-label", nextLabel);

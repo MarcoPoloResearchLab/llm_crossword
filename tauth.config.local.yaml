@@ -7,7 +7,7 @@ server:
   database_url: "sqlite:///data/tauth.db"
 
 tenants:
-  - id: "default"
+  - id: "crossword"
     allow_insecure_http: true
     cookie_domain: ""
     google_web_client_id: "${GOOGLE_CLIENT_ID}"

@@ -24,7 +24,7 @@ environments:
     auth:
       tauthUrl: "http://localhost:8000"
       googleClientId: "${GOOGLE_CLIENT_ID}"
-      tenantId: "default"
+      tenantId: "crossword"
       loginPath: "/auth/google"
       logoutPath: "/auth/logout"
       noncePath: "/auth/nonce"
@@ -40,7 +40,7 @@ environments:
     auth:
       tauthUrl: "https://tauth.mprlab.com"
       googleClientId: "${GOOGLE_CLIENT_ID}"
-      tenantId: "default"
+      tenantId: "crossword"
       loginPath: "/auth/google"
       logoutPath: "/auth/logout"
       noncePath: "/auth/nonce"
