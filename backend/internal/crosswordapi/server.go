@@ -933,6 +933,7 @@ func (handler *httpHandler) fetchBalance(ctx context.Context, userID string) (*b
 		TotalCents:          resp.GetTotalCents(),
 		AvailableCents:      resp.GetAvailableCents(),
 		Coins:               resp.GetAvailableCents() / handler.cfg.CoinValueCents,
+		CoinValueCents:      handler.cfg.CoinValueCents,
 		GenerationCostCoins: handler.cfg.GenerateCoins,
 	}, nil
 }
@@ -1034,6 +1035,7 @@ func (handler *httpHandler) defaultRewardSummaryForOwner(_ *Puzzle) *RewardSumma
 		CreatorCreditsEarned:      0,
 		CreatorPuzzleCapRemaining: handler.cfg.CreatorSharedPerPuzzleCap,
 		CreatorDailyCapRemaining:  handler.cfg.CreatorSharedDailyCap,
+		RewardPolicy:              handler.cfg.RewardPolicy(),
 	}
 }
 

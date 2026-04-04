@@ -88,12 +88,13 @@ type PuzzleSolveRecord struct {
 
 // RewardSummary is the owner-facing reward snapshot returned with stored puzzles.
 type RewardSummary struct {
-	OwnerRewardStatus         string `json:"owner_reward_status"`
-	OwnerRewardClaimTotal     int64  `json:"owner_reward_claim_total"`
-	SharedUniqueSolves        int64  `json:"shared_unique_solves"`
-	CreatorCreditsEarned      int64  `json:"creator_credits_earned"`
-	CreatorPuzzleCapRemaining int64  `json:"creator_puzzle_cap_remaining"`
-	CreatorDailyCapRemaining  int64  `json:"creator_daily_cap_remaining"`
+	OwnerRewardStatus         string       `json:"owner_reward_status"`
+	OwnerRewardClaimTotal     int64        `json:"owner_reward_claim_total"`
+	SharedUniqueSolves        int64        `json:"shared_unique_solves"`
+	CreatorCreditsEarned      int64        `json:"creator_credits_earned"`
+	CreatorPuzzleCapRemaining int64        `json:"creator_puzzle_cap_remaining"`
+	CreatorDailyCapRemaining  int64        `json:"creator_daily_cap_remaining"`
+	RewardPolicy              rewardPolicy `json:"reward_policy"`
 }
 
 // PuzzleRewardStats aggregates creator-side stats for a puzzle and owner/day bucket.

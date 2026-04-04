@@ -78,6 +78,12 @@ func newRootCommand() *cobra.Command {
 		},
 	}
 
+	registerConfigFlags(cmd)
+
+	return cmd
+}
+
+func registerConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().String(flagListenAddr, "", "HTTP listen address")
 	cmd.Flags().String(flagLedgerAddr, "", "ledger gRPC address")
 	cmd.Flags().Bool(flagLedgerInsecure, false, "use insecure ledger connection")
@@ -101,8 +107,6 @@ func newRootCommand() *cobra.Command {
 	cmd.Flags().String(flagPaddleAPIBase, "", "Paddle API base URL override")
 	cmd.Flags().String(flagPaddleClientTok, "", "Paddle client token")
 	cmd.Flags().String(flagPaddleWebhook, "", "Paddle webhook secret")
-
-	return cmd
 }
 
 func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
@@ -169,7 +173,7 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	}
 	cfg.PublicConfigPath = strings.TrimSpace(configPath)
 	cfg.AdminEmails = crosswordapi.MergeAdminEmails(cfg.AdminEmails, crosswordapi.ParseAdminEmails(strings.Join(configFile.Administrators, ",")))
-	cfg.BillingPacks = configFile.Billing.Packs
+	configFile.ApplyToRuntimeConfig(cfg)
 
 	return cfg.Validate()
 }

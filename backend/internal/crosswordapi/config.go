@@ -22,6 +22,16 @@ const (
 	defaultCreatorSharedDailyCap     int64 = 20
 )
 
+type rewardPolicy struct {
+	OwnerSolveCoins           int64 `json:"owner_solve_coins"`
+	OwnerNoHintBonusCoins     int64 `json:"owner_no_hint_bonus_coins"`
+	OwnerDailySolveBonusCoins int64 `json:"owner_daily_solve_bonus_coins"`
+	OwnerDailySolveBonusLimit int64 `json:"owner_daily_solve_bonus_limit"`
+	CreatorSharedSolveCoins   int64 `json:"creator_shared_solve_coins"`
+	CreatorSharedPerPuzzleCap int64 `json:"creator_shared_per_puzzle_cap"`
+	CreatorSharedDailyCap     int64 `json:"creator_shared_daily_cap"`
+}
+
 // Config aggregates runtime settings for the crossword API.
 type Config struct {
 	ListenAddr                string
@@ -413,4 +423,16 @@ func (cfg Config) OwnerDailySolveBonusAmountCents() int64 {
 // CreatorSharedSolveAmountCents returns the configured creator shared-solve payout in cents.
 func (cfg Config) CreatorSharedSolveAmountCents() int64 {
 	return cfg.CreatorSharedSolveCoins * cfg.CoinValueCents
+}
+
+func (cfg Config) RewardPolicy() rewardPolicy {
+	return rewardPolicy{
+		OwnerSolveCoins:           cfg.OwnerSolveCoins,
+		OwnerNoHintBonusCoins:     cfg.OwnerNoHintBonusCoins,
+		OwnerDailySolveBonusCoins: cfg.OwnerDailySolveBonusCoins,
+		OwnerDailySolveBonusLimit: cfg.OwnerDailySolveBonusLimit,
+		CreatorSharedSolveCoins:   cfg.CreatorSharedSolveCoins,
+		CreatorSharedPerPuzzleCap: cfg.CreatorSharedPerPuzzleCap,
+		CreatorSharedDailyCap:     cfg.CreatorSharedDailyCap,
+	}
 }

@@ -203,6 +203,84 @@ func TestLoadConfig_AdminEmailsMergeEnvAndConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_EconomyFromConfigYAML(t *testing.T) {
+	envVars := map[string]string{
+		"CROSSWORDAPI_LISTEN_ADDR":       ":9090",
+		"CROSSWORDAPI_LEDGER_ADDR":       "localhost:50051",
+		"CROSSWORDAPI_LEDGER_INSECURE":   "true",
+		"CROSSWORDAPI_LEDGER_TIMEOUT":    "5s",
+		"CROSSWORDAPI_LEDGER_SECRET_KEY": "test-secret",
+		"CROSSWORDAPI_DEFAULT_TENANT_ID": "t1",
+		"CROSSWORDAPI_DEFAULT_LEDGER_ID": "l1",
+		"CROSSWORDAPI_ALLOWED_ORIGINS":   "http://localhost:8000",
+		"CROSSWORDAPI_JWT_SIGNING_KEY":   "test-key",
+		"CROSSWORDAPI_JWT_ISSUER":        "tauth",
+		"CROSSWORDAPI_JWT_COOKIE_NAME":   "app_session",
+		"CROSSWORDAPI_TAUTH_BASE_URL":    "http://localhost:8080",
+		"CROSSWORDAPI_LLM_PROXY_URL":     "http://localhost:9999",
+		"CROSSWORDAPI_LLM_PROXY_KEY":     "secret",
+		"CROSSWORDAPI_LLM_PROXY_TIMEOUT": "30s",
+	}
+	for key, value := range envVars {
+		os.Setenv(key, value)
+	}
+	defer func() {
+		for key := range envVars {
+			os.Unsetenv(key)
+		}
+	}()
+
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "configs")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.yml")
+	configYAML := strings.Join([]string{
+		"economy:",
+		"  coin_value_cents: 10",
+		"  grants:",
+		"    bootstrap_credits: 300",
+		"    daily_login_credits: 80",
+		"    low_balance_floor_credits: 40",
+		"  generation:",
+		"    cost_credits: 40",
+		"  rewards:",
+		"    owner_solve_credits: 30",
+		"    owner_no_hint_bonus_credits: 10",
+		"    owner_daily_solve_bonus_credits: 10",
+		"    owner_daily_solve_bonus_limit: 3",
+		"    creator_shared_solve_credits: 10",
+		"    creator_shared_per_puzzle_cap_credits: 100",
+		"    creator_shared_daily_cap_credits: 200",
+		"",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+		t.Fatalf("write config.yml: %v", err)
+	}
+
+	originalWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir tempDir: %v", err)
+	}
+	defer os.Chdir(originalWorkingDirectory)
+
+	cmd := newRootCommand()
+	cfg := &crosswordapi.Config{}
+	if err := loadConfig(cmd, cfg); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.CoinValueCents != 10 || cfg.GenerateCoins != 40 || cfg.BootstrapCoins != 300 {
+		t.Fatalf("unexpected configured economy: %#v", cfg)
+	}
+	if cfg.CreatorSharedPerPuzzleCap != 100 || cfg.CreatorSharedDailyCap != 200 {
+		t.Fatalf("unexpected configured reward caps: %#v", cfg)
+	}
+}
+
 func TestNewRootCommand_ExecuteNoArgs(t *testing.T) {
 	// Execute without any env/flags — PreRunE should fail with missing required field.
 	cmd := newRootCommand()

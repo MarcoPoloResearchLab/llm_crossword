@@ -1,20 +1,37 @@
 # Public browser config for frontend boot. Local Docker still exposes it at /config.yml.
-# Any $VAR or ${VAR} value is expanded by the Go backend before this file is served.
+# Any environment-variable token is expanded by the Go backend before this file is served.
 # Keep administrator allowlists in CROSSWORDAPI_ADMIN_EMAILS, not here.
+
+economy:
+  coin_value_cents: 100
+  grants:
+    bootstrap_credits: 30
+    daily_login_credits: 8
+    low_balance_floor_credits: 4
+  generation:
+    cost_credits: 4
+  rewards:
+    owner_solve_credits: 3
+    owner_no_hint_bonus_credits: 1
+    owner_daily_solve_bonus_credits: 1
+    owner_daily_solve_bonus_limit: 3
+    creator_shared_solve_credits: 1
+    creator_shared_per_puzzle_cap_credits: 10
+    creator_shared_daily_cap_credits: 20
 
 billing:
   packs:
     - code: "starter"
       label: "Starter Pack"
-      credits: 20
+      credits: 200
       price_cents: 2000
     - code: "creator"
       label: "Creator Pack"
-      credits: 60
+      credits: 600
       price_cents: 5400
     - code: "publisher"
       label: "Publisher Pack"
-      credits: 140
+      credits: 1400
       price_cents: 11900
 
 environments:

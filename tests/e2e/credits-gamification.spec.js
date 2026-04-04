@@ -31,6 +31,16 @@ const sharedPuzzle = {
   items: defaultPuzzles[0].items,
 };
 
+const customRewardPolicy = {
+  owner_solve_coins: 30,
+  owner_no_hint_bonus_coins: 10,
+  owner_daily_solve_bonus_coins: 10,
+  owner_daily_solve_bonus_limit: 5,
+  creator_shared_solve_coins: 10,
+  creator_shared_per_puzzle_cap: 100,
+  creator_shared_daily_cap: 200,
+};
+
 async function openOwnedPuzzle(page) {
   await expect(page.locator("#puzzleView")).toBeVisible({ timeout: 5000 });
   await expect(page.locator("text=My Section")).toBeVisible({ timeout: 5000 });
@@ -71,6 +81,27 @@ test.describe("Credits gamification", () => {
     await page.locator('[data-puzzle-key="prebuilt:0"]').click();
     await expect(page.locator("#creditPopoverSections")).toContainText("Practice puzzle");
     await expect(page.locator("#creditPopoverSections")).toContainText("do not affect credits");
+  });
+
+  test("uses backend reward policy values in reward copy", async ({ page }) => {
+    await setupLoggedInRoutes(page, {
+      ownedPuzzles: [
+        {
+          ...ownedPuzzle,
+          reward_summary: {
+            ...ownedPuzzle.reward_summary,
+            reward_policy: customRewardPolicy,
+          },
+        },
+      ],
+    });
+
+    await page.goto("/");
+    await openOwnedPuzzle(page);
+    await page.locator("#headerCreditBadge").click();
+    await expect(page.locator("#creditPopoverSections")).toContainText("Base reward: 30 credits");
+    await expect(page.locator("#creditPopoverSections")).toContainText("First 5 owner solves each UTC day: +10.");
+    await expect(page.locator("#creditPopoverSections")).toContainText("Share to earn up to 100 credits");
   });
 
   test("keeps reward details out of the solver body for anonymous viewers", async ({ page }) => {
