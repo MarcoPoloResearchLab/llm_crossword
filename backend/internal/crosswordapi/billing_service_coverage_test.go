@@ -11,6 +11,7 @@ import (
 	"time"
 
 	creditv1 "github.com/MarkoPoloResearchLab/ledger/api/credit/v1"
+	sharedbilling "github.com/tyemirov/utils/billing"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -56,7 +57,7 @@ func TestBillingServiceSummaryCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("nil Summary() error = %v", err)
 	}
-	if summary.Enabled || len(summary.Packs) != 0 || len(summary.Activity) != 0 {
+	if summary.Enabled || summary.PortalAvailable || len(summary.Packs) != 0 || len(summary.Activity) != 0 {
 		t.Fatalf("unexpected nil summary payload %#v", summary)
 	}
 
@@ -470,4 +471,519 @@ func TestBillingServiceHelperCoverage(t *testing.T) {
 	if got := buildAbsoluteRequestURL(forwardedRequest, "/billing"); got != "https://billing.example.com/billing" {
 		t.Fatalf("unexpected forwarded url %q", got)
 	}
+}
+
+func TestBillingServiceResolveBillingGrantUserIDCoverage(t *testing.T) {
+	t.Run("uses explicit user id", func(t *testing.T) {
+		service := &billingService{}
+		resolvedUserID, err := service.resolveBillingGrantUserID(BillingGrantEvent{User: " explicit-user "})
+		if err != nil {
+			t.Fatalf("resolveBillingGrantUserID(explicit) error = %v", err)
+		}
+		if resolvedUserID != "explicit-user" {
+			t.Fatalf("unexpected explicit resolved user id %q", resolvedUserID)
+		}
+	})
+
+	t.Run("rejects nil store", func(t *testing.T) {
+		var service *billingService
+		_, err := service.resolveBillingGrantUserID(BillingGrantEvent{})
+		if !errors.Is(err, sharedbilling.ErrGrantRecipientUnresolved) {
+			t.Fatalf("expected unresolved recipient error, got %v", err)
+		}
+	})
+
+	t.Run("resolves user_email metadata", func(t *testing.T) {
+		var lookedUpEmail string
+		service := &billingService{
+			store: &mockStore{
+				getUserProfileByEmailFunc: func(email string) (*UserProfile, error) {
+					lookedUpEmail = email
+					return &UserProfile{UserID: "mapped-user"}, nil
+				},
+			},
+		}
+
+		resolvedUserID, err := service.resolveBillingGrantUserID(BillingGrantEvent{
+			Metadata: map[string]string{"user_email": " User@Example.com "},
+		})
+		if err != nil {
+			t.Fatalf("resolveBillingGrantUserID(user_email) error = %v", err)
+		}
+		if lookedUpEmail != "user@example.com" || resolvedUserID != "mapped-user" {
+			t.Fatalf("unexpected user_email lookup result: lookedUpEmail=%q resolvedUserID=%q", lookedUpEmail, resolvedUserID)
+		}
+	})
+
+	t.Run("resolves billing_user_email metadata", func(t *testing.T) {
+		service := &billingService{
+			store: &mockStore{
+				getUserProfileByEmailFunc: func(email string) (*UserProfile, error) {
+					if email != "fallback@example.com" {
+						t.Fatalf("unexpected fallback lookup email %q", email)
+					}
+					return &UserProfile{UserID: "fallback-user"}, nil
+				},
+			},
+		}
+
+		resolvedUserID, err := service.resolveBillingGrantUserID(BillingGrantEvent{
+			Metadata: map[string]string{"billing_user_email": " fallback@example.com "},
+		})
+		if err != nil {
+			t.Fatalf("resolveBillingGrantUserID(billing_user_email) error = %v", err)
+		}
+		if resolvedUserID != "fallback-user" {
+			t.Fatalf("unexpected fallback resolved user id %q", resolvedUserID)
+		}
+	})
+
+	t.Run("rejects missing metadata", func(t *testing.T) {
+		service := &billingService{store: &mockStore{}}
+		_, err := service.resolveBillingGrantUserID(BillingGrantEvent{Metadata: map[string]string{}})
+		if !errors.Is(err, sharedbilling.ErrGrantRecipientUnresolved) {
+			t.Fatalf("expected unresolved recipient error, got %v", err)
+		}
+	})
+
+	t.Run("record not found is unresolved", func(t *testing.T) {
+		service := &billingService{
+			store: &mockStore{
+				getUserProfileByEmailFunc: func(string) (*UserProfile, error) {
+					return nil, gorm.ErrRecordNotFound
+				},
+			},
+		}
+		_, err := service.resolveBillingGrantUserID(BillingGrantEvent{
+			Metadata: map[string]string{"user_email": "missing@example.com"},
+		})
+		if !errors.Is(err, sharedbilling.ErrGrantRecipientUnresolved) {
+			t.Fatalf("expected unresolved recipient error, got %v", err)
+		}
+	})
+
+	t.Run("store error is returned", func(t *testing.T) {
+		service := &billingService{
+			store: &mockStore{
+				getUserProfileByEmailFunc: func(string) (*UserProfile, error) {
+					return nil, errors.New("lookup failed")
+				},
+			},
+		}
+		_, err := service.resolveBillingGrantUserID(BillingGrantEvent{
+			Metadata: map[string]string{"user_email": "broken@example.com"},
+		})
+		if err == nil || !strings.Contains(err.Error(), "lookup failed") {
+			t.Fatalf("expected store lookup error, got %v", err)
+		}
+	})
+
+	t.Run("blank resolved user id is unresolved", func(t *testing.T) {
+		service := &billingService{
+			store: &mockStore{
+				getUserProfileByEmailFunc: func(string) (*UserProfile, error) {
+					return &UserProfile{UserID: " "}, nil
+				},
+			},
+		}
+		_, err := service.resolveBillingGrantUserID(BillingGrantEvent{
+			Metadata: map[string]string{"user_email": "blank@example.com"},
+		})
+		if !errors.Is(err, sharedbilling.ErrGrantRecipientUnresolved) {
+			t.Fatalf("expected unresolved recipient error for blank user id, got %v", err)
+		}
+	})
+}
+
+func TestBillingServiceSyncUserBillingEventsCoverage(t *testing.T) {
+	if err := (*billingService)(nil).SyncUserBillingEvents(context.Background(), "user-1", "user@example.com"); !errors.Is(err, ErrBillingDisabled) {
+		t.Fatalf("expected disabled sync error, got %v", err)
+	}
+
+	service := &billingService{
+		cfg:          validBillingConfig(),
+		ledgerClient: &mockLedgerClient{},
+		logger:       zap.NewNop(),
+		provider:     &mockBillingProvider{code: billingProviderPaddle},
+		store:        &mockStore{},
+	}
+	if err := service.SyncUserBillingEvents(context.Background(), "user-1", " "); !errors.Is(err, sharedbilling.ErrBillingUserEmailInvalid) {
+		t.Fatalf("expected invalid email sync error, got %v", err)
+	}
+
+	service.provider = &mockBillingProvider{
+		code:    billingProviderPaddle,
+		syncErr: errors.New("provider sync failed"),
+	}
+	if err := service.SyncUserBillingEvents(context.Background(), "user-1", "user@example.com"); err == nil || !errors.Is(err, sharedbilling.ErrBillingUserSyncFailed) {
+		t.Fatalf("expected wrapped sync failure, got %v", err)
+	}
+
+	var createCount int
+	var grantKey string
+	service.provider = &mockBillingProvider{
+		code: billingProviderPaddle,
+		syncEvents: []sharedbilling.WebhookEvent{
+			{
+				ProviderCode: billingProviderPaddle,
+				EventID:      "sync:subscription:ignored",
+				EventType:    "subscription.updated",
+				OccurredAt:   time.Date(2026, time.March, 31, 12, 0, 0, 0, time.UTC),
+				Payload:      []byte(`{"data":{}}`),
+			},
+			{
+				ProviderCode: billingProviderPaddle,
+				EventID:      "sync:transaction:txn_sync",
+				EventType:    paddleEventTypeTransactionCompleted,
+				OccurredAt:   time.Date(2026, time.March, 31, 12, 1, 0, 0, time.UTC),
+				Payload:      []byte(`{"data":{}}`),
+			},
+		},
+		eventRecord: BillingEventRecord{
+			EventID:       "evt_sync",
+			EventType:     paddleEventTypeTransactionCompleted,
+			Provider:      billingProviderPaddle,
+			UserID:        "user-1",
+			TransactionID: "txn_sync",
+			CreditsDelta:  20,
+			OccurredAt:    time.Date(2026, time.March, 31, 12, 1, 0, 0, time.UTC),
+		},
+		grantEvent: &BillingGrantEvent{
+			User:      "user-1",
+			Credits:   20,
+			Provider:  billingProviderPaddle,
+			EventID:   "evt_sync",
+			Reference: "billing_top_up_pack:txn_sync:starter",
+			Metadata:  map[string]string{"billing_pack_code": "starter"},
+		},
+	}
+	service.ledgerClient = &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantKey = in.GetIdempotencyKey()
+			return &creditv1.Empty{}, nil
+		},
+	}
+	service.store = &mockStore{
+		createBillingEventRecordFunc: func(record *BillingEventRecord) error {
+			createCount += 1
+			return nil
+		},
+	}
+
+	if err := service.SyncUserBillingEvents(context.Background(), "user-1", "user@example.com"); err != nil {
+		t.Fatalf("SyncUserBillingEvents(success) error = %v", err)
+	}
+	if createCount != 1 {
+		t.Fatalf("expected one transaction event record, got %d", createCount)
+	}
+	if grantKey != "billing:paddle:billing_top_up_pack:txn_sync:starter" {
+		t.Fatalf("unexpected sync grant idempotency key %q", grantKey)
+	}
+}
+
+func TestBillingServiceReconcileCheckoutCoverage(t *testing.T) {
+	if _, err := (*billingService)(nil).ReconcileCheckout(context.Background(), "user-1", "user@example.com", "txn_1"); !errors.Is(err, ErrBillingDisabled) {
+		t.Fatalf("expected disabled reconcile error, got %v", err)
+	}
+
+	service := &billingService{
+		cfg:          validBillingConfig(),
+		ledgerClient: &mockLedgerClient{},
+		logger:       zap.NewNop(),
+		provider: &mockBillingProvider{
+			code: billingProviderPaddle,
+			reconcileEvent: sharedbilling.WebhookEvent{
+				ProviderCode: billingProviderPaddle,
+				EventID:      "reconcile:txn_pending",
+				EventType:    paddleEventTypeTransactionUpdated,
+				OccurredAt:   time.Date(2026, time.March, 31, 12, 2, 0, 0, time.UTC),
+				Payload:      []byte(`{"data":{}}`),
+			},
+			reconcileEmail: "user@example.com",
+			resolveStatus:  sharedbilling.CheckoutEventStatusPending,
+		},
+		store: &mockStore{
+			createBillingEventRecordFunc: func(record *BillingEventRecord) error {
+				t.Fatalf("unexpected create billing event for pending reconcile: %#v", record)
+				return nil
+			},
+		},
+	}
+
+	result, err := service.ReconcileCheckout(context.Background(), "user-1", "user@example.com", "txn_pending")
+	if err != nil {
+		t.Fatalf("ReconcileCheckout(pending) error = %v", err)
+	}
+	if result.Status != string(sharedbilling.CheckoutEventStatusPending) {
+		t.Fatalf("unexpected pending reconcile result %#v", result)
+	}
+
+	service.provider = &mockBillingProvider{
+		code: billingProviderPaddle,
+		reconcileEvent: sharedbilling.WebhookEvent{
+			ProviderCode: billingProviderPaddle,
+			EventID:      "reconcile:txn_mismatch",
+			EventType:    paddleEventTypeTransactionCompleted,
+			OccurredAt:   time.Date(2026, time.March, 31, 12, 3, 0, 0, time.UTC),
+			Payload:      []byte(`{"data":{}}`),
+		},
+		reconcileEmail: "other@example.com",
+		resolveStatus:  sharedbilling.CheckoutEventStatusSucceeded,
+	}
+	if _, err := service.ReconcileCheckout(context.Background(), "user-1", "user@example.com", "txn_mismatch"); !errors.Is(err, sharedbilling.ErrBillingCheckoutOwnershipMismatch) {
+		t.Fatalf("expected ownership mismatch, got %v", err)
+	}
+
+	var grantKey string
+	service.provider = &mockBillingProvider{
+		code: billingProviderPaddle,
+		reconcileEvent: sharedbilling.WebhookEvent{
+			ProviderCode: billingProviderPaddle,
+			EventID:      "reconcile:txn_paid",
+			EventType:    paddleEventTypeTransactionCompleted,
+			OccurredAt:   time.Date(2026, time.March, 31, 12, 4, 0, 0, time.UTC),
+			Payload:      []byte(`{"data":{}}`),
+		},
+		reconcileEmail: "user@example.com",
+		resolveStatus:  sharedbilling.CheckoutEventStatusSucceeded,
+		eventRecord: BillingEventRecord{
+			EventID:       "evt_reconcile",
+			EventType:     paddleEventTypeTransactionCompleted,
+			Provider:      billingProviderPaddle,
+			UserID:        "user-1",
+			TransactionID: "txn_paid",
+			CreditsDelta:  20,
+			OccurredAt:    time.Date(2026, time.March, 31, 12, 4, 0, 0, time.UTC),
+		},
+		grantEvent: &BillingGrantEvent{
+			User:      "user-1",
+			Credits:   20,
+			Provider:  billingProviderPaddle,
+			EventID:   "evt_reconcile",
+			Reference: "billing_top_up_pack:txn_paid:starter",
+			Metadata:  map[string]string{"billing_pack_code": "starter"},
+		},
+	}
+	service.ledgerClient = &mockLedgerClient{
+		grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+			grantKey = in.GetIdempotencyKey()
+			return &creditv1.Empty{}, nil
+		},
+	}
+	service.store = &mockStore{
+		createBillingEventRecordFunc: func(record *BillingEventRecord) error {
+			if record.TransactionID != "txn_paid" {
+				t.Fatalf("unexpected reconcile record %#v", record)
+			}
+			return nil
+		},
+	}
+
+	result, err = service.ReconcileCheckout(context.Background(), "user-1", "user@example.com", "txn_paid")
+	if err != nil {
+		t.Fatalf("ReconcileCheckout(success) error = %v", err)
+	}
+	if result.Status != string(sharedbilling.CheckoutEventStatusSucceeded) {
+		t.Fatalf("unexpected reconcile result %#v", result)
+	}
+	if grantKey != "billing:paddle:billing_top_up_pack:txn_paid:starter" {
+		t.Fatalf("unexpected reconcile grant idempotency key %q", grantKey)
+	}
+}
+
+func TestBillingServiceProcessProviderEventSkipsCreditedDuplicates(t *testing.T) {
+	service := &billingService{
+		cfg: validBillingConfig(),
+		ledgerClient: &mockLedgerClient{
+			grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+				t.Fatalf("unexpected duplicate grant request %#v", in)
+				return nil, nil
+			},
+		},
+		logger:   zap.NewNop(),
+		provider: &mockBillingProvider{code: billingProviderPaddle},
+		store: &mockStore{
+			hasBillingCreditedTransactionFunc: func(provider string, transactionID string) (bool, error) {
+				return provider == billingProviderPaddle && transactionID == "txn_duplicate", nil
+			},
+			upsertBillingCustomerLinkFunc: func(link *BillingCustomerLink) error {
+				if link.UserID != "user-1" {
+					t.Fatalf("unexpected duplicate link %#v", link)
+				}
+				return nil
+			},
+			createBillingEventRecordFunc: func(record *BillingEventRecord) error {
+				t.Fatalf("unexpected duplicate event record %#v", record)
+				return nil
+			},
+		},
+	}
+
+	err := service.processProviderEvent(context.Background(), billingProviderEvent{
+		CustomerLink: &BillingCustomerLink{
+			UserID:           "user-1",
+			Provider:         billingProviderPaddle,
+			PaddleCustomerID: "ctm_duplicate",
+			Email:            "user@example.com",
+		},
+		EventRecord: BillingEventRecord{
+			EventID:       "evt_duplicate",
+			EventType:     paddleEventTypeTransactionCompleted,
+			Provider:      billingProviderPaddle,
+			UserID:        "user-1",
+			TransactionID: "txn_duplicate",
+			CreditsDelta:  20,
+			OccurredAt:    time.Date(2026, time.March, 31, 12, 5, 0, 0, time.UTC),
+		},
+		GrantEvent: &BillingGrantEvent{
+			User:      "user-1",
+			Credits:   20,
+			Provider:  billingProviderPaddle,
+			EventID:   "evt_duplicate",
+			Reference: "billing_top_up_pack:txn_duplicate:starter",
+		},
+	})
+	if err != nil {
+		t.Fatalf("processProviderEvent(duplicate credited) error = %v", err)
+	}
+}
+
+func TestBillingServiceApplyGrantEventResolveErrorCoverage(t *testing.T) {
+	grantCalled := false
+	service := &billingService{
+		cfg: validBillingConfig(),
+		ledgerClient: &mockLedgerClient{
+			grantFunc: func(context.Context, *creditv1.GrantRequest, ...grpc.CallOption) (*creditv1.Empty, error) {
+				grantCalled = true
+				return &creditv1.Empty{}, nil
+			},
+		},
+		store: &mockStore{
+			getUserProfileByEmailFunc: func(string) (*UserProfile, error) {
+				return nil, gorm.ErrRecordNotFound
+			},
+		},
+	}
+
+	err := service.applyGrantEvent(context.Background(), BillingGrantEvent{
+		Credits:  20,
+		Provider: billingProviderPaddle,
+		EventID:  "evt_apply_unresolved",
+		Metadata: map[string]string{"user_email": "missing@example.com"},
+	})
+	if !errors.Is(err, sharedbilling.ErrGrantRecipientUnresolved) {
+		t.Fatalf("expected unresolved recipient error, got %v", err)
+	}
+	if grantCalled {
+		t.Fatal("expected grant RPC to be skipped when grant recipient is unresolved")
+	}
+}
+
+func TestBillingServiceHandleWebhookGrantResolutionCoverage(t *testing.T) {
+	t.Run("resolves recipient by email and backfills event and link", func(t *testing.T) {
+		var grantRequest *creditv1.GrantRequest
+		var createdRecord *BillingEventRecord
+		var upsertedLink *BillingCustomerLink
+
+		service := &billingService{
+			cfg: validBillingConfig(),
+			ledgerClient: &mockLedgerClient{
+				grantFunc: func(ctx context.Context, in *creditv1.GrantRequest, opts ...grpc.CallOption) (*creditv1.Empty, error) {
+					grantRequest = in
+					return &creditv1.Empty{}, nil
+				},
+			},
+			logger: zap.NewNop(),
+			provider: &mockBillingProvider{
+				code: billingProviderPaddle,
+				eventRecord: BillingEventRecord{
+					EventID:       "evt_resolved",
+					EventType:     paddleEventTypeTransactionCompleted,
+					Provider:      billingProviderPaddle,
+					TransactionID: "txn_resolved",
+					OccurredAt:    time.Date(2026, time.March, 30, 10, 0, 0, 0, time.UTC),
+				},
+				customerLink: &BillingCustomerLink{
+					Provider:         billingProviderPaddle,
+					PaddleCustomerID: "ctm_resolved",
+					Email:            "user@example.com",
+				},
+				grantEvent: &BillingGrantEvent{
+					Credits:  20,
+					Provider: billingProviderPaddle,
+					EventID:  "evt_resolved",
+					Metadata: map[string]string{"user_email": " User@Example.com "},
+				},
+			},
+			store: &mockStore{
+				getUserProfileByEmailFunc: func(email string) (*UserProfile, error) {
+					if email != "user@example.com" {
+						t.Fatalf("unexpected email lookup %q", email)
+					}
+					return &UserProfile{UserID: "resolved-user"}, nil
+				},
+				upsertBillingCustomerLinkFunc: func(link *BillingCustomerLink) error {
+					copyLink := *link
+					upsertedLink = &copyLink
+					return nil
+				},
+				createBillingEventRecordFunc: func(record *BillingEventRecord) error {
+					copyRecord := *record
+					createdRecord = &copyRecord
+					return nil
+				},
+			},
+		}
+
+		if err := service.HandleWebhook(context.Background(), "sig", []byte(`{}`)); err != nil {
+			t.Fatalf("HandleWebhook(resolved recipient) error = %v", err)
+		}
+		if grantRequest == nil || grantRequest.UserId != "resolved-user" {
+			t.Fatalf("expected resolved user id in grant request, got %#v", grantRequest)
+		}
+		if upsertedLink == nil || upsertedLink.UserID != "resolved-user" {
+			t.Fatalf("expected resolved user id in customer link, got %#v", upsertedLink)
+		}
+		if createdRecord == nil || createdRecord.UserID != "resolved-user" {
+			t.Fatalf("expected resolved user id in billing event record, got %#v", createdRecord)
+		}
+	})
+
+	t.Run("returns non-unresolved lookup error", func(t *testing.T) {
+		service := &billingService{
+			cfg:          validBillingConfig(),
+			ledgerClient: &mockLedgerClient{},
+			logger:       zap.NewNop(),
+			provider: &mockBillingProvider{
+				code: billingProviderPaddle,
+				eventRecord: BillingEventRecord{
+					EventID:       "evt_lookup_fail",
+					EventType:     paddleEventTypeTransactionCompleted,
+					Provider:      billingProviderPaddle,
+					TransactionID: "txn_lookup_fail",
+					OccurredAt:    time.Date(2026, time.March, 30, 10, 30, 0, 0, time.UTC),
+				},
+				customerLink: &BillingCustomerLink{
+					Provider:         billingProviderPaddle,
+					PaddleCustomerID: "ctm_lookup_fail",
+					Email:            "broken@example.com",
+				},
+				grantEvent: &BillingGrantEvent{
+					Credits:  20,
+					Provider: billingProviderPaddle,
+					EventID:  "evt_lookup_fail",
+					Metadata: map[string]string{"user_email": "broken@example.com"},
+				},
+			},
+			store: &mockStore{
+				getUserProfileByEmailFunc: func(string) (*UserProfile, error) {
+					return nil, errors.New("lookup failed")
+				},
+			},
+		}
+
+		if err := service.HandleWebhook(context.Background(), "sig", []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "lookup failed") {
+			t.Fatalf("expected lookup failure to be returned, got %v", err)
+		}
+	})
 }

@@ -135,6 +135,31 @@ func TestUpsertUserProfile_UpdatesExistingProfile(t *testing.T) {
 	}
 }
 
+func TestGetUserProfileByEmail_Coverage(t *testing.T) {
+	store := testStore(t).(*gormStore)
+	if err := store.UpsertUserProfile(&UserProfile{
+		UserID:      "user-lookup",
+		Email:       "Lookup@Example.com",
+		DisplayName: "Lookup User",
+		LastSeenAt:  time.Date(2026, time.March, 30, 9, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("UpsertUserProfile() error = %v", err)
+	}
+
+	profile, err := store.GetUserProfileByEmail(" lookup@example.com ")
+	if err != nil {
+		t.Fatalf("GetUserProfileByEmail(success) error = %v", err)
+	}
+	if profile.UserID != "user-lookup" {
+		t.Fatalf("unexpected looked up profile %#v", profile)
+	}
+
+	_, err = store.GetUserProfileByEmail("missing@example.com")
+	if err == nil {
+		t.Fatal("expected missing user profile lookup to fail")
+	}
+}
+
 func TestListAdminUsers_DatabaseError(t *testing.T) {
 	store := testStore(t).(*gormStore)
 	if err := store.db.Migrator().DropTable(&UserProfile{}); err != nil {

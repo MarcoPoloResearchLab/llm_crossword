@@ -142,8 +142,14 @@ async function setupBaseRoutes(page) {
   await page.route("**/api/billing/summary", (route) =>
     route.fulfill(json(200, createBillingSummary()))
   );
+  await page.route("**/api/billing/sync", (route) =>
+    route.fulfill(json(200, { ok: true }))
+  );
   await page.route("**/api/billing/checkout", (route) =>
     route.fulfill(json(503, { message: "billing unavailable" }))
+  );
+  await page.route("**/api/billing/checkout/reconcile", (route) =>
+    route.fulfill(json(200, { status: "pending" }))
   );
   await page.route("**/api/billing/portal", (route) =>
     route.fulfill(json(503, { message: "billing unavailable" }))

@@ -166,6 +166,9 @@ func (cfg *Config) Validate() error {
 func (cfg Config) validateBilling() error {
 	providerCode := strings.ToLower(strings.TrimSpace(cfg.BillingProvider))
 	if providerCode == "" {
+		if len(cfg.BillingPacks) > 0 {
+			return fmt.Errorf("billing provider is required when billing packs are configured")
+		}
 		return nil
 	}
 	if providerCode != billingProviderPaddle {

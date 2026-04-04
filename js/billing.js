@@ -17,7 +17,9 @@
   }
 
   var billingSummaryPath = buildApiUrl("/api/billing/summary");
+  var billingSyncPath = buildApiUrl("/api/billing/sync");
   var billingCheckoutPath = buildApiUrl("/api/billing/checkout");
+  var billingCheckoutReconcilePath = buildApiUrl("/api/billing/checkout/reconcile");
   var billingPortalPath = buildApiUrl("/api/billing/portal");
 
   var state = {
@@ -138,6 +140,82 @@
     return state.pendingSummaryRequest;
   }
 
+  function requestBillingSync() {
+    var fetcher = getFetcher();
+
+    if (!state.loggedIn) {
+      return Promise.resolve({ ok: true });
+    }
+
+    return fetcher(billingSyncPath, {
+      credentials: "include",
+      method: "POST",
+    })
+      .then(function (response) {
+        return parseJSONResponse(response).then(function (data) {
+          return {
+            data: data,
+            ok: response.ok,
+            status: response.status,
+          };
+        });
+      })
+      .then(function (result) {
+        if (result.ok || result.status === 401 || result.status === 403 || result.status === 404 || result.status === 503) {
+          return result.data || {};
+        }
+        throw new Error(describeBillingError(result, "We couldn't refresh billing right now."));
+      });
+  }
+
+  function normalizeCheckoutReconcileResult(rawResult, transactionID) {
+    var result = rawResult && typeof rawResult === "object" ? rawResult : {};
+
+    return {
+      provider_code: typeof result.provider_code === "string" ? result.provider_code : "",
+      transaction_id: typeof result.transaction_id === "string" && result.transaction_id.trim() !== ""
+        ? result.transaction_id.trim()
+        : transactionID,
+      status: typeof result.status === "string" && result.status.trim() !== ""
+        ? result.status.trim().toLowerCase()
+        : "unknown",
+    };
+  }
+
+  function requestCheckoutReconcile(transactionID) {
+    var normalizedTransactionID = typeof transactionID === "string" ? transactionID.trim() : "";
+    var fetcher = getFetcher();
+
+    if (!normalizedTransactionID || !state.loggedIn) {
+      return Promise.resolve(normalizeCheckoutReconcileResult({}, normalizedTransactionID));
+    }
+
+    return fetcher(billingCheckoutReconcilePath, {
+      body: JSON.stringify({ transaction_id: normalizedTransactionID }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+      .then(function (response) {
+        return parseJSONResponse(response).then(function (data) {
+          return {
+            data: data,
+            ok: response.ok,
+            status: response.status,
+          };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok) {
+          return normalizeCheckoutReconcileResult({}, normalizedTransactionID);
+        }
+        return normalizeCheckoutReconcileResult(result.data, normalizedTransactionID);
+      })
+      .catch(function () {
+        return normalizeCheckoutReconcileResult({}, normalizedTransactionID);
+      });
+  }
+
   function clearPollTimer() {
     if (!state.pollTimerId) return;
     window.clearTimeout(state.pollTimerId);
@@ -226,7 +304,9 @@
       return Promise.resolve();
     }
 
-    return loadSummary({ force: true, suppressErrors: true })
+    return requestCheckoutReconcile(state.activeTransactionId)
+      .then(function (reconcileResult) {
+        return loadSummary({ force: true, suppressErrors: true })
       .then(function (summary) {
         var activity = findTransactionActivity(summary, state.activeTransactionId);
 
@@ -240,7 +320,7 @@
         }
 
         if (Date.now() >= state.pollDeadlineTimestamp) {
-          if (activity) {
+          if (activity || reconcileResult.status === "pending") {
             finishTransactionPolling("Payment is still processing. Refresh billing in a moment if credits do not appear.", "", false);
           } else {
             finishTransactionPolling("Checkout closed before payment completed.", "", false);
@@ -252,12 +332,13 @@
           return;
         }
 
-        if (activity) {
+        if (activity || reconcileResult.status === "pending") {
           updateBillingStatus("Waiting for payment confirmation...", "", true);
         } else {
           updateBillingStatus("Returning from checkout. Waiting for billing activity...", "", true);
         }
         scheduleTransactionPoll();
+      });
       })
       .catch(function () {
         if (Date.now() >= state.pollDeadlineTimestamp) {
@@ -389,7 +470,13 @@
       return Promise.resolve(state.summary);
     }
 
-    return loadSummary({ force: true, suppressErrors: true })
+    return requestBillingSync()
+      .catch(function () {
+        return {};
+      })
+      .then(function () {
+        return loadSummary({ force: true, suppressErrors: true });
+      })
       .catch(function () {
         return state.summary;
       })
@@ -433,9 +520,12 @@
     isCompletedTransactionActivity: isCompletedTransactionActivity,
     loadSummary: loadSummary,
     normalizeSummary: normalizeSummary,
+    normalizeCheckoutReconcileResult: normalizeCheckoutReconcileResult,
     openAccountBilling: openAccountBilling,
     pollForTransactionResult: pollForTransactionResult,
+    requestBillingSync: requestBillingSync,
     requestCheckout: requestCheckout,
+    requestCheckoutReconcile: requestCheckoutReconcile,
     requestPortalSession: requestPortalSession,
     setState: function (nextState) {
       Object.assign(state, nextState || {});

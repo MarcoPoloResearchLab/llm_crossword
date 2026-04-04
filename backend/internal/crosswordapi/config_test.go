@@ -144,6 +144,12 @@ func TestValidate_BillingValidationErrors(t *testing.T) {
 		mutate func(*Config)
 	}{
 		{
+			name: "missing billing provider",
+			mutate: func(cfg *Config) {
+				cfg.BillingProvider = ""
+			},
+		},
+		{
 			name: "missing billing packs",
 			mutate: func(cfg *Config) {
 				cfg.BillingPacks = nil

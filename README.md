@@ -2,6 +2,16 @@
 
 A crossword puzzle builder, powered by LLM.
 
+## Billing Policy
+
+Billing is a business-critical path in this product. The billing flow is intentionally fail-closed.
+
+- Checkout, portal access, webhook processing, reconciliation, and customer-link resolution must use explicitly required billing data.
+- Missing or inconsistent billing data is treated as a product or operational defect to fix, not as a reason to guess, infer, or unlock a fallback path.
+- Do not add defensive billing fallbacks such as alternate customer lookup heuristics or optimistic UI unlocks for portal access.
+- When required billing state is unavailable, the correct behavior is to return an error and keep the path blocked until the underlying issue is corrected.
+- `configs/config.yml` is the source of truth for the browser-visible billing packs and the credit economy values used for generation, grants, and rewards.
+
 ## Auth config
 
 Set `GOOGLE_CLIENT_ID` in `configs/.env.tauth.local` for local work and in `configs/.env.tauth.production` for production deployment. `configs/config.yml` may reference env vars such as `${GOOGLE_CLIENT_ID}`, and the Go backend expands them before serving `/config.yml`. The committed `js/runtime-auth-config.js` is the production-safe browser default. Local Docker and Playwright entry points render overrides into `js/runtime-auth-config.override.js` before startup.
@@ -24,6 +34,8 @@ The repository includes `.nojekyll` so branch-based GitHub Pages publishing can 
 ## Local Docker
 
 Use `make up` to start the stack and `make down` to stop it. If the default site port `8000` or one of the other exposed host ports is already occupied, `make up` automatically picks the next available port and writes the resolved values to `.runtime/ports.env`.
+
+Billing is required for this app. `crossword-api` enforces that requirement during startup and exits if billing is not fully configured or if Paddle catalog validation fails.
 
 To force a specific host port instead of auto-allocation, pass it explicitly, for example `make up CROSSWORD_PORT=8010`.
 

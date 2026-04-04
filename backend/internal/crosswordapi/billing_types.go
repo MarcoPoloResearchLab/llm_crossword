@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	sharedbilling "github.com/tyemirov/utils/billing"
 )
 
 const (
@@ -82,10 +84,20 @@ type billingCheckoutRequest struct {
 	PackID string `json:"pack_id"`
 }
 
+type billingCheckoutReconcileRequest struct {
+	TransactionID string `json:"transaction_id"`
+}
+
 type billingCheckoutSession struct {
 	ProviderCode  string `json:"provider_code"`
 	TransactionID string `json:"transaction_id"`
 	CheckoutURL   string `json:"checkout_url"`
+}
+
+type billingCheckoutReconcileResult struct {
+	ProviderCode  string `json:"provider_code"`
+	TransactionID string `json:"transaction_id"`
+	Status        string `json:"status"`
 }
 
 type billingPortalSession struct {
@@ -107,6 +119,22 @@ type billingProvider interface {
 	ParseWebhookEvent(payload []byte) (billingProviderEvent, error)
 	CreateCheckout(ctx context.Context, userID string, userEmail string, pack BillingPack, returnURL string) (billingCheckoutSession, error)
 	CreatePortalSession(ctx context.Context, customerLink BillingCustomerLink) (billingPortalSession, error)
+}
+
+type billingCatalogValidationProvider interface {
+	ValidateCatalog(ctx context.Context) error
+}
+
+type billingUserSyncProvider interface {
+	BuildUserSyncEvents(ctx context.Context, userEmail string) ([]sharedbilling.WebhookEvent, error)
+}
+
+type billingCheckoutReconcileProvider interface {
+	BuildCheckoutReconcileEvent(ctx context.Context, transactionID string) (sharedbilling.WebhookEvent, string, error)
+}
+
+type billingCheckoutEventStatusProvider interface {
+	ResolveCheckoutEventStatus(eventType string) sharedbilling.CheckoutEventStatus
 }
 
 func normalizeBillingPackCode(rawCode string) string {

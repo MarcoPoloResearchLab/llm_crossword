@@ -2,6 +2,7 @@ package crosswordapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	creditv1 "github.com/MarkoPoloResearchLab/ledger/api/credit/v1"
+	sharedbilling "github.com/tyemirov/utils/billing"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -80,6 +82,8 @@ func (service *billingService) Summary(ctx context.Context, userID string) (*bil
 	summary.Packs = service.cfg.NormalizedBillingPacks()
 
 	if service.store != nil {
+		// Billing is fail-closed: only advertise portal availability when the
+		// persisted provider customer link is present and complete.
 		customerLink, err := service.store.GetBillingCustomerLink(userID, service.provider.Code())
 		if err == nil && strings.TrimSpace(customerLink.PaddleCustomerID) != "" {
 			summary.PortalAvailable = true
@@ -152,6 +156,91 @@ func (service *billingService) CreateCheckout(ctx context.Context, userID string
 	return service.provider.CreateCheckout(ctx, userID, userEmail, pack, returnURL)
 }
 
+func (service *billingService) SyncUserBillingEvents(ctx context.Context, userID string, userEmail string) error {
+	if service == nil || service.provider == nil {
+		return ErrBillingDisabled
+	}
+
+	syncProvider, ok := service.provider.(billingUserSyncProvider)
+	if !ok {
+		return sharedbilling.ErrBillingUserSyncFailed
+	}
+
+	normalizedUserEmail := strings.ToLower(strings.TrimSpace(userEmail))
+	if normalizedUserEmail == "" {
+		return sharedbilling.ErrBillingUserEmailInvalid
+	}
+
+	syncEvents, err := syncProvider.BuildUserSyncEvents(ctx, normalizedUserEmail)
+	if err != nil {
+		return fmt.Errorf("%w: %w", sharedbilling.ErrBillingUserSyncFailed, err)
+	}
+
+	normalizedUserID := strings.TrimSpace(userID)
+	for _, syncEvent := range syncEvents {
+		if !isBillingTransactionEventType(syncEvent.EventType) {
+			continue
+		}
+		if err := service.processSharedProviderEvent(ctx, syncEvent, normalizedUserID); err != nil {
+			return fmt.Errorf("%w: %w", sharedbilling.ErrBillingUserSyncFailed, err)
+		}
+	}
+
+	return nil
+}
+
+func (service *billingService) ReconcileCheckout(
+	ctx context.Context,
+	userID string,
+	userEmail string,
+	transactionID string,
+) (billingCheckoutReconcileResult, error) {
+	result := billingCheckoutReconcileResult{
+		ProviderCode: service.providerCode(),
+		Status:       string(sharedbilling.CheckoutEventStatusUnknown),
+	}
+	if service == nil || service.provider == nil {
+		return result, ErrBillingDisabled
+	}
+
+	reconcileProvider, ok := service.provider.(billingCheckoutReconcileProvider)
+	if !ok {
+		return result, sharedbilling.ErrBillingCheckoutReconciliationUnsupported
+	}
+
+	normalizedUserEmail := strings.ToLower(strings.TrimSpace(userEmail))
+	if normalizedUserEmail == "" {
+		return result, sharedbilling.ErrBillingUserEmailInvalid
+	}
+
+	normalizedTransactionID := strings.TrimSpace(transactionID)
+	if normalizedTransactionID == "" {
+		return result, sharedbilling.ErrPaddleAPITransactionNotFound
+	}
+	result.TransactionID = normalizedTransactionID
+
+	webhookEvent, checkoutUserEmail, err := reconcileProvider.BuildCheckoutReconcileEvent(ctx, normalizedTransactionID)
+	if err != nil {
+		return result, err
+	}
+
+	result.Status = string(resolveBillingCheckoutEventStatus(service.provider, webhookEvent.EventType))
+
+	normalizedCheckoutUserEmail := strings.ToLower(strings.TrimSpace(checkoutUserEmail))
+	if normalizedCheckoutUserEmail != normalizedUserEmail {
+		return result, fmt.Errorf("%w: %s", sharedbilling.ErrBillingCheckoutOwnershipMismatch, normalizedTransactionID)
+	}
+	if result.Status == string(sharedbilling.CheckoutEventStatusPending) {
+		return result, nil
+	}
+
+	if err := service.processSharedProviderEvent(ctx, webhookEvent, strings.TrimSpace(userID)); err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
 func (service *billingService) CreatePortalSession(ctx context.Context, userID string) (billingPortalSession, error) {
 	if service == nil || service.provider == nil {
 		return billingPortalSession{}, ErrBillingDisabled
@@ -167,6 +256,9 @@ func (service *billingService) CreatePortalSession(ctx context.Context, userID s
 		}
 		return billingPortalSession{}, err
 	}
+	// Portal creation is intentionally fail-closed. If the stored provider
+	// customer identifier is missing, billing remains blocked until the
+	// customer link is repaired instead of attempting fallback resolution.
 	if strings.TrimSpace(customerLink.PaddleCustomerID) == "" {
 		return billingPortalSession{}, ErrBillingPortalUnavailable
 	}
@@ -185,17 +277,131 @@ func (service *billingService) HandleWebhook(ctx context.Context, signatureHeade
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBillingWebhookInvalid, err)
 	}
+	return service.processProviderEvent(ctx, providerEvent)
+}
 
+func (service *billingService) applyGrantEvent(ctx context.Context, grantEvent BillingGrantEvent) error {
+	if service == nil || service.ledgerClient == nil {
+		return fmt.Errorf("ledger client is required")
+	}
+
+	resolvedUserID, resolveErr := service.resolveBillingGrantUserID(grantEvent)
+	if resolveErr != nil {
+		return resolveErr
+	}
+
+	requestCtx, cancel := context.WithTimeout(ctx, service.cfg.LedgerTimeout)
+	defer cancel()
+
+	_, err := service.ledgerClient.Grant(requestCtx, &creditv1.GrantRequest{
+		UserId:           resolvedUserID,
+		AmountCents:      grantEvent.Credits * service.cfg.CoinValueCents,
+		IdempotencyKey:   buildBillingGrantIdempotencyKey(grantEvent),
+		MetadataJson:     marshalMetadata(grantEvent.Metadata),
+		ExpiresAtUnixUtc: 0,
+		LedgerId:         service.cfg.DefaultLedgerID,
+		TenantId:         service.cfg.DefaultTenantID,
+	})
+	if err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (service *billingService) processSharedProviderEvent(
+	ctx context.Context,
+	event sharedbilling.WebhookEvent,
+	fallbackUserID string,
+) error {
+	if service == nil || service.provider == nil {
+		return ErrBillingDisabled
+	}
+
+	payload, err := wrapBillingWebhookPayload(event)
+	if err != nil {
+		return err
+	}
+	providerEvent, err := service.provider.ParseWebhookEvent(payload)
+	if err != nil {
+		return err
+	}
+
+	normalizedFallbackUserID := strings.TrimSpace(fallbackUserID)
+	if normalizedFallbackUserID != "" {
+		if strings.TrimSpace(providerEvent.EventRecord.UserID) == "" {
+			providerEvent.EventRecord.UserID = normalizedFallbackUserID
+		}
+		if providerEvent.CustomerLink != nil && strings.TrimSpace(providerEvent.CustomerLink.UserID) == "" {
+			providerEvent.CustomerLink.UserID = normalizedFallbackUserID
+		}
+		if providerEvent.GrantEvent != nil && strings.TrimSpace(providerEvent.GrantEvent.User) == "" {
+			providerEvent.GrantEvent.User = normalizedFallbackUserID
+		}
+	}
+
+	return service.processProviderEvent(ctx, providerEvent)
+}
+
+func (service *billingService) processProviderEvent(ctx context.Context, providerEvent billingProviderEvent) error {
+	if service == nil || service.provider == nil {
+		return ErrBillingDisabled
+	}
+	if service.store == nil {
+		return fmt.Errorf("billing store is required")
+	}
+
+	providerCode := service.providerCode()
+	if strings.TrimSpace(providerEvent.EventRecord.Provider) == "" {
+		providerEvent.EventRecord.Provider = providerCode
+	}
+	if providerEvent.CustomerLink != nil && strings.TrimSpace(providerEvent.CustomerLink.Provider) == "" {
+		providerEvent.CustomerLink.Provider = providerCode
+	}
+	if providerEvent.GrantEvent != nil && strings.TrimSpace(providerEvent.GrantEvent.Provider) == "" {
+		providerEvent.GrantEvent.Provider = providerCode
+	}
+
+	skipEventRecord := false
 	if providerEvent.GrantEvent != nil {
-		if err := service.applyGrantEvent(ctx, *providerEvent.GrantEvent); err != nil {
+		grantEvent := *providerEvent.GrantEvent
+		resolvedUserID := strings.TrimSpace(grantEvent.User)
+		if resolvedUserID == "" {
+			var resolveErr error
+			resolvedUserID, resolveErr = service.resolveBillingGrantUserID(grantEvent)
+			if resolveErr != nil && !errors.Is(resolveErr, sharedbilling.ErrGrantRecipientUnresolved) {
+				return resolveErr
+			}
+			grantEvent.User = resolvedUserID
+		}
+		if strings.TrimSpace(providerEvent.EventRecord.UserID) == "" {
+			providerEvent.EventRecord.UserID = strings.TrimSpace(resolvedUserID)
+		}
+		if providerEvent.CustomerLink != nil && strings.TrimSpace(providerEvent.CustomerLink.UserID) == "" {
+			providerEvent.CustomerLink.UserID = strings.TrimSpace(resolvedUserID)
+		}
+
+		duplicateCreditedTransaction, err := service.hasCreditedTransaction(providerEvent.EventRecord)
+		if err != nil {
+			return err
+		}
+		if duplicateCreditedTransaction {
+			skipEventRecord = true
+		} else if err := service.applyGrantEvent(ctx, grantEvent); err != nil && !errors.Is(err, sharedbilling.ErrGrantRecipientUnresolved) {
 			return err
 		}
 	}
 
-	if providerEvent.CustomerLink != nil && providerEvent.GrantEvent != nil {
+	if providerEvent.CustomerLink != nil && strings.TrimSpace(providerEvent.CustomerLink.UserID) != "" {
 		if err := service.store.UpsertBillingCustomerLink(providerEvent.CustomerLink); err != nil {
 			return err
 		}
+	}
+
+	if skipEventRecord {
+		return nil
 	}
 
 	processedAt := time.Now().UTC()
@@ -209,30 +415,118 @@ func (service *billingService) HandleWebhook(ctx context.Context, signatureHeade
 	return nil
 }
 
-func (service *billingService) applyGrantEvent(ctx context.Context, grantEvent BillingGrantEvent) error {
-	if service == nil || service.ledgerClient == nil {
-		return fmt.Errorf("ledger client is required")
+func (service *billingService) hasCreditedTransaction(record BillingEventRecord) (bool, error) {
+	if service == nil || service.store == nil {
+		return false, nil
+	}
+	if record.CreditsDelta <= 0 {
+		return false, nil
 	}
 
-	requestCtx, cancel := context.WithTimeout(ctx, service.cfg.LedgerTimeout)
-	defer cancel()
+	transactionID := strings.TrimSpace(record.TransactionID)
+	if transactionID == "" {
+		return false, nil
+	}
 
-	_, err := service.ledgerClient.Grant(requestCtx, &creditv1.GrantRequest{
-		UserId:           grantEvent.User,
-		AmountCents:      grantEvent.Credits * service.cfg.CoinValueCents,
-		IdempotencyKey:   fmt.Sprintf("billing:%s:%s", grantEvent.Provider, grantEvent.EventID),
-		MetadataJson:     marshalMetadata(grantEvent.Metadata),
-		ExpiresAtUnixUtc: 0,
-		LedgerId:         service.cfg.DefaultLedgerID,
-		TenantId:         service.cfg.DefaultTenantID,
-	})
+	exists, err := service.store.HasBillingCreditedTransaction(service.providerCode(), transactionID)
 	if err != nil {
-		if status.Code(err) == codes.AlreadyExists {
-			return nil
-		}
-		return err
+		return false, err
 	}
-	return nil
+	if exists && service.logger != nil {
+		service.logger.Info(
+			"skipping duplicate credited billing transaction",
+			zap.String("provider", service.providerCode()),
+			zap.String("transaction_id", transactionID),
+			zap.String("event_id", strings.TrimSpace(record.EventID)),
+		)
+	}
+	return exists, nil
+}
+
+func buildBillingGrantIdempotencyKey(grantEvent BillingGrantEvent) string {
+	normalizedProvider := strings.TrimSpace(grantEvent.Provider)
+	normalizedReference := strings.TrimSpace(grantEvent.Reference)
+	if normalizedReference != "" {
+		return fmt.Sprintf("billing:%s:%s", normalizedProvider, normalizedReference)
+	}
+	return fmt.Sprintf("billing:%s:%s", normalizedProvider, strings.TrimSpace(grantEvent.EventID))
+}
+
+func isBillingTransactionEventType(eventType string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(eventType)), "transaction.")
+}
+
+func resolveBillingCheckoutEventStatus(provider billingProvider, eventType string) sharedbilling.CheckoutEventStatus {
+	if checkoutEventStatusProvider, ok := provider.(billingCheckoutEventStatusProvider); ok {
+		resolvedStatus := checkoutEventStatusProvider.ResolveCheckoutEventStatus(eventType)
+		if resolvedStatus != "" {
+			return resolvedStatus
+		}
+	}
+	return sharedbilling.CheckoutEventStatusUnknown
+}
+
+func (service *billingService) providerCode() string {
+	if service == nil || service.provider == nil {
+		return ""
+	}
+	return strings.TrimSpace(service.provider.Code())
+}
+
+func wrapBillingWebhookPayload(event sharedbilling.WebhookEvent) ([]byte, error) {
+	type billingPayloadEnvelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	type billingWrappedWebhookEvent struct {
+		EventID    string          `json:"event_id"`
+		EventType  string          `json:"event_type"`
+		OccurredAt string          `json:"occurred_at"`
+		Data       json.RawMessage `json:"data"`
+	}
+
+	envelope := billingPayloadEnvelope{}
+	if err := json.Unmarshal(event.Payload, &envelope); err != nil {
+		return nil, err
+	}
+	if len(envelope.Data) == 0 {
+		return nil, fmt.Errorf("billing webhook payload missing data")
+	}
+
+	return json.Marshal(billingWrappedWebhookEvent{
+		EventID:    strings.TrimSpace(event.EventID),
+		EventType:  strings.TrimSpace(event.EventType),
+		OccurredAt: event.OccurredAt.UTC().Format(time.RFC3339Nano),
+		Data:       envelope.Data,
+	})
+}
+
+func (service *billingService) resolveBillingGrantUserID(grantEvent BillingGrantEvent) (string, error) {
+	resolvedUserID := strings.TrimSpace(grantEvent.User)
+	if resolvedUserID != "" {
+		return resolvedUserID, nil
+	}
+	if service == nil || service.store == nil {
+		return "", sharedbilling.ErrGrantRecipientUnresolved
+	}
+	userEmail := strings.ToLower(strings.TrimSpace(grantEvent.Metadata["user_email"]))
+	if userEmail == "" {
+		userEmail = strings.ToLower(strings.TrimSpace(grantEvent.Metadata["billing_user_email"]))
+	}
+	if userEmail == "" {
+		return "", sharedbilling.ErrGrantRecipientUnresolved
+	}
+	profile, err := service.store.GetUserProfileByEmail(userEmail)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", sharedbilling.ErrGrantRecipientUnresolved
+		}
+		return "", err
+	}
+	resolvedUserID = strings.TrimSpace(profile.UserID)
+	if resolvedUserID == "" {
+		return "", sharedbilling.ErrGrantRecipientUnresolved
+	}
+	return resolvedUserID, nil
 }
 
 func isUniqueConstraintError(err error) bool {
