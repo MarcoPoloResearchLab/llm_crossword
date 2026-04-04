@@ -33,7 +33,7 @@ This is an operational checklist for reducing founder-personal exposure while ru
 ## Admin And Internal Access
 
 - Do not put administrator emails in `configs/config.yml`; that file is client-readable through the public `/config.yml` route.
-- Set admin allowlists through `CROSSWORDAPI_ADMIN_EMAILS` in `.env.crosswordapi.local`, `.env.crosswordapi.production`, or another server-side secret source.
+- Set admin allowlists through `CROSSWORDAPI_ADMIN_EMAILS` in `configs/.env.crosswordapi.local`, `configs/.env.crosswordapi.production`, or another server-side secret source.
 - Prefer role-based admin assignment in TAuth or a shared company mailbox/group over one personal Gmail account.
 
 ## Infrastructure Ownership
@@ -51,6 +51,6 @@ This is an operational checklist for reducing founder-personal exposure while ru
 
 ## Repo Hygiene
 
-- Keep `.env.crosswordapi.local`, `.env.crosswordapi.production`, `.env.tauth.local`, `.env.tauth.production`, and any credential exports untracked.
+- Keep `configs/.env.crosswordapi.local`, `configs/.env.crosswordapi.production`, `configs/.env.tauth.local`, `configs/.env.tauth.production`, and any credential exports untracked.
 - Rotate any OAuth client secret that has ever lived in a served directory or been copied to a deployed machine image.
 - Review public config and static files before deploy for personal emails, home addresses, personal phone numbers, and personal usernames.

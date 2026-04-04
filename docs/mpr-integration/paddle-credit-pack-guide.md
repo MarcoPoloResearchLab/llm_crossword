@@ -33,8 +33,8 @@
     - `CROSSWORDAPI_PADDLE_PRICE_ID_PACK_<PACK_CODE>`
 - Files to touch:
   - [configs/config.yml](/Users/tyemirov/Development/llm_crossword/configs/config.yml)
-  - [.env.crosswordapi.local](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.local)
-  - [.env.crosswordapi.production](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.production)
+  - [configs/.env.crosswordapi.local](/Users/tyemirov/Development/llm_crossword/configs/.env.crosswordapi.local)
+  - [configs/.env.crosswordapi.production](/Users/tyemirov/Development/llm_crossword/configs/.env.crosswordapi.production)
   - [backend/cmd/crossword-api/main.go](/Users/tyemirov/Development/llm_crossword/backend/cmd/crossword-api/main.go)
   - [backend/internal/crosswordapi/config.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/config.go)
   - [backend/internal/crosswordapi/billing_service.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/billing_service.go)
@@ -61,8 +61,8 @@
 
 - [docs/paddle-credit-pack-runbook.md](/Users/tyemirov/Development/llm_crossword/docs/paddle-credit-pack-runbook.md)
 - [configs/config.yml](/Users/tyemirov/Development/llm_crossword/configs/config.yml)
-- [.env.crosswordapi.local](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.local)
-- [.env.crosswordapi.production](/Users/tyemirov/Development/llm_crossword/.env.crosswordapi.production)
+- [configs/.env.crosswordapi.local](/Users/tyemirov/Development/llm_crossword/configs/.env.crosswordapi.local)
+- [configs/.env.crosswordapi.production](/Users/tyemirov/Development/llm_crossword/configs/.env.crosswordapi.production)
 - [backend/internal/crosswordapi/billing_service.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/billing_service.go)
 - [backend/internal/crosswordapi/billing_paddle.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/billing_paddle.go)
 - [backend/internal/crosswordapi/server.go](/Users/tyemirov/Development/llm_crossword/backend/internal/crosswordapi/server.go)

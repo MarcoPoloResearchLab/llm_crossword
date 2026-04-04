@@ -6,14 +6,13 @@
   globalScope.LLMCrosswordRuntimeConfig = Object.freeze({
     billing: Object.freeze({
       clientToken: "",
-      enabled: false,
       environment: "",
       providerCode: "",
     }),
     services: Object.freeze({
-      apiBaseUrl: "https://llm-crossword-api.mprlab.com",
-      authBaseUrl: "https://tauth-api.mprlab.com",
-      configUrl: "https://llm-crossword-api.mprlab.com/config.yml",
+      apiBaseUrl: "",
+      authBaseUrl: "",
+      configUrl: "/config.yml",
       tauthScriptUrl: "https://cdn.jsdelivr.net/gh/tyemirov/TAuth@v1.0.1/web/tauth.js",
     }),
   });

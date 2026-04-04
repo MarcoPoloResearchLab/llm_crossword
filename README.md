@@ -4,7 +4,7 @@ A crossword puzzle builder, powered by LLM.
 
 ## Auth config
 
-Set `GOOGLE_CLIENT_ID` in `.env.tauth.local` for local work and in `.env.tauth.production` for production deployment. `configs/config.yml` may reference env vars such as `${GOOGLE_CLIENT_ID}`, and the Go backend expands them before serving `/config.yml`. The committed `js/runtime-auth-config.js` is the production-safe browser default. Local Docker and Playwright entry points render overrides into `js/runtime-auth-config.override.js` before startup.
+Set `GOOGLE_CLIENT_ID` in `configs/.env.tauth.local` for local work and in `configs/.env.tauth.production` for production deployment. `configs/config.yml` may reference env vars such as `${GOOGLE_CLIENT_ID}`, and the Go backend expands them before serving `/config.yml`. The committed `js/runtime-auth-config.js` is the production-safe browser default. Local Docker and Playwright entry points render overrides into `js/runtime-auth-config.override.js` before startup.
 
 Direct GitHub Pages publishing uses the committed `js/runtime-auth-config.js`. If you intentionally need to regenerate that tracked file, run `bash scripts/render-runtime-auth-config.sh` without `RUNTIME_AUTH_CONFIG_PATH`. Automated local and test flows use the override file instead.
 
@@ -31,9 +31,9 @@ To force a specific host port instead of auto-allocation, pass it explicitly, fo
 
 Keep localhost and production settings separate.
 
-- `.env.crosswordapi.local`, `.env.tauth.local`, and `tauth.config.local.yaml` are the local Docker inputs used by `make up`.
-- `.env.crosswordapi.production`, `.env.tauth.production`, and `tauth.config.production.yaml` are the production profile files.
-- `.runtime/config.yml`, `.runtime/tauth.config.yaml`, and `js/runtime-auth-config.override.js` are generated local-only artifacts.
+- `configs/.env.crosswordapi.local`, `configs/.env.tauth.local`, and `tauth.config.local.yaml` are the local Docker inputs used by `make up`.
+- `configs/.env.crosswordapi.production`, `configs/.env.tauth.production`, and `tauth.config.production.yaml` are the production profile files.
+- `.runtime/config.yml`, `.runtime/tauth.config.yaml`, `.runtime/ledger.config.yml`, and `js/runtime-auth-config.override.js` are generated local-only artifacts.
 - `js/runtime-auth-config.js` is the committed browser default for deployed/static environments.
 - Local and production secret files stay untracked.
 
@@ -67,8 +67,8 @@ Typical production inputs are:
 To render browser runtime config against a specific profile, point the script at that profile's env files:
 
 ```bash
-CROSSWORDAPI_ENV_FILE=.env.crosswordapi.production \
-TAUTH_ENV_FILE=.env.tauth.production \
+CROSSWORDAPI_ENV_FILE=configs/.env.crosswordapi.production \
+TAUTH_ENV_FILE=configs/.env.tauth.production \
 bash scripts/render-runtime-auth-config.sh
 ```
 

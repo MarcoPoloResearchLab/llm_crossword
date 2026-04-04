@@ -109,6 +109,11 @@
     var billingConfig = window.LLMCrosswordRuntimeConfig && window.LLMCrosswordRuntimeConfig.billing
       ? window.LLMCrosswordRuntimeConfig.billing
       : {};
+    var isPaddleRuntimeReady = billingConfig &&
+      billingConfig.providerCode === "paddle" &&
+      typeof billingConfig.clientToken === "string" &&
+      billingConfig.clientToken.trim() !== "" &&
+      (billingConfig.environment === "sandbox" || billingConfig.environment === "production");
     var currentURL = new URL(window.location.href);
     var returnTo = currentURL.searchParams.get("return_to") || (window.location.origin + "/");
     var returnLink = document.getElementById("payReturnLink");
@@ -134,8 +139,8 @@
       fail("Missing Paddle transaction id. Return to LLM Crossword and start checkout again.");
       return;
     }
-    if (!billingConfig || billingConfig.enabled !== true || !billingConfig.clientToken) {
-      fail("Billing is not configured for browser checkout on this deployment.");
+    if (!isPaddleRuntimeReady) {
+      fail("Billing checkout runtime is incomplete for this deployment.");
       return;
     }
     if (!window.Paddle) {
