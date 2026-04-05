@@ -139,11 +139,11 @@ up:
 		exit 1; \
 	fi; \
 	if [ -f config.yaml ]; then \
-		echo "Legacy root config.yaml is not allowed. Move public config to configs/config.yml."; \
+		echo "Legacy root config.yaml is not allowed. Move app config to configs/config.yml."; \
 		exit 1; \
 	fi; \
 	if rg -n '^[[:space:]]*administrators:' configs/config.yml >/dev/null 2>&1; then \
-		echo "configs/config.yml is public and must not contain administrators. Move admin emails to CROSSWORDAPI_ADMIN_EMAILS in $(LOCAL_CROSSWORDAPI_ENV_FILE)."; \
+		echo "configs/config.yml must not contain administrators. Move admin emails to CROSSWORDAPI_ADMIN_EMAILS in $(LOCAL_CROSSWORDAPI_ENV_FILE)."; \
 		exit 1; \
 	fi; \
 	if find . -maxdepth 1 -type f -name 'client_secret_*.json' | grep -q .; then \

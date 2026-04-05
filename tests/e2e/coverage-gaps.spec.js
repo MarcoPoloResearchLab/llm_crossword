@@ -3,7 +3,7 @@
 // generator.js, and config.js.
 
 const { test, expect } = require("./coverage-fixture");
-const { setupLoggedInRoutes, setupLoggedOutRoutes, json, text, defaultPuzzles } = require("./route-helpers");
+const { createFrontendConfig, setupLoggedInRoutes, setupLoggedOutRoutes, json, text, defaultPuzzles } = require("./route-helpers");
 
 // ---------------------------------------------------------------------------
 // Shared puzzle data & helpers
@@ -25,46 +25,49 @@ async function goToPuzzleWithGrid(page) {
 // config.js coverage
 // ---------------------------------------------------------------------------
 
-test.describe("Config — YAML environment matching", () => {
-  test("matches tauth-url from config.yml when origin matches", async ({ page }) => {
-    // mpr-ui-config.js loads config.yml via global.fetch and sets tauth-url.
-    // The final tauth-url value is set by mpr-ui-config.js from the real config.yml.
+test.describe("Config — frontend config matching", () => {
+  test("matches tauth-url from the frontend config YAML when origin matches", async ({ page }) => {
     await page.goto("/");
     await page.waitForTimeout(2000);
     var tauthUrl = await page.locator("#app-header").getAttribute("tauth-url");
-    // Should be set to the local dev tauthUrl from config.yml.
+    // Should be set to the local dev tauthUrl from the frontend config YAML.
     expect(tauthUrl).toContain("localhost");
   });
 
-  test("uses same-origin when config.yml has no matching environment", async ({ page }) => {
-    var yamlText = "environments:\n  - description: production\n    - \"https://prod.example.com\"\n    tauthUrl: \"https://prod-tauth.example.com\"";
-    await setupLoggedOutRoutes(page, { configYaml: yamlText });
+  test("uses same-origin when the frontend config YAML request returns not found", async ({ page }) => {
+    await setupLoggedOutRoutes(page, {
+      extra: {
+        "**/configs/frontend-config.yml*": (route) =>
+          route.fulfill(text(404, "not found")),
+      },
+    });
     await page.goto("/");
     await page.waitForTimeout(500);
     var tauthUrl = await page.locator("#app-header").getAttribute("tauth-url");
     expect(tauthUrl).toContain("localhost");
   });
 
-  test("handles multi-environment YAML — page renders without errors", async ({ page }) => {
-    var yamlText = [
-      "environments:",
-      "  - description: local",
-      "    - \"http://localhost:8111\"",
-      "    tauthUrl: \"http://localhost:8111\"",
-      "  - description: production",
-      "    - \"https://prod.example.com\"",
-      "    tauthUrl: \"https://prod-tauth.example.com\"",
-    ].join("\n");
-    await setupLoggedOutRoutes(page, { configYaml: yamlText });
+  test("handles explicit frontend config metadata without errors", async ({ page }) => {
+    await setupLoggedOutRoutes(page, {
+      frontendConfig: createFrontendConfig({
+        description: "Local",
+        origins: ["http://localhost:8111", "https://prod.example.com"],
+      }),
+    });
     await page.goto("/");
     await page.waitForTimeout(500);
     await expect(page.locator("#app-header")).toHaveAttribute("tauth-url", "http://localhost:8111");
     await expect(page.locator("header.mpr-header")).toBeVisible();
   });
 
-  test("handles environment without tauthUrl set", async ({ page }) => {
-    var yamlText = "environments:\n  - description: local\n    - \"http://localhost:8111\"";
-    await setupLoggedOutRoutes(page, { configYaml: yamlText });
+  test("handles frontend config without tauthUrl set", async ({ page }) => {
+    await setupLoggedOutRoutes(page, {
+      frontendConfig: createFrontendConfig({
+        auth: Object.assign({}, createFrontendConfig().auth, {
+          tauthUrl: "",
+        }),
+      }),
+    });
     await page.goto("/");
     await page.waitForTimeout(500);
     var tauthUrl = await page.locator("#app-header").getAttribute("tauth-url");
