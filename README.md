@@ -10,11 +10,11 @@ Billing is a business-critical path in this product. The billing flow is intenti
 - Missing or inconsistent billing data is treated as a product or operational defect to fix, not as a reason to guess, infer, or unlock a fallback path.
 - Do not add defensive billing fallbacks such as alternate customer lookup heuristics or optimistic UI unlocks for portal access.
 - When required billing state is unavailable, the correct behavior is to return an error and keep the path blocked until the underlying issue is corrected.
-- `configs/config.yml` is the source of truth for the browser-visible billing packs and the credit economy values used for generation, grants, and rewards.
+- `configs/config.yml` is the backend source of truth for billing packs and the credit economy values used for generation, grants, and rewards. Browser-facing auth settings live in `configs/frontend-config.yml`.
 
 ## Auth config
 
-Set `GOOGLE_CLIENT_ID` in `configs/.env.tauth.local` for local work and in `configs/.env.tauth.production` for production deployment. `configs/config.yml` may reference env vars such as `${GOOGLE_CLIENT_ID}`, and the Go backend expands them before serving `/config.yml`. The committed `js/runtime-auth-config.js` is the production-safe browser default. Local Docker and Playwright entry points render overrides into `js/runtime-auth-config.override.js` before startup.
+Set `GOOGLE_CLIENT_ID` in `configs/.env.tauth.local` for local work and in `configs/.env.tauth.production` for production deployment so TAuth and related tooling use the expected client. Keep backend settings in `configs/config.yml` and browser-facing auth settings in `configs/frontend-config.yml`. The committed `js/runtime-auth-config.js` is the production-safe browser default. Local Docker and Playwright entry points render overrides into `js/runtime-auth-config.override.js` before startup.
 
 Direct GitHub Pages publishing uses the committed `js/runtime-auth-config.js`. If you intentionally need to regenerate that tracked file, run `bash scripts/render-runtime-auth-config.sh` without `RUNTIME_AUTH_CONFIG_PATH`. Automated local and test flows use the override file instead.
 
@@ -22,10 +22,10 @@ For split-origin deployments, the browser runtime config also supports explicit 
 
 - `LLM_CROSSWORD_API_BASE_URL` — browser origin for `LLM Crossword API`
 - `LLM_CROSSWORD_AUTH_BASE_URL` — browser origin for TAuth auth endpoints
-- `LLM_CROSSWORD_CONFIG_URL` — public config document URL used by the frontend
+- `LLM_CROSSWORD_CONFIG_URL` — frontend YAML config URL used by the browser
 - `LLM_CROSSWORD_TAUTH_SCRIPT_URL` — explicit CDN or alternate `tauth.js` URL override
 
-If these are unset, local startup keeps the existing same-origin behaviour by defaulting service URLs to `SITE_ORIGIN`. When `LLM_CROSSWORD_API_BASE_URL` is set and `LLM_CROSSWORD_CONFIG_URL` is not, the frontend defaults the config document to `<api-base>/config.yml`. When `LLM_CROSSWORD_TAUTH_SCRIPT_URL` is unset, the frontend defaults `tauth.js` to the pinned CDN helper.
+If these are unset, local startup keeps the existing same-origin behaviour by defaulting service URLs to `SITE_ORIGIN`. When `LLM_CROSSWORD_CONFIG_URL` is not set, the frontend defaults to `<site-origin>/configs/frontend-config.yml`. When `LLM_CROSSWORD_TAUTH_SCRIPT_URL` is unset, the frontend defaults `tauth.js` to the pinned CDN helper.
 
 ## GitHub Pages
 
@@ -45,7 +45,7 @@ Keep localhost and production settings separate.
 
 - `configs/.env.crosswordapi.local`, `configs/.env.tauth.local`, and `tauth.config.local.yaml` are the local Docker inputs used by `make up`.
 - `configs/.env.crosswordapi.production`, `configs/.env.tauth.production`, and `tauth.config.production.yaml` are the production profile files.
-- `.runtime/config.yml`, `.runtime/tauth.config.yaml`, `.runtime/ledger.config.yml`, and `js/runtime-auth-config.override.js` are generated local-only artifacts.
+- `.runtime/config.yml`, `.runtime/public-configs/frontend-config.yml`, `.runtime/tauth.config.yaml`, `.runtime/ledger.config.yml`, and `js/runtime-auth-config.override.js` are generated local-only artifacts.
 - `js/runtime-auth-config.js` is the committed browser default for deployed/static environments.
 - Local and production secret files stay untracked.
 
