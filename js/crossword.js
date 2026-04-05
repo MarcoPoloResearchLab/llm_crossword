@@ -25,6 +25,15 @@
   var sharedPuzzleFallbackTitle = "Shared Crossword";
   var sharedPuzzleQueryParam = "puzzle";
   var sidebarCollapsedStorageKey = "llm-crossword-sidebar-collapsed";
+  var defaultRewardPolicy = Object.freeze({
+    owner_solve_coins: 3,
+    owner_no_hint_bonus_coins: 1,
+    owner_daily_solve_bonus_coins: 1,
+    owner_daily_solve_bonus_limit: 3,
+    creator_shared_solve_coins: 1,
+    creator_shared_per_puzzle_cap: 10,
+    creator_shared_daily_cap: 20,
+  });
 
   function buildApiUrl(path) {
     if (services && typeof services.buildApiUrl === "function") {
@@ -346,7 +355,58 @@
       creator_credits_earned: Number(summary.creator_credits_earned || 0),
       creator_puzzle_cap_remaining: Number(summary.creator_puzzle_cap_remaining || 0),
       creator_daily_cap_remaining: Number(summary.creator_daily_cap_remaining || 0),
+      reward_policy: coerceRewardPolicy(summary.reward_policy),
     };
+  }
+
+  function normalizePositiveInteger(value, fallbackValue) {
+    var normalizedValue = Number(value);
+
+    if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
+      return fallbackValue;
+    }
+
+    return Math.floor(normalizedValue);
+  }
+
+  function coerceRewardPolicy(policy) {
+    var rawPolicy = policy && typeof policy === "object" ? policy : {};
+
+    return {
+      owner_solve_coins: normalizePositiveInteger(rawPolicy.owner_solve_coins, defaultRewardPolicy.owner_solve_coins),
+      owner_no_hint_bonus_coins: normalizePositiveInteger(
+        rawPolicy.owner_no_hint_bonus_coins,
+        defaultRewardPolicy.owner_no_hint_bonus_coins
+      ),
+      owner_daily_solve_bonus_coins: normalizePositiveInteger(
+        rawPolicy.owner_daily_solve_bonus_coins,
+        defaultRewardPolicy.owner_daily_solve_bonus_coins
+      ),
+      owner_daily_solve_bonus_limit: normalizePositiveInteger(
+        rawPolicy.owner_daily_solve_bonus_limit,
+        defaultRewardPolicy.owner_daily_solve_bonus_limit
+      ),
+      creator_shared_solve_coins: normalizePositiveInteger(
+        rawPolicy.creator_shared_solve_coins,
+        defaultRewardPolicy.creator_shared_solve_coins
+      ),
+      creator_shared_per_puzzle_cap: normalizePositiveInteger(
+        rawPolicy.creator_shared_per_puzzle_cap,
+        defaultRewardPolicy.creator_shared_per_puzzle_cap
+      ),
+      creator_shared_daily_cap: normalizePositiveInteger(
+        rawPolicy.creator_shared_daily_cap,
+        defaultRewardPolicy.creator_shared_daily_cap
+      ),
+    };
+  }
+
+  function getRewardPolicy(summary) {
+    return summary && summary.reward_policy ? summary.reward_policy : defaultRewardPolicy;
+  }
+
+  function formatCreditsLabel(credits) {
+    return credits + " credit" + (credits === 1 ? "" : "s");
   }
 
   function ensurePuzzleKey(puzzle, fallbackPrefix, fallbackIndex) {
@@ -569,6 +629,7 @@
   }
 
   function updateRewardUI(puzzle) {
+    var rewardPolicy;
     var rewardSummary = puzzle && puzzle.rewardSummary;
     var label = "";
     var meta = "";
@@ -578,6 +639,8 @@
       elements.rewardStrip.hidden = true;
       return;
     }
+
+    rewardPolicy = getRewardPolicy(rewardSummary);
 
     if (puzzle.source === "owned") {
       if (rewardSummary && rewardSummary.owner_reward_status === "claimed") {
@@ -592,7 +655,9 @@
         meta = "This puzzle no longer qualifies for solve credits.";
       } else {
         label = "Solve to earn credits";
-        meta = "Base reward: 3 credits. No hints: +1. First 3 owner solves each UTC day: +1.";
+        meta = "Base reward: " + rewardPolicy.owner_solve_coins + " credits. No hints: +" +
+          rewardPolicy.owner_no_hint_bonus_coins + ". First " + rewardPolicy.owner_daily_solve_bonus_limit +
+          " owner solves each UTC day: +" + rewardPolicy.owner_daily_solve_bonus_coins + ".";
       }
       if (rewardSummary && rewardSummary.owner_reward_status !== "claimed") {
         meta += " Shared solves: " + rewardSummary.shared_unique_solves + ". Creator credits earned: " +
@@ -604,7 +669,8 @@
         meta = "Sign in if you want your solve to support the creator.";
       } else {
         label = "Support the creator";
-        meta = "Finish without Reveal and your solve can give the creator 1 credit.";
+        meta = "Finish without Reveal and your solve can give the creator " +
+          formatCreditsLabel(rewardPolicy.creator_shared_solve_coins) + ".";
       }
     } else {
       label = "Practice puzzle";
@@ -617,6 +683,8 @@
   }
 
   function updateShareHint(puzzle) {
+    var rewardPolicy;
+
     if (!elements.shareHint) return;
     if (!puzzle || !puzzle.shareToken) {
       elements.shareHint.hidden = true;
@@ -624,12 +692,16 @@
       return;
     }
 
+    rewardPolicy = getRewardPolicy(puzzle.rewardSummary);
+
     if (puzzle.source === "owned") {
       elements.shareHint.textContent =
-        "Share to earn up to 10 credits from unique signed-in solvers. " +
+        "Share to earn up to " + rewardPolicy.creator_shared_per_puzzle_cap + " credits from unique signed-in solvers. " +
         "Shared solves: " + (puzzle.rewardSummary ? puzzle.rewardSummary.shared_unique_solves : 0) + ". " +
         "Creator credits earned: " + (puzzle.rewardSummary ? puzzle.rewardSummary.creator_credits_earned : 0) + ". " +
-        "Puzzle cap left: " + (puzzle.rewardSummary ? puzzle.rewardSummary.creator_puzzle_cap_remaining : 10) + ".";
+        "Puzzle cap left: " + (
+          puzzle.rewardSummary ? puzzle.rewardSummary.creator_puzzle_cap_remaining : rewardPolicy.creator_shared_per_puzzle_cap
+        ) + ".";
       elements.shareHint.hidden = false;
       return;
     }

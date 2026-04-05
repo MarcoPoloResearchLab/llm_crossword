@@ -26,36 +26,6 @@ func newTestContext(method string, path string) (*gin.Context, *httptest.Respons
 	return ctx, recorder
 }
 
-func TestHandlePublicConfig_CoversMissingFileAndReadError(t *testing.T) {
-	t.Run("missing file returns not found", func(t *testing.T) {
-		cfg := testConfig()
-		cfg.PublicConfigPath = t.TempDir() + "/missing-config.yml"
-		handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, cfg)
-		router := testRouterWithClaims(handler, nil)
-
-		response := doRequest(router, http.MethodGet, "/config.yml", "")
-		if response.Code != http.StatusNotFound {
-			t.Fatalf("expected 404, got %d: %s", response.Code, response.Body.String())
-		}
-	})
-
-	t.Run("directory path returns internal error", func(t *testing.T) {
-		cfg := testConfig()
-		cfg.PublicConfigPath = t.TempDir()
-		handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, cfg)
-		router := testRouterWithClaims(handler, nil)
-
-		response := doRequest(router, http.MethodGet, "/config.yml", "")
-		if response.Code != http.StatusInternalServerError {
-			t.Fatalf("expected 500, got %d: %s", response.Code, response.Body.String())
-		}
-		body := decodeJSONMap(t, response.Body.String())
-		if body["error"] != "config_read_failed" {
-			t.Fatalf("expected config_read_failed, got %v", body["error"])
-		}
-	})
-}
-
 func TestBuildGenerateRefundIdempotencyKey_BlankRequestIDUsesGeneratedSuffix(t *testing.T) {
 	firstKey := buildGenerateRefundIdempotencyKey("generate_failure", "   ")
 	secondKey := buildGenerateRefundIdempotencyKey("generate_failure", "")

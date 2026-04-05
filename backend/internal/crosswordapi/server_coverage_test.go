@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -139,6 +140,80 @@ func TestRun_BillingInitError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "billing init") {
 		t.Fatalf("expected billing init error, got %v", err)
+	}
+}
+
+func TestRun_BillingCatalogValidationError(t *testing.T) {
+	addr, stopLedger := startFakeLedger(t)
+	defer stopLedger()
+
+	paddleServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/prices" {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.String())
+		}
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte(`{"error":{"code":"server_error","detail":"catalog lookup failed"}}`))
+	}))
+	defer paddleServer.Close()
+
+	cfg := validBillingConfig()
+	cfg.ListenAddr = "127.0.0.1:0"
+	cfg.LedgerAddress = addr
+	cfg.LedgerInsecure = true
+	cfg.PaddleAPIBaseURL = paddleServer.URL
+
+	err := Run(context.Background(), cfg, WithStore(&mockStore{}))
+	if err == nil {
+		t.Fatal("expected billing catalog validation error")
+	}
+	if !strings.Contains(err.Error(), "validate billing catalog") || !strings.Contains(err.Error(), "catalog lookup failed") {
+		t.Fatalf("expected catalog validation error, got %v", err)
+	}
+}
+
+func TestRun_BillingCatalogValidationSuccess(t *testing.T) {
+	addr, stopLedger := startFakeLedger(t)
+	defer stopLedger()
+
+	paddleServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/prices" {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.String())
+		}
+		_, _ = writer.Write([]byte(`{"data":[{"id":"pri_test_starter","product_id":"pro_test_starter","name":"Starter Pack","unit_price":{"amount":"2000"},"product":{"id":"pro_test_starter","name":"Starter Pack"}}]}`))
+	}))
+	defer paddleServer.Close()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	httpAddr := listener.Addr().String()
+	listener.Close()
+
+	cfg := validBillingConfig()
+	cfg.ListenAddr = httpAddr
+	cfg.LedgerAddress = addr
+	cfg.LedgerInsecure = true
+	cfg.PaddleAPIBaseURL = paddleServer.URL
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- Run(ctx, cfg, WithStore(&mockStore{}))
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected billing startup validation success, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancellation")
 	}
 }
 

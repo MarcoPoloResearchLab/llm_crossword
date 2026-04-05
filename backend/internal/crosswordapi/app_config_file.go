@@ -13,10 +13,83 @@ import (
 type AppConfigFile struct {
 	Administrators []string         `yaml:"administrators"`
 	Billing        appBillingConfig `yaml:"billing"`
+	Economy        appEconomyConfig `yaml:"economy"`
 }
 
 type appBillingConfig struct {
 	Packs []BillingPack `yaml:"packs"`
+}
+
+type appEconomyConfig struct {
+	CoinValueCents int64                      `yaml:"coin_value_cents"`
+	Grants         appEconomyGrantsConfig     `yaml:"grants"`
+	Generation     appEconomyGenerationConfig `yaml:"generation"`
+	Rewards        appEconomyRewardsConfig    `yaml:"rewards"`
+}
+
+type appEconomyGrantsConfig struct {
+	BootstrapCredits       int64 `yaml:"bootstrap_credits"`
+	DailyLoginCredits      int64 `yaml:"daily_login_credits"`
+	LowBalanceFloorCredits int64 `yaml:"low_balance_floor_credits"`
+}
+
+type appEconomyGenerationConfig struct {
+	CostCredits int64 `yaml:"cost_credits"`
+}
+
+type appEconomyRewardsConfig struct {
+	OwnerSolveCredits                int64 `yaml:"owner_solve_credits"`
+	OwnerNoHintBonusCredits          int64 `yaml:"owner_no_hint_bonus_credits"`
+	OwnerDailySolveBonusCredits      int64 `yaml:"owner_daily_solve_bonus_credits"`
+	OwnerDailySolveBonusLimit        int64 `yaml:"owner_daily_solve_bonus_limit"`
+	CreatorSharedSolveCredits        int64 `yaml:"creator_shared_solve_credits"`
+	CreatorSharedPerPuzzleCapCredits int64 `yaml:"creator_shared_per_puzzle_cap_credits"`
+	CreatorSharedDailyCapCredits     int64 `yaml:"creator_shared_daily_cap_credits"`
+}
+
+func (configFile *AppConfigFile) ApplyToRuntimeConfig(cfg *Config) {
+	if configFile == nil || cfg == nil {
+		return
+	}
+
+	cfg.BillingPacks = configFile.Billing.Packs
+
+	if configFile.Economy.CoinValueCents > 0 {
+		cfg.CoinValueCents = configFile.Economy.CoinValueCents
+	}
+	if configFile.Economy.Grants.BootstrapCredits > 0 {
+		cfg.BootstrapCoins = configFile.Economy.Grants.BootstrapCredits
+	}
+	if configFile.Economy.Generation.CostCredits > 0 {
+		cfg.GenerateCoins = configFile.Economy.Generation.CostCredits
+	}
+	if configFile.Economy.Grants.DailyLoginCredits > 0 {
+		cfg.DailyLoginCoins = configFile.Economy.Grants.DailyLoginCredits
+	}
+	if configFile.Economy.Grants.LowBalanceFloorCredits > 0 {
+		cfg.LowBalanceFloorCoins = configFile.Economy.Grants.LowBalanceFloorCredits
+	}
+	if configFile.Economy.Rewards.OwnerSolveCredits > 0 {
+		cfg.OwnerSolveCoins = configFile.Economy.Rewards.OwnerSolveCredits
+	}
+	if configFile.Economy.Rewards.OwnerNoHintBonusCredits > 0 {
+		cfg.OwnerNoHintBonusCoins = configFile.Economy.Rewards.OwnerNoHintBonusCredits
+	}
+	if configFile.Economy.Rewards.OwnerDailySolveBonusCredits > 0 {
+		cfg.OwnerDailySolveBonusCoins = configFile.Economy.Rewards.OwnerDailySolveBonusCredits
+	}
+	if configFile.Economy.Rewards.OwnerDailySolveBonusLimit > 0 {
+		cfg.OwnerDailySolveBonusLimit = configFile.Economy.Rewards.OwnerDailySolveBonusLimit
+	}
+	if configFile.Economy.Rewards.CreatorSharedSolveCredits > 0 {
+		cfg.CreatorSharedSolveCoins = configFile.Economy.Rewards.CreatorSharedSolveCredits
+	}
+	if configFile.Economy.Rewards.CreatorSharedPerPuzzleCapCredits > 0 {
+		cfg.CreatorSharedPerPuzzleCap = configFile.Economy.Rewards.CreatorSharedPerPuzzleCapCredits
+	}
+	if configFile.Economy.Rewards.CreatorSharedDailyCapCredits > 0 {
+		cfg.CreatorSharedDailyCap = configFile.Economy.Rewards.CreatorSharedDailyCapCredits
+	}
 }
 
 var configEnvVariablePattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)

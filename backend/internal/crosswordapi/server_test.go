@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -150,12 +149,13 @@ func testRouterWithClaims(handler *httpHandler, claims *sessionvalidator.Claims)
 	router.GET("/healthz", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
-	router.GET("/config.yml", handler.handlePublicConfig)
 	router.GET("/api/session", handler.handleSession)
 	router.POST("/api/bootstrap", handler.handleBootstrap)
 	router.GET("/api/balance", handler.handleBalance)
 	router.GET("/api/billing/summary", handler.handleBillingSummary)
+	router.POST("/api/billing/sync", handler.handleBillingSync)
 	router.POST("/api/billing/checkout", handler.handleBillingCheckout)
+	router.POST("/api/billing/checkout/reconcile", handler.handleBillingCheckoutReconcile)
 	router.POST("/api/billing/portal", handler.handleBillingPortal)
 	router.POST("/api/billing/paddle/webhook", handler.handleBillingWebhook)
 	router.POST("/api/generate", handler.handleGenerate)
@@ -261,84 +261,6 @@ func TestOptionalSessionMiddleware_UsesDefaultContextKey(t *testing.T) {
 	response := doRequestWithCookies(router, http.MethodGet, "/session", "", cookie)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", response.Code)
-	}
-}
-
-func TestHandlePublicConfig_ServesConfiguredDocument(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := tempDir + "/config.yml"
-	configBody := "billing:\n  packs: []\n"
-	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cfg := testConfig()
-	cfg.PublicConfigPath = configPath
-	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, cfg)
-	router := testRouterWithClaims(handler, nil)
-
-	response := doRequest(router, http.MethodGet, "/config.yml", "")
-	if response.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
-	}
-	if got := response.Header().Get("Cache-Control"); got != "no-store" {
-		t.Fatalf("expected Cache-Control no-store, got %q", got)
-	}
-	if !strings.Contains(response.Body.String(), "billing:") {
-		t.Fatalf("expected config body, got %q", response.Body.String())
-	}
-}
-
-func TestHandlePublicConfig_InterpolatesEnvironmentVariables(t *testing.T) {
-	t.Setenv("GOOGLE_CLIENT_ID", "google-client-id-from-env")
-
-	tempDir := t.TempDir()
-	configPath := tempDir + "/config.yml"
-	configBody := "auth:\n  googleClientId: ${GOOGLE_CLIENT_ID}\n"
-	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cfg := testConfig()
-	cfg.PublicConfigPath = configPath
-	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, cfg)
-	router := testRouterWithClaims(handler, nil)
-
-	response := doRequest(router, http.MethodGet, "/config.yml", "")
-	if response.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
-	}
-	if !strings.Contains(response.Body.String(), "google-client-id-from-env") {
-		t.Fatalf("expected expanded config body, got %q", response.Body.String())
-	}
-}
-
-func TestHandlePublicConfig_FailsWhenEnvironmentVariableIsMissing(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := tempDir + "/config.yml"
-	configBody := "auth:\n  googleClientId: ${MISSING_GOOGLE_CLIENT_ID}\n"
-	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cfg := testConfig()
-	cfg.PublicConfigPath = configPath
-	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, cfg)
-	router := testRouterWithClaims(handler, nil)
-
-	response := doRequest(router, http.MethodGet, "/config.yml", "")
-	if response.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", response.Code, response.Body.String())
-	}
-}
-
-func TestHandlePublicConfig_NotFoundWhenUnset(t *testing.T) {
-	handler := testHandlerWithConfig(&mockLedgerClient{}, nil, nil, testConfig())
-	router := testRouterWithClaims(handler, nil)
-
-	response := doRequest(router, http.MethodGet, "/config.yml", "")
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", response.Code, response.Body.String())
 	}
 }
 

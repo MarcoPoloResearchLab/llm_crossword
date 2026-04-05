@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	sharedbilling "github.com/tyemirov/utils/billing"
 )
 
 const (
@@ -44,12 +46,18 @@ const (
 var (
 	ErrPaddleCheckoutURLMissing = errors.New("billing.paddle.checkout_url.missing")
 	ErrPaddleWebhookSignature   = errors.New("billing.paddle.signature.invalid")
+
+	newSharedPaddleGrantResolver = func(provider *sharedbilling.PaddleProvider) (sharedbilling.WebhookGrantResolver, error) {
+		return provider.NewWebhookGrantResolver()
+	}
 )
 
 type paddleBillingProvider struct {
-	apiClient  *paddleAPIClient
-	cfg        Config
-	packPrices map[string]string
+	apiClient           *paddleAPIClient
+	cfg                 Config
+	packPrices          map[string]string
+	sharedProvider      *sharedbilling.PaddleProvider
+	sharedGrantResolver sharedbilling.WebhookGrantResolver
 }
 
 type paddleCustomer struct {
@@ -149,10 +157,31 @@ func newPaddleBillingProvider(cfg Config) (*paddleBillingProvider, error) {
 		packPrices[normalizeBillingPackCode(packCode)] = strings.TrimSpace(priceID)
 	}
 
+	sharedVerifier, sharedVerifierErr := sharedbilling.NewPaddleWebhookVerifier(cfg.PaddleWebhookSecret, 5*time.Minute)
+	if sharedVerifierErr != nil {
+		return nil, sharedVerifierErr
+	}
+	sharedProvider, sharedProviderErr := sharedbilling.NewPaddleProvider(sharedbilling.PaddleProviderSettings{
+		Environment: cfg.PaddleEnvironment,
+		APIBaseURL:  cfg.PaddleAPIBaseURL,
+		APIKey:      cfg.PaddleAPIKey,
+		ClientToken: cfg.PaddleClientToken,
+		Packs:       buildSharedBillingPackCatalog(cfg),
+	}, sharedVerifier, nil)
+	if sharedProviderErr != nil {
+		return nil, sharedProviderErr
+	}
+	sharedGrantResolver, sharedGrantResolverErr := newSharedPaddleGrantResolver(sharedProvider)
+	if sharedGrantResolverErr != nil {
+		return nil, sharedGrantResolverErr
+	}
+
 	return &paddleBillingProvider{
-		apiClient:  apiClient,
-		cfg:        cfg,
-		packPrices: packPrices,
+		apiClient:           apiClient,
+		cfg:                 cfg,
+		packPrices:          packPrices,
+		sharedProvider:      sharedProvider,
+		sharedGrantResolver: sharedGrantResolver,
 	}, nil
 }
 
@@ -182,15 +211,65 @@ func (provider *paddleBillingProvider) Code() string {
 	return billingProviderPaddle
 }
 
+func (provider *paddleBillingProvider) BuildUserSyncEvents(
+	ctx context.Context,
+	userEmail string,
+) ([]sharedbilling.WebhookEvent, error) {
+	if provider == nil || provider.sharedProvider == nil {
+		return nil, sharedbilling.ErrPaddleProviderClientUnavailable
+	}
+	return provider.sharedProvider.BuildUserSyncEvents(ctx, userEmail)
+}
+
+func (provider *paddleBillingProvider) BuildCheckoutReconcileEvent(
+	ctx context.Context,
+	transactionID string,
+) (sharedbilling.WebhookEvent, string, error) {
+	if provider == nil || provider.sharedProvider == nil {
+		return sharedbilling.WebhookEvent{}, "", sharedbilling.ErrPaddleProviderClientUnavailable
+	}
+	return provider.sharedProvider.BuildCheckoutReconcileEvent(ctx, transactionID)
+}
+
+func (provider *paddleBillingProvider) ResolveCheckoutEventStatus(eventType string) sharedbilling.CheckoutEventStatus {
+	if provider == nil || provider.sharedProvider == nil {
+		return sharedbilling.CheckoutEventStatusUnknown
+	}
+	return provider.sharedProvider.ResolveCheckoutEventStatus(eventType)
+}
+
+func (provider *paddleBillingProvider) ValidateCatalog(ctx context.Context) error {
+	if provider == nil || provider.sharedProvider == nil {
+		return sharedbilling.ErrPaddleProviderClientUnavailable
+	}
+	return provider.sharedProvider.ValidateCatalog(ctx)
+}
+
 func (provider *paddleBillingProvider) PublicConfig() billingPublicConfig {
+	if provider != nil && provider.sharedProvider != nil {
+		publicConfig := provider.sharedProvider.PublicConfig()
+		return billingPublicConfig{
+			Environment: publicConfig.Environment,
+			ClientToken: publicConfig.ClientToken,
+		}
+	}
 	return provider.cfg.BillingPublicConfig()
 }
 
 func (provider *paddleBillingProvider) SignatureHeaderName() string {
+	if provider != nil && provider.sharedProvider != nil {
+		return provider.sharedProvider.SignatureHeaderName()
+	}
 	return paddleSignatureHeaderName
 }
 
 func (provider *paddleBillingProvider) VerifyWebhookSignature(signatureHeader string, payload []byte) error {
+	if provider != nil && provider.sharedProvider != nil {
+		if err := provider.sharedProvider.VerifySignature(signatureHeader, payload); err != nil {
+			return ErrPaddleWebhookSignature
+		}
+		return nil
+	}
 	timestamp, hashes, err := parsePaddleSignatureHeader(signatureHeader)
 	if err != nil {
 		return err
@@ -248,6 +327,10 @@ func parsePaddleSignatureHeader(signatureHeader string) (int64, []string, error)
 }
 
 func (provider *paddleBillingProvider) ParseWebhookEvent(payload []byte) (billingProviderEvent, error) {
+	if provider != nil && provider.sharedProvider != nil && provider.sharedGrantResolver != nil {
+		return provider.parseSharedWebhookEvent(payload)
+	}
+
 	envelope := paddleWebhookEnvelope{}
 	if err := json.Unmarshal(payload, &envelope); err != nil {
 		return billingProviderEvent{}, err
@@ -291,13 +374,15 @@ func (provider *paddleBillingProvider) ParseWebhookEvent(payload []byte) (billin
 	}
 
 	providerEvent := billingProviderEvent{EventRecord: eventRecord}
-	if eventRecord.EventType == paddleEventTypeTransactionCompleted && credits > 0 && strings.TrimSpace(userID) != "" {
+	if eventRecord.EventType == paddleEventTypeTransactionCompleted && credits > 0 {
 		providerEvent.EventRecord.CreditsDelta = credits
-		providerEvent.CustomerLink = &BillingCustomerLink{
-			UserID:           userID,
-			Provider:         provider.Code(),
-			PaddleCustomerID: strings.TrimSpace(envelope.Data.CustomerID),
-			Email:            strings.TrimSpace(userEmail),
+		if strings.TrimSpace(envelope.Data.CustomerID) != "" {
+			providerEvent.CustomerLink = &BillingCustomerLink{
+				UserID:           userID,
+				Provider:         provider.Code(),
+				PaddleCustomerID: strings.TrimSpace(envelope.Data.CustomerID),
+				Email:            strings.TrimSpace(userEmail),
+			}
 		}
 		providerEvent.GrantEvent = &BillingGrantEvent{
 			User:       userID,
@@ -321,6 +406,97 @@ func (provider *paddleBillingProvider) ParseWebhookEvent(payload []byte) (billin
 	return providerEvent, nil
 }
 
+func (provider *paddleBillingProvider) parseSharedWebhookEvent(payload []byte) (billingProviderEvent, error) {
+	envelope := paddleWebhookEnvelope{}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return billingProviderEvent{}, err
+	}
+
+	eventMetadata, err := provider.sharedProvider.ParseWebhookEvent(payload)
+	if err != nil {
+		return billingProviderEvent{}, err
+	}
+
+	grant, shouldGrant, grantErr := provider.sharedGrantResolver.Resolve(context.Background(), sharedbilling.WebhookEvent{
+		ProviderCode: provider.Code(),
+		EventID:      eventMetadata.EventID,
+		EventType:    eventMetadata.EventType,
+		OccurredAt:   eventMetadata.OccurredAt,
+		Payload:      payload,
+	})
+	if grantErr != nil {
+		return billingProviderEvent{}, grantErr
+	}
+
+	userID := strings.TrimSpace(grant.SubjectID)
+	userEmail := strings.TrimSpace(grant.UserEmail)
+	if userEmail == "" {
+		userEmail = readPaddleMetadataValue(envelope.Data.CustomData, paddleMetadataUserEmailKey)
+	}
+	if userEmail == "" {
+		userEmail = strings.TrimSpace(envelope.Data.Customer.Email)
+	}
+	if userEmail == "" {
+		userEmail = strings.TrimSpace(envelope.Data.Customer.EmailAddress)
+	}
+
+	packCode := normalizeBillingPackCode(readPaddleMetadataValue(envelope.Data.CustomData, paddleMetadataPackCodeKey))
+	if packCode == "" && shouldGrant {
+		packCode = normalizeBillingPackCode(grant.Metadata["billing_pack_code"])
+	}
+	priceID := resolvePaddlePriceID(envelope.Data.Items)
+	if priceID == "" && shouldGrant {
+		priceID = strings.TrimSpace(grant.Metadata["billing_price_id"])
+	}
+	credits := provider.resolveCredits(packCode, priceID, readPaddleMetadataValue(envelope.Data.CustomData, paddleMetadataCreditsKey))
+	if shouldGrant && grant.Credits > 0 {
+		credits = grant.Credits
+	}
+
+	eventRecord := BillingEventRecord{
+		Provider:         provider.Code(),
+		EventID:          strings.TrimSpace(eventMetadata.EventID),
+		EventType:        strings.TrimSpace(eventMetadata.EventType),
+		UserID:           userID,
+		UserEmail:        userEmail,
+		PaddleCustomerID: strings.TrimSpace(envelope.Data.CustomerID),
+		TransactionID:    strings.TrimSpace(envelope.Data.ID),
+		PackCode:         packCode,
+		CreditsDelta:     0,
+		Status:           strings.TrimSpace(envelope.Data.Status),
+		OccurredAt:       eventMetadata.OccurredAt.UTC(),
+		RawPayloadSummary: fmt.Sprintf(
+			"%s %s",
+			strings.TrimSpace(eventMetadata.EventType),
+			strings.TrimSpace(envelope.Data.Status),
+		),
+	}
+
+	providerEvent := billingProviderEvent{EventRecord: eventRecord}
+	if eventRecord.EventType == paddleEventTypeTransactionCompleted && credits > 0 {
+		providerEvent.EventRecord.CreditsDelta = credits
+		providerEvent.GrantEvent = &BillingGrantEvent{
+			User:       userID,
+			Credits:    credits,
+			Reference:  strings.TrimSpace(grant.Reference),
+			ReasonCode: strings.TrimSpace(grant.Reason),
+			Metadata:   cloneBillingMetadata(grant.Metadata, userEmail),
+			Provider:   provider.Code(),
+			EventID:    strings.TrimSpace(eventMetadata.EventID),
+		}
+		if strings.TrimSpace(envelope.Data.CustomerID) != "" {
+			providerEvent.CustomerLink = &BillingCustomerLink{
+				UserID:           userID,
+				Provider:         provider.Code(),
+				PaddleCustomerID: strings.TrimSpace(envelope.Data.CustomerID),
+				Email:            userEmail,
+			}
+		}
+	}
+
+	return providerEvent, nil
+}
+
 func (provider *paddleBillingProvider) resolveCredits(packCode string, priceID string, metadataCredits string) int64 {
 	if parsedCredits, err := strconv.ParseInt(strings.TrimSpace(metadataCredits), 10, 64); err == nil && parsedCredits > 0 {
 		return parsedCredits
@@ -336,6 +512,21 @@ func (provider *paddleBillingProvider) resolveCredits(packCode string, priceID s
 		}
 	}
 	return 0
+}
+
+func cloneBillingMetadata(source map[string]string, userEmail string) map[string]string {
+	metadata := make(map[string]string, len(source)+1)
+	for key, value := range source {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		metadata[trimmedKey] = strings.TrimSpace(value)
+	}
+	if strings.TrimSpace(metadata["user_email"]) == "" && strings.TrimSpace(userEmail) != "" {
+		metadata["user_email"] = strings.TrimSpace(userEmail)
+	}
+	return metadata
 }
 
 func readPaddleMetadataValue(metadata map[string]interface{}, key string) string {
@@ -372,6 +563,21 @@ func resolvePaddlePriceID(items []paddleTransactionLineItem) string {
 }
 
 func (provider *paddleBillingProvider) CreateCheckout(ctx context.Context, userID string, userEmail string, pack BillingPack, returnURL string) (billingCheckoutSession, error) {
+	if provider != nil && provider.sharedProvider != nil {
+		checkoutSession, err := provider.sharedProvider.CreateTopUpCheckout(ctx, sharedbilling.CustomerContext{
+			Email:     strings.TrimSpace(userEmail),
+			SubjectID: strings.TrimSpace(userID),
+		}, pack.Code)
+		if err != nil {
+			return billingCheckoutSession{}, err
+		}
+		return billingCheckoutSession{
+			ProviderCode:  checkoutSession.ProviderCode,
+			TransactionID: checkoutSession.TransactionID,
+			CheckoutURL:   buildPayPageCheckoutURL(checkoutSession.TransactionID, returnURL),
+		}, nil
+	}
+
 	customerID, err := provider.apiClient.ResolveCustomerID(ctx, userEmail)
 	if err != nil {
 		return billingCheckoutSession{}, err
@@ -404,7 +610,19 @@ func (provider *paddleBillingProvider) CreateCheckout(ctx context.Context, userI
 }
 
 func (provider *paddleBillingProvider) CreatePortalSession(ctx context.Context, customerLink BillingCustomerLink) (billingPortalSession, error) {
-	portalURL, err := provider.apiClient.CreatePortalSession(ctx, customerLink.PaddleCustomerID)
+	if provider == nil || provider.apiClient == nil {
+		return billingPortalSession{}, ErrBillingPortalUnavailable
+	}
+
+	// Billing is fail-closed here as well: a portal session requires the
+	// already-persisted Paddle customer id for this user. Missing linkage is a
+	// data issue to repair, not a signal to try alternate lookups.
+	customerID := strings.TrimSpace(customerLink.PaddleCustomerID)
+	if customerID == "" {
+		return billingPortalSession{}, ErrBillingPortalUnavailable
+	}
+
+	portalURL, err := provider.apiClient.CreatePortalSession(ctx, customerID)
 	if err != nil {
 		return billingPortalSession{}, err
 	}
@@ -412,6 +630,36 @@ func (provider *paddleBillingProvider) CreatePortalSession(ctx context.Context, 
 		ProviderCode: provider.Code(),
 		URL:          portalURL,
 	}, nil
+}
+
+func buildSharedBillingPackCatalog(cfg Config) []sharedbilling.PackCatalogItem {
+	items := make([]sharedbilling.PackCatalogItem, 0, len(cfg.BillingPacks))
+	for _, pack := range cfg.NormalizedBillingPacks() {
+		items = append(items, sharedbilling.PackCatalogItem{
+			Code:       pack.Code,
+			Label:      pack.Label,
+			PriceID:    strings.TrimSpace(cfg.PaddlePackPriceIDs[pack.Code]),
+			Credits:    pack.Credits,
+			PriceCents: pack.PriceCents,
+		})
+	}
+	return items
+}
+
+func buildPayPageCheckoutURL(transactionID string, returnURL string) string {
+	query := url.Values{}
+	trimmedTransactionID := strings.TrimSpace(transactionID)
+	if trimmedTransactionID != "" {
+		query.Set("transaction_id", trimmedTransactionID)
+	}
+	resolvedReturnURL := replaceCheckoutTransactionPlaceholder(returnURL, trimmedTransactionID)
+	if strings.TrimSpace(resolvedReturnURL) != "" {
+		query.Set("return_to", resolvedReturnURL)
+	}
+	if encodedQuery := query.Encode(); encodedQuery != "" {
+		return "/pay.html?" + encodedQuery
+	}
+	return "/pay.html"
 }
 
 func appendCheckoutReturnURL(checkoutURL string, returnURL string) string {

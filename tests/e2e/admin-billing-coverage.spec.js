@@ -104,6 +104,8 @@ test.describe("Admin billing coverage", () => {
       }
 
       outcomes.balanceFromAvailable = admin.getBalanceCredits({ available_cents: 350 });
+      outcomes.balanceFromCustomCoinValue = admin.getBalanceCredits({ available_cents: 350, coin_value_cents: 10 });
+      outcomes.generationCostMissing = admin.getGenerationCostCredits({});
       outcomes.balanceInvalid = admin.getBalanceCredits({ available_cents: "nope" });
       outcomes.emptyPackLabel = admin.getBillingPackLabel("");
 
@@ -138,7 +140,7 @@ test.describe("Admin billing coverage", () => {
             transaction_id: "txn_123",
           },
         ],
-        balance: { available_cents: 350 },
+        balance: { available_cents: 350, generation_cost_coins: 6 },
         enabled: true,
         packs: [
           {
@@ -156,6 +158,7 @@ test.describe("Admin billing coverage", () => {
         balance: document.getElementById("settingsBillingBalanceValue").textContent,
         manageDisabled: manageButton.disabled,
         manageDisplay: manageButton.style.display,
+        meta: document.getElementById("settingsBillingBalanceMeta").textContent,
         packText: document.getElementById("settingsBillingPackList").textContent,
       };
 
@@ -234,6 +237,8 @@ test.describe("Admin billing coverage", () => {
     });
 
     expect(result.balanceFromAvailable).toBe(3);
+    expect(result.balanceFromCustomCoinValue).toBe(35);
+    expect(result.generationCostMissing).toBeNull();
     expect(result.balanceInvalid).toBeNull();
     expect(result.emptyPackLabel).toBe("");
     expect(result.pendingReturnError).toBe(false);
@@ -246,6 +251,7 @@ test.describe("Admin billing coverage", () => {
     expect(result.enabledSummary.balance).toBe("3 credits");
     expect(result.enabledSummary.manageDisplay).toBe("");
     expect(result.enabledSummary.manageDisabled).toBe(false);
+    expect(result.enabledSummary.meta).toBe("Each new crossword costs 6 credits. Purchases are granted after Paddle confirms payment.");
     expect(result.enabledSummary.packText).toContain("—");
     expect(result.enabledSummary.activityText).toContain("Billing activity recorded.");
     expect(result.enabledSummary.activityText).toContain("completed");
@@ -340,7 +346,7 @@ test.describe("Admin billing coverage", () => {
     expect(result.blankTimestamp).toBe("—");
     expect(result.restoreDrawerWithReturn).toBe(true);
     expect(result.balanceValue).toBe("—");
-    expect(result.metaValue).toContain("Each new crossword costs 4 credits.");
+    expect(result.metaValue).toBe("Purchases are granted after Paddle confirms payment.");
     expect(result.drawerOpen).toBe("");
   });
 });

@@ -586,6 +586,7 @@ type mockStore struct {
 	getRewardStatsFunc                   func(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error)
 	updateGenerationRequestFunc          func(record *GenerationRequestRecord) error
 	upsertUserProfileFunc                func(profile *UserProfile) error
+	getUserProfileByEmailFunc            func(email string) (*UserProfile, error)
 	listUsersFunc                        func() ([]AdminUser, error)
 	createGrantRecordFunc                func(record *AdminGrantRecord) error
 	listGrantRecordsFunc                 func(targetUserID string, limit int) ([]AdminGrantRecord, error)
@@ -593,6 +594,7 @@ type mockStore struct {
 	getBillingCustomerLinkFunc           func(userID string, provider string) (*BillingCustomerLink, error)
 	getBillingCustomerLinkByPaddleIDFunc func(provider string, paddleCustomerID string) (*BillingCustomerLink, error)
 	createBillingEventRecordFunc         func(record *BillingEventRecord) error
+	hasBillingCreditedTransactionFunc    func(provider string, transactionID string) (bool, error)
 	listBillingEventRecordsFunc          func(userID string, provider string, limit int) ([]BillingEventRecord, error)
 }
 
@@ -691,6 +693,13 @@ func (m *mockStore) UpsertUserProfile(profile *UserProfile) error {
 	return nil
 }
 
+func (m *mockStore) GetUserProfileByEmail(email string) (*UserProfile, error) {
+	if m.getUserProfileByEmailFunc != nil {
+		return m.getUserProfileByEmailFunc(email)
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 func (m *mockStore) ListAdminUsers() ([]AdminUser, error) {
 	if m.listUsersFunc != nil {
 		return m.listUsersFunc()
@@ -738,6 +747,13 @@ func (m *mockStore) CreateBillingEventRecord(record *BillingEventRecord) error {
 		return m.createBillingEventRecordFunc(record)
 	}
 	return nil
+}
+
+func (m *mockStore) HasBillingCreditedTransaction(provider string, transactionID string) (bool, error) {
+	if m.hasBillingCreditedTransactionFunc != nil {
+		return m.hasBillingCreditedTransactionFunc(provider, transactionID)
+	}
+	return false, nil
 }
 
 func (m *mockStore) ListBillingEventRecords(userID string, provider string, limit int) ([]BillingEventRecord, error) {

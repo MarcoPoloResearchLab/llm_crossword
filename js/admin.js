@@ -5,6 +5,7 @@
   var services = window.LLMCrosswordServices || null;
   var _fetch = window.authFetch || window.fetch.bind(window);
   var billingRestoreDrawerStorageKey = "llm-crossword-billing-restore-drawer";
+  var defaultCoinValueCents = 100;
   var placeholderValue = "—";
 
   function buildApiUrl(path) {
@@ -226,13 +227,33 @@
     return parsedDate.toISOString();
   }
 
+  function normalizePositiveInteger(value, fallbackValue) {
+    var normalizedValue = Number(value);
+
+    if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
+      return fallbackValue;
+    }
+
+    return Math.floor(normalizedValue);
+  }
+
+  function getCoinValueCents(balance) {
+    if (!balance || typeof balance !== "object") return defaultCoinValueCents;
+    return normalizePositiveInteger(balance.coin_value_cents, defaultCoinValueCents);
+  }
+
+  function getGenerationCostCredits(balance) {
+    if (!balance || typeof balance !== "object") return null;
+    return normalizePositiveInteger(balance.generation_cost_coins, null);
+  }
+
   function getBalanceCredits(balance) {
     if (!balance || typeof balance !== "object") return null;
     if (balance.coins != null && !isNaN(Number(balance.coins))) {
       return Number(balance.coins);
     }
     if (balance.available_cents != null && !isNaN(Number(balance.available_cents))) {
-      return Math.floor(Number(balance.available_cents) / 100);
+      return Math.floor(Number(balance.available_cents) / getCoinValueCents(balance));
     }
     return null;
   }
@@ -299,6 +320,8 @@
     var actionButtons;
 
     if (settingsManageBillingButton) {
+      // Billing is fail-closed: the settings UI only enables Manage Billing
+      // when the backend confirms that the persisted customer link is ready.
       settingsManageBillingButton.disabled = isBusy === true || !billingSummary || billingSummary.portal_available !== true;
     }
     if (!settingsBillingPackList) return;
@@ -427,6 +450,7 @@
 
   function renderBillingSummary() {
     var balanceCredits;
+    var generationCostCredits;
 
     if (!settingsBillingPanel || !settingsBillingBalanceValue || !settingsBillingBalanceMeta) return;
 
@@ -440,10 +464,19 @@
     }
 
     balanceCredits = getBalanceCredits(billingSummary.balance);
+    generationCostCredits = getGenerationCostCredits(billingSummary.balance);
     settingsBillingBalanceValue.textContent = balanceCredits === null ? placeholderValue : balanceCredits + " credits";
-    settingsBillingBalanceMeta.textContent = "Each new crossword costs 4 credits. Purchases are granted after Paddle confirms payment.";
+    if (generationCostCredits === null) {
+      settingsBillingBalanceMeta.textContent = "Purchases are granted after Paddle confirms payment.";
+    } else {
+      settingsBillingBalanceMeta.textContent =
+        "Each new crossword costs " + generationCostCredits +
+        " credits. Purchases are granted after Paddle confirms payment.";
+    }
 
     if (settingsManageBillingButton) {
+      // Keep the portal action hidden until the server reports a complete
+      // billing-customer link. Do not optimistically expose fallback paths.
       settingsManageBillingButton.style.display = billingSummary.portal_available ? "" : "none";
       settingsManageBillingButton.disabled = billingSummary.portal_available !== true;
     }
@@ -828,7 +861,7 @@
       })
       .then(function (data) {
         var b = data.balance;
-        adminBalanceCoins.textContent = b.coins != null ? b.coins : Math.floor(b.available_cents / 100);
+        adminBalanceCoins.textContent = getBalanceCredits(b);
         adminBalanceTotal.textContent = b.total_cents != null ? b.total_cents : "-";
       })
       .catch(function (err) {
@@ -951,7 +984,7 @@
           adminGrantReason.value = "";
           if (result.data.balance) {
             var b = result.data.balance;
-            adminBalanceCoins.textContent = b.coins != null ? b.coins : Math.floor(b.available_cents / 100);
+            adminBalanceCoins.textContent = getBalanceCredits(b);
             adminBalanceTotal.textContent = b.total_cents != null ? b.total_cents : "-";
           } else {
             loadUserBalance(targetUser.user_id);
@@ -977,6 +1010,8 @@
     formatRolesValue: formatRolesValue,
     getBalanceCredits: getBalanceCredits,
     getBillingPackLabel: getBillingPackLabel,
+    getCoinValueCents: getCoinValueCents,
+    getGenerationCostCredits: getGenerationCostCredits,
     getUserPrimaryLabel: getUserPrimaryLabel,
     getUserSearchText: getUserSearchText,
     getUserSecondaryLabel: getUserSecondaryLabel,
