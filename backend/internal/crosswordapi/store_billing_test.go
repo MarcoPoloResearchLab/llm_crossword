@@ -134,3 +134,105 @@ func TestBillingEventStoreMethods(t *testing.T) {
 	}
 
 }
+
+func TestBillingEventStoreMethods_IncludesLinkedCustomerEventsWithoutUserID(t *testing.T) {
+	s := testStore(t)
+
+	if err := s.UpsertBillingCustomerLink(&BillingCustomerLink{
+		UserID:           "user-1",
+		Provider:         billingProviderPaddle,
+		PaddleCustomerID: "ctm_linked",
+		Email:            "user@example.com",
+	}); err != nil {
+		t.Fatalf("UpsertBillingCustomerLink(linked) error = %v", err)
+	}
+
+	now := time.Date(2026, time.March, 29, 12, 0, 0, 0, time.UTC)
+	for _, record := range []*BillingEventRecord{
+		{
+			Provider:         billingProviderPaddle,
+			EventID:          "evt_direct",
+			EventType:        paddleEventTypeTransactionCompleted,
+			UserID:           "user-1",
+			PaddleCustomerID: "ctm_linked",
+			TransactionID:    "txn_direct",
+			OccurredAt:       now.Add(-1 * time.Hour),
+		},
+		{
+			Provider:         billingProviderPaddle,
+			EventID:          "evt_orphan_linked",
+			EventType:        paddleEventTypeTransactionCompleted,
+			PaddleCustomerID: "ctm_linked",
+			TransactionID:    "txn_orphan_linked",
+			OccurredAt:       now,
+		},
+		{
+			Provider:         billingProviderPaddle,
+			EventID:          "evt_orphan_other",
+			EventType:        paddleEventTypeTransactionCompleted,
+			PaddleCustomerID: "ctm_other",
+			TransactionID:    "txn_orphan_other",
+			OccurredAt:       now.Add(1 * time.Hour),
+		},
+	} {
+		if err := s.CreateBillingEventRecord(record); err != nil {
+			t.Fatalf("CreateBillingEventRecord(%s) error = %v", record.EventID, err)
+		}
+	}
+
+	records, err := s.ListBillingEventRecords("user-1", billingProviderPaddle, 0)
+	if err != nil {
+		t.Fatalf("ListBillingEventRecords(linked customer) error = %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected direct + linked orphan records, got %#v", records)
+	}
+	if records[0].EventID != "evt_orphan_linked" || records[1].EventID != "evt_direct" {
+		t.Fatalf("unexpected linked-customer billing record order: %#v", records)
+	}
+}
+
+func TestBillingEventStoreMethods_HasBillingCreditedTransaction(t *testing.T) {
+	s := testStore(t)
+
+	for _, record := range []*BillingEventRecord{
+		{
+			Provider:      billingProviderPaddle,
+			EventID:       "evt_pending",
+			EventType:     paddleEventTypeTransactionUpdated,
+			UserID:        "user-1",
+			TransactionID: "txn_pending",
+			CreditsDelta:  0,
+			OccurredAt:    time.Date(2026, time.March, 29, 10, 0, 0, 0, time.UTC),
+		},
+		{
+			Provider:      billingProviderPaddle,
+			EventID:       "evt_credited",
+			EventType:     paddleEventTypeTransactionCompleted,
+			UserID:        "user-1",
+			TransactionID: "txn_paid",
+			CreditsDelta:  20,
+			OccurredAt:    time.Date(2026, time.March, 29, 11, 0, 0, 0, time.UTC),
+		},
+	} {
+		if err := s.CreateBillingEventRecord(record); err != nil {
+			t.Fatalf("CreateBillingEventRecord(%s) error = %v", record.EventID, err)
+		}
+	}
+
+	hasPending, err := s.HasBillingCreditedTransaction(billingProviderPaddle, "txn_pending")
+	if err != nil {
+		t.Fatalf("HasBillingCreditedTransaction(txn_pending) error = %v", err)
+	}
+	if hasPending {
+		t.Fatal("expected pending transaction to report no credited record")
+	}
+
+	hasPaid, err := s.HasBillingCreditedTransaction(billingProviderPaddle, "txn_paid")
+	if err != nil {
+		t.Fatalf("HasBillingCreditedTransaction(txn_paid) error = %v", err)
+	}
+	if !hasPaid {
+		t.Fatal("expected paid transaction to report credited record")
+	}
+}

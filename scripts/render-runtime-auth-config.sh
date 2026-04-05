@@ -99,7 +99,7 @@ main() {
   site_origin="$(resolve_runtime_value "SITE_ORIGIN" "")"
   api_base_url="$(resolve_runtime_value "LLM_CROSSWORD_API_BASE_URL" "$site_origin")"
   auth_base_url="$(resolve_runtime_value "LLM_CROSSWORD_AUTH_BASE_URL" "$site_origin")"
-  config_url="$(resolve_runtime_value "LLM_CROSSWORD_CONFIG_URL" "${api_base_url%/}/config.yml")"
+  config_url="$(resolve_runtime_value "LLM_CROSSWORD_CONFIG_URL" "${site_origin%/}/configs/frontend-config.yml")"
   tauth_script_url="$(resolve_runtime_value "LLM_CROSSWORD_TAUTH_SCRIPT_URL" "$default_tauth_script_url")"
   render_runtime_auth_config \
     "$billing_provider" \

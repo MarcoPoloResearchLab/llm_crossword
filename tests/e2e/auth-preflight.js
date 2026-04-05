@@ -21,6 +21,10 @@ const DEFAULT_WAIT_TIMEOUT_MS = 60000;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 
 function resolveConfigPath(fileName) {
+  const runtimePublicPath = path.join(RUNTIME_ROOT, "public-configs", fileName);
+  if (fs.existsSync(runtimePublicPath)) {
+    return runtimePublicPath;
+  }
   const runtimePath = path.join(RUNTIME_ROOT, fileName);
   if (fs.existsSync(runtimePath)) {
     return runtimePath;
@@ -47,7 +51,7 @@ function getIntegrationEnvironment() {
     apiHealthUrl: apiOrigin + "/healthz",
     apiOrigin,
     siteApiSessionUrl: siteOrigin + "/api/session",
-    siteConfigUrl: siteOrigin + "/config.yml",
+    siteConfigUrl: siteOrigin + "/configs/frontend-config.yml",
     siteMeUrl: siteOrigin + "/me",
     siteNonceUrl: siteOrigin + "/auth/nonce",
     siteOrigin,
@@ -172,9 +176,9 @@ function assertHeaderEquals(headers, headerName, expectedValue, contextMessage) 
 }
 
 function assertCanonicalLocalOrigin(configText, expectedOrigin) {
-  assertBodyContains(configText, expectedOrigin, "config.yml");
+  assertBodyContains(configText, expectedOrigin, "frontend-config.yml");
   if (configText.indexOf("http://localhost:8080") >= 0) {
-    throw new Error('config.yml still references "http://localhost:8080"');
+    throw new Error('frontend-config.yml still references "http://localhost:8080"');
   }
 }
 
@@ -197,7 +201,7 @@ function assertHelperExports(bodyText, contextMessage) {
 }
 
 async function runAuthPreflight(environment) {
-  const configText = fs.readFileSync(resolveConfigPath("config.yml"), "utf8");
+  const configText = fs.readFileSync(resolveConfigPath("frontend-config.yml"), "utf8");
   const sessionConfig = getSignedSessionConfig();
   const sessionIdentity = createSessionIdentity();
   const sessionCookieHeader = createSessionCookieHeader(sessionIdentity);
@@ -210,6 +214,10 @@ async function runAuthPreflight(environment) {
   const siteTauthScriptResponse = await requestText(environment.siteTauthScriptUrl);
   assertStatus(siteTauthScriptResponse, [200], "GET " + environment.siteTauthScriptUrl);
   assertHelperExports(siteTauthScriptResponse.body, "site tauth.js");
+
+  const siteConfigResponse = await requestText(environment.siteConfigUrl);
+  assertStatus(siteConfigResponse, [200], "GET " + environment.siteConfigUrl);
+  assertCanonicalLocalOrigin(siteConfigResponse.body, environment.siteOrigin);
 
   const meResponse = await requestText(environment.siteMeUrl);
   assertStatus(meResponse, [401, 403], "GET " + environment.siteMeUrl);

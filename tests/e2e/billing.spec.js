@@ -65,6 +65,7 @@ test.describe("Billing UI", () => {
   });
 
   test("checkout return restores the drawer and refreshes the balance after completion", async ({ page }) => {
+    var reconcileCallCount = 0;
     var summaryCallCount = 0;
     var pendingSummary = buildEnabledBillingSummary({
       activity: [
@@ -99,9 +100,17 @@ test.describe("Billing UI", () => {
     await setupLoggedInRoutes(page, {
       coins: 2,
       extra: {
+        "**/api/billing/checkout/reconcile": (route) => {
+          reconcileCallCount += 1;
+          route.fulfill(json(200, {
+            provider_code: "paddle",
+            transaction_id: "txn_return",
+            status: reconcileCallCount < 2 ? "pending" : "succeeded",
+          }));
+        },
         "**/api/billing/summary": (route) => {
           summaryCallCount += 1;
-          route.fulfill(json(200, summaryCallCount < 2 ? pendingSummary : completedSummary));
+          route.fulfill(json(200, summaryCallCount < 3 ? pendingSummary : completedSummary));
         },
       },
     });
@@ -109,7 +118,7 @@ test.describe("Billing UI", () => {
     await page.goto("/?billing_transaction_id=txn_return");
 
     await expect(page.locator("#settingsDrawer")).toBeVisible({ timeout: 5000 });
-    await expect(page.locator("#headerCreditBadge")).toContainText("22 credits", { timeout: 10000 });
+    await expect(page.locator("#headerCreditBadge")).toContainText("22 credits", { timeout: 12000 });
     await expect(page.locator("#settingsBillingStatus")).toContainText("Payment confirmed", { timeout: 10000 });
     await expect(page).not.toHaveURL(/billing_transaction_id=/);
   });

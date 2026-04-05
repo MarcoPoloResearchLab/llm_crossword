@@ -78,6 +78,7 @@ main() {
   rm -rf "$public_configs_directory"
   mkdir -p "$public_configs_directory"
   render_local_origin_copy "configs/config.yml" "$runtime_directory/config.yml"
+  render_local_origin_copy "configs/frontend-config.yml" "$public_configs_directory/frontend-config.yml"
   render_local_origin_copy "$tauth_config_template" "$runtime_directory/tauth.config.yaml"
   render_ledger_config
   render_ports_file "$runtime_directory/ports.env"

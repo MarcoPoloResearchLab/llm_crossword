@@ -47,13 +47,20 @@ This repository is for **LLM Crossword**, not the allergy-wheel game.
 - Keep CLI/config bootstrapping in `backend/cmd/crossword-api`.
 - When changing public endpoints or response shapes, update tests alongside the code.
 
-### 6. Testing
+### 6. Business-Critical Billing Paths
+
+- Treat billing as a fail-closed system. Checkout, portal access, webhook processing, reconciliation, and customer-link resolution are business-critical paths.
+- Do not add defensive fallbacks, heuristic recovery, optimistic UI unlocks, or alternate identity guesses on billing-critical paths.
+- If required billing data is missing, stale, or inconsistent, the correct behavior is to return an error and leave the path blocked until the underlying issue is fixed.
+- In particular, do not bypass persisted billing-customer linkage requirements with email-based or other inferred portal fallbacks unless the product requirements explicitly change.
+
+### 7. Testing
 
 - Frontend/browser coverage lives primarily in Playwright under `tests/e2e`.
 - Backend coverage lives in Go tests under `backend/...`.
 - Prefer targeted verification for the area you changed before broader suites.
 
-### 7. Documentation
+### 8. Documentation
 
 - Keep README and runtime/deployment docs aligned with the actual frontend/backend topology.
 - If deployment defaults change, update the related config docs in the same change.

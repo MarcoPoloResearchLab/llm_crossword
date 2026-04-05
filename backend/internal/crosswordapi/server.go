@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tyemirov/tauth/pkg/sessionvalidator"
+	sharedbilling "github.com/tyemirov/utils/billing"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -46,6 +46,8 @@ type runOptions struct {
 	onServerReady   func(srv *http.Server)
 	store           Store
 }
+
+const billingCatalogValidationTimeout = 45 * time.Second
 
 // RunOption configures optional behaviour of Run.
 type RunOption func(*runOptions)
@@ -135,6 +137,18 @@ func Run(ctx context.Context, cfg Config, opts ...RunOption) error {
 	if billingErr != nil {
 		return fmt.Errorf("billing init: %w", billingErr)
 	}
+	if billingService != nil && billingService.provider != nil {
+		if catalogValidationProvider, ok := billingService.provider.(billingCatalogValidationProvider); ok {
+			logger.Info("validating billing catalog with provider on startup", zap.String("provider", billingService.provider.Code()))
+			catalogValidationCtx, cancelCatalogValidation := context.WithTimeout(ctx, billingCatalogValidationTimeout)
+			catalogValidationErr := catalogValidationProvider.ValidateCatalog(catalogValidationCtx)
+			cancelCatalogValidation()
+			if catalogValidationErr != nil {
+				return fmt.Errorf("billing init: validate billing catalog: %w", catalogValidationErr)
+			}
+			logger.Info("billing catalog validation passed", zap.String("provider", billingService.provider.Code()))
+		}
+	}
 	handler.billingService = billingService
 
 	router := setupRouter(cfg, handler, sessionValidator)
@@ -182,7 +196,6 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 		MaxAge:           12 * time.Hour,
 	}))
 
-	router.GET("/config.yml", handler.handlePublicConfig)
 	router.GET("/healthz", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
@@ -201,7 +214,9 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 	api.POST("/bootstrap", handler.handleBootstrap)
 	api.GET("/balance", handler.handleBalance)
 	api.GET("/billing/summary", handler.handleBillingSummary)
+	api.POST("/billing/sync", handler.handleBillingSync)
 	api.POST("/billing/checkout", handler.handleBillingCheckout)
+	api.POST("/billing/checkout/reconcile", handler.handleBillingCheckoutReconcile)
 	api.POST("/billing/portal", handler.handleBillingPortal)
 	api.POST("/generate", handler.handleGenerate)
 	api.GET("/puzzles", handler.handleListPuzzles)
@@ -248,35 +263,6 @@ const (
 	adminGrantHistoryLimit = 20
 	adminGrantReasonMaxLen = 240
 )
-
-func (handler *httpHandler) handlePublicConfig(ctx *gin.Context) {
-	configPath := strings.TrimSpace(handler.cfg.PublicConfigPath)
-	if configPath == "" {
-		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "config unavailable"))
-		return
-	}
-
-	configBytes, err := os.ReadFile(configPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			ctx.JSON(http.StatusNotFound, errorResponse("not_found", "config unavailable"))
-			return
-		}
-		handler.logger.Error("read public config failed", zap.Error(err), zap.String("path", configPath))
-		ctx.JSON(http.StatusInternalServerError, errorResponse("config_read_failed", "could not load config"))
-		return
-	}
-
-	expandedConfigText, err := expandConfigEnvVariables(string(configBytes))
-	if err != nil {
-		handler.logger.Error("expand public config env failed", zap.Error(err), zap.String("path", configPath))
-		ctx.JSON(http.StatusInternalServerError, errorResponse("config_read_failed", "could not load config"))
-		return
-	}
-
-	ctx.Header("Cache-Control", "no-store")
-	ctx.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(expandedConfigText))
-}
 
 func (handler *httpHandler) handleSession(ctx *gin.Context) {
 	claims := getClaims(ctx)
@@ -368,6 +354,40 @@ func (handler *httpHandler) handleBillingSummary(ctx *gin.Context) {
 	})
 }
 
+func (handler *httpHandler) handleBillingSync(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+	if handler.billingService == nil {
+		ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		return
+	}
+
+	if err := handler.billingService.SyncUserBillingEvents(
+		ctx.Request.Context(),
+		claims.GetUserID(),
+		claims.GetUserEmail(),
+	); err != nil {
+		switch {
+		case errors.Is(err, ErrBillingDisabled):
+			ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		case errors.Is(err, sharedbilling.ErrBillingUserEmailInvalid):
+			ctx.JSON(http.StatusBadRequest, errorResponse("billing_sync_invalid", "billing sync requires an account email"))
+		case errors.Is(err, sharedbilling.ErrBillingUserSyncFailed):
+			handler.logger.Error("billing sync failed", zap.Error(err), zap.String("user_id", claims.GetUserID()))
+			ctx.JSON(http.StatusBadGateway, errorResponse("billing_sync_failed", "unable to refresh billing activity"))
+		default:
+			handler.logger.Error("billing sync failed", zap.Error(err), zap.String("user_id", claims.GetUserID()))
+			ctx.JSON(http.StatusBadGateway, errorResponse("billing_sync_failed", "unable to refresh billing activity"))
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func (handler *httpHandler) handleBillingCheckout(ctx *gin.Context) {
 	claims := getClaims(ctx)
 	if claims == nil {
@@ -409,6 +429,51 @@ func (handler *httpHandler) handleBillingCheckout(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, checkoutSession)
+}
+
+func (handler *httpHandler) handleBillingCheckoutReconcile(ctx *gin.Context) {
+	claims := getClaims(ctx)
+	if claims == nil {
+		ctx.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "missing session"))
+		return
+	}
+	if handler.billingService == nil {
+		ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		return
+	}
+
+	var req billingCheckoutReconcileRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse("invalid_payload", "expected JSON body with transaction_id"))
+		return
+	}
+
+	reconcileResult, err := handler.billingService.ReconcileCheckout(
+		ctx.Request.Context(),
+		claims.GetUserID(),
+		claims.GetUserEmail(),
+		req.TransactionID,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrBillingDisabled):
+			ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_unavailable", "billing is not enabled"))
+		case errors.Is(err, sharedbilling.ErrBillingUserEmailInvalid):
+			ctx.JSON(http.StatusBadRequest, errorResponse("billing_checkout_invalid", "billing reconcile requires an account email"))
+		case errors.Is(err, sharedbilling.ErrPaddleAPITransactionNotFound):
+			ctx.JSON(http.StatusBadRequest, errorResponse("billing_checkout_invalid", "billing transaction not found"))
+		case errors.Is(err, sharedbilling.ErrBillingCheckoutOwnershipMismatch):
+			ctx.JSON(http.StatusForbidden, errorResponse("billing_checkout_forbidden", "billing transaction does not belong to the current user"))
+		case errors.Is(err, sharedbilling.ErrBillingCheckoutReconciliationUnsupported):
+			ctx.JSON(http.StatusServiceUnavailable, errorResponse("billing_checkout_unavailable", "billing checkout reconciliation is unavailable"))
+		default:
+			handler.logger.Error("billing checkout reconcile failed", zap.Error(err), zap.String("user_id", claims.GetUserID()))
+			ctx.JSON(http.StatusBadGateway, errorResponse("billing_checkout_failed", "unable to reconcile checkout"))
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, reconcileResult)
 }
 
 func (handler *httpHandler) handleBillingPortal(ctx *gin.Context) {
@@ -864,6 +929,7 @@ type balanceResponse struct {
 	TotalCents          int64 `json:"total_cents"`
 	AvailableCents      int64 `json:"available_cents"`
 	Coins               int64 `json:"coins"`
+	CoinValueCents      int64 `json:"coin_value_cents"`
 	GenerationCostCoins int64 `json:"generation_cost_coins"`
 }
 

@@ -167,11 +167,10 @@ func loadConfig(cmd *cobra.Command, cfg *crosswordapi.Config) error {
 	cfg.PaddleWebhookSecret = v.GetString(flagPaddleWebhook)
 	cfg.PaddlePackPriceIDs = loadPaddlePackPriceIDsFromEnv(os.Environ())
 
-	configFile, configPath, err := loadAppConfigFromPaths(defaultAppConfigPaths)
+	configFile, _, err := loadAppConfigFromPaths(defaultAppConfigPaths)
 	if err != nil {
 		return err
 	}
-	cfg.PublicConfigPath = strings.TrimSpace(configPath)
 	cfg.AdminEmails = crosswordapi.MergeAdminEmails(cfg.AdminEmails, crosswordapi.ParseAdminEmails(strings.Join(configFile.Administrators, ",")))
 	configFile.ApplyToRuntimeConfig(cfg)
 

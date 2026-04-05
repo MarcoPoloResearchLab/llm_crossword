@@ -3,6 +3,7 @@ package crosswordapi
 import (
 	"crypto/rand"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -119,6 +120,7 @@ type Store interface {
 	GetPuzzleRewardStats(puzzleID string, ownerUserID string, dayStart time.Time, dayEnd time.Time) (*PuzzleRewardStats, error)
 	UpdateGenerationRequest(record *GenerationRequestRecord) error
 	UpsertUserProfile(profile *UserProfile) error
+	GetUserProfileByEmail(email string) (*UserProfile, error)
 	ListAdminUsers() ([]AdminUser, error)
 	CreateAdminGrantRecord(record *AdminGrantRecord) error
 	ListAdminGrantRecords(targetUserID string, limit int) ([]AdminGrantRecord, error)
@@ -126,6 +128,7 @@ type Store interface {
 	GetBillingCustomerLink(userID string, provider string) (*BillingCustomerLink, error)
 	GetBillingCustomerLinkByPaddleCustomerID(provider string, paddleCustomerID string) (*BillingCustomerLink, error)
 	CreateBillingEventRecord(record *BillingEventRecord) error
+	HasBillingCreditedTransaction(provider string, transactionID string) (bool, error)
 	ListBillingEventRecords(userID string, provider string, limit int) ([]BillingEventRecord, error)
 }
 
@@ -293,6 +296,15 @@ func (s *gormStore) UpsertUserProfile(profile *UserProfile) error {
 	}).Create(profile).Error
 }
 
+func (s *gormStore) GetUserProfileByEmail(email string) (*UserProfile, error) {
+	var profile UserProfile
+	err := s.db.Where("lower(email) = ?", strings.ToLower(strings.TrimSpace(email))).First(&profile).Error
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
 func (s *gormStore) UpsertBillingCustomerLink(link *BillingCustomerLink) error {
 	if link == nil {
 		return nil
@@ -355,13 +367,40 @@ func (s *gormStore) CreateBillingEventRecord(record *BillingEventRecord) error {
 	return s.db.Create(record).Error
 }
 
+func (s *gormStore) HasBillingCreditedTransaction(provider string, transactionID string) (bool, error) {
+	var count int64
+	err := s.db.Model(&BillingEventRecord{}).
+		Where(
+			"provider = ? AND transaction_id = ? AND credits_delta > 0",
+			strings.TrimSpace(provider),
+			strings.TrimSpace(transactionID),
+		).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (s *gormStore) ListBillingEventRecords(userID string, provider string, limit int) ([]BillingEventRecord, error) {
 	var records []BillingEventRecord
 
-	query := s.db.Where("user_id = ? AND provider = ?", userID, provider).Order("occurred_at desc, created_at desc")
 	if limit <= 0 {
 		limit = billingActivityLimit
 	}
+	query := s.db.Where("provider = ? AND user_id = ?", provider, userID)
+	if strings.TrimSpace(userID) != "" {
+		linkedCustomerIDs := s.db.Model(&BillingCustomerLink{}).
+			Select("paddle_customer_id").
+			Where("user_id = ? AND provider = ? AND trim(coalesce(paddle_customer_id, '')) <> ''", userID, provider)
+		query = s.db.Where(
+			"provider = ? AND (user_id = ? OR (trim(coalesce(user_id, '')) = '' AND paddle_customer_id IN (?)))",
+			provider,
+			userID,
+			linkedCustomerIDs,
+		)
+	}
+	query = query.Order("occurred_at desc, created_at desc")
 	err := query.Limit(limit).Find(&records).Error
 	return records, err
 }
