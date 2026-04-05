@@ -76,8 +76,6 @@ services:
         "/me=http://tauth:8080",
         "--proxy",
         "/tauth.js=http://tauth:8080",
-        "--proxy",
-        "/config.yml=http://crossword-api:9090",
         "--response-header",
         "/js/=Cache-Control:public,max-age=86400",
         "--response-header",
