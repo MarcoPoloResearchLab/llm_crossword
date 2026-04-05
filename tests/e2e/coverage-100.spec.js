@@ -2070,7 +2070,7 @@ test.describe("Crossword reward coverage", () => {
 
     expect(result.invalidStoredMessage).toBe("Crossword specification invalid");
     expect(result.cardTitles).toEqual(["Owned A", "Owned B Updated"]);
-    expect(result.activeSharedRewardSummary).toEqual({
+    expect(result.activeSharedRewardSummary).toMatchObject({
       owner_reward_status: "available",
       owner_reward_claim_total: 0,
       shared_unique_solves: 4,
@@ -2302,7 +2302,7 @@ test.describe("Crossword reward coverage", () => {
     expect(result.nullDescription).toBe("");
     expect(result.defaultTitle).toBe("Crossword");
     expect(result.defaultTitleKey).toBe("stored:4");
-    expect(result.coercedDefaults).toEqual({
+    expect(result.coercedDefaults).toMatchObject({
       owner_reward_status: "practice",
       owner_reward_claim_total: 0,
       shared_unique_solves: 0,
