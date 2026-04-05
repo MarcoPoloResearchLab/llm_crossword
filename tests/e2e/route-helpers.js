@@ -121,6 +121,79 @@ function createSession(overrides = {}) {
   };
 }
 
+function createFrontendConfig(overrides = {}) {
+  var defaults = {
+    description: "Local development",
+    origins: ["http://localhost:8111"],
+    auth: {
+      tauthUrl: "http://localhost:8111",
+      googleClientId: "test-google-client-id",
+      tenantId: "crossword",
+      loginPath: "/auth/google",
+      logoutPath: "/auth/logout",
+      noncePath: "/auth/nonce",
+    },
+    authButton: {
+      text: "signin_with",
+      size: "large",
+      theme: "outline",
+      shape: "circle",
+    },
+  };
+  var resolvedOverrides = overrides || {};
+
+  return {
+    description: typeof resolvedOverrides.description === "string"
+      ? resolvedOverrides.description
+      : defaults.description,
+    origins: Array.isArray(resolvedOverrides.origins)
+      ? resolvedOverrides.origins.slice()
+      : defaults.origins.slice(),
+    auth: {
+      ...defaults.auth,
+      ...(resolvedOverrides.auth || {}),
+    },
+    authButton: {
+      ...defaults.authButton,
+      ...(resolvedOverrides.authButton || {}),
+    },
+  };
+}
+
+function yamlString(value) {
+  return JSON.stringify(value == null ? "" : String(value));
+}
+
+function createFrontendConfigYaml(overrides = {}) {
+  var frontendConfig = createFrontendConfig(overrides);
+  var lines = [
+    "environments:",
+    "  - description: " + yamlString(frontendConfig.description),
+    "    origins:",
+  ];
+
+  frontendConfig.origins.forEach(function appendOrigin(origin) {
+    lines.push("      - " + yamlString(origin));
+  });
+
+  lines.push(
+    "    auth:",
+    "      tauthUrl: " + yamlString(frontendConfig.auth.tauthUrl),
+    "      googleClientId: " + yamlString(frontendConfig.auth.googleClientId),
+    "      tenantId: " + yamlString(frontendConfig.auth.tenantId),
+    "      loginPath: " + yamlString(frontendConfig.auth.loginPath),
+    "      logoutPath: " + yamlString(frontendConfig.auth.logoutPath),
+    "      noncePath: " + yamlString(frontendConfig.auth.noncePath),
+    "    authButton:",
+    "      text: " + yamlString(frontendConfig.authButton.text),
+    "      size: " + yamlString(frontendConfig.authButton.size),
+    "      theme: " + yamlString(frontendConfig.authButton.theme),
+    "      shape: " + yamlString(frontendConfig.authButton.shape)
+  );
+
+  return lines.join("\n") + "\n";
+}
+
 /**
  * Stub common server-side resources that the page loads but which have no
  * real backend in tests.  Without this the browser sends real requests to
@@ -154,6 +227,12 @@ async function setupBaseRoutes(page) {
   await page.route("**/api/billing/portal", (route) =>
     route.fulfill(json(503, { message: "billing unavailable" }))
   );
+  await page.route("**/config.yml*", (route) =>
+    route.fulfill(text(200, "administrators: []\n"))
+  );
+  await page.route("**/configs/frontend-config.yml*", (route) =>
+    route.fulfill(text(200, createFrontendConfigYaml()))
+  );
 }
 
 /**
@@ -164,7 +243,8 @@ async function setupBaseRoutes(page) {
  * @param {number}  [opts.coins=15]          — credit balance
  * @param {number}  [opts.generationCostCoins=4] — generation cost reflected by the backend
  * @param {Array}   [opts.puzzles]           — puzzle payload (defaults to defaultPuzzles)
- * @param {string}  [opts.configYaml=""]     — raw config.yml text
+ * @param {object}  [opts.frontendConfig]    — frontend config YAML environment payload
+ * @param {string}  [opts.configYaml]        — optional backend config YAML stub
  * @param {Record<string, (route: import('@playwright/test').Route) => void>} [opts.extra]
  *        — additional route overrides keyed by URL glob
  */
@@ -173,8 +253,8 @@ async function setupLoggedInRoutes(page, opts = {}) {
   var generationCostCoins = opts.generationCostCoins != null ? opts.generationCostCoins : 4;
   var puzzles = opts.puzzles || defaultPuzzles;
   var ownedPuzzles = opts.ownedPuzzles || [];
-  var configYaml = opts.configYaml != null ? opts.configYaml : "";
   var session = createSession(opts.session);
+  var frontendConfigYaml = createFrontendConfigYaml(opts.frontendConfig);
 
   await setupBaseRoutes(page);
   // Override the default 401 /api/session with the provided session data.
@@ -195,9 +275,16 @@ async function setupLoggedInRoutes(page, opts = {}) {
   await page.route("**/api/puzzles", (route) =>
     route.fulfill(json(200, { puzzles: ownedPuzzles }))
   );
-  await page.route("**/config.yml", (route) =>
-    route.fulfill(text(200, configYaml))
+  await page.unroute("**/configs/frontend-config.yml*");
+  await page.route("**/configs/frontend-config.yml*", (route) =>
+    route.fulfill(text(200, frontendConfigYaml))
   );
+  if (typeof opts.configYaml === "string") {
+    await page.unroute("**/config.yml*");
+    await page.route("**/config.yml*", (route) =>
+      route.fulfill(text(200, opts.configYaml))
+    );
+  }
   await page.route("**/crosswords.json", (route) =>
     route.fulfill(json(200, puzzles))
   );
@@ -216,21 +303,29 @@ async function setupLoggedInRoutes(page, opts = {}) {
  * @param {object}  [opts]
  * @param {number}  [opts.meStatus=401]      — status code for /me
  * @param {Array}   [opts.puzzles]           — puzzle payload
- * @param {string}  [opts.configYaml=""]     — raw config.yml text
+ * @param {object}  [opts.frontendConfig]    — frontend config YAML environment payload
+ * @param {string}  [opts.configYaml]        — optional backend config YAML stub
  * @param {Record<string, (route: import('@playwright/test').Route) => void>} [opts.extra]
  */
 async function setupLoggedOutRoutes(page, opts = {}) {
   var meStatus = opts.meStatus || 401;
   var puzzles = opts.puzzles || defaultPuzzles;
-  var configYaml = opts.configYaml != null ? opts.configYaml : "";
+  var frontendConfigYaml = createFrontendConfigYaml(opts.frontendConfig);
 
   await setupBaseRoutes(page);
   await page.route("**/me", (route) =>
     route.fulfill(json(meStatus, { error: "unauthorized" }))
   );
-  await page.route("**/config.yml", (route) =>
-    route.fulfill(text(200, configYaml))
+  await page.unroute("**/configs/frontend-config.yml*");
+  await page.route("**/configs/frontend-config.yml*", (route) =>
+    route.fulfill(text(200, frontendConfigYaml))
   );
+  if (typeof opts.configYaml === "string") {
+    await page.unroute("**/config.yml*");
+    await page.route("**/config.yml*", (route) =>
+      route.fulfill(text(200, opts.configYaml))
+    );
+  }
   await page.route("**/crosswords.json", (route) =>
     route.fulfill(json(200, puzzles))
   );
@@ -250,6 +345,8 @@ async function mountAppShell(page) {
 module.exports = {
   appShellHtml,
   createBillingSummary,
+  createFrontendConfig,
+  createFrontendConfigYaml,
   createSession,
   defaultPuzzles,
   defaultSession,
