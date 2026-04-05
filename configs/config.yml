@@ -1,5 +1,5 @@
-# Public browser config for frontend boot. Local Docker still exposes it at /config.yml.
-# Any environment-variable token is expanded by the Go backend before this file is served.
+# Backend app config. The API loads this file for billing and economy settings.
+# Any environment-variable token is expanded by the Go backend while loading this file.
 # Keep administrator allowlists in CROSSWORDAPI_ADMIN_EMAILS, not here.
 
 economy:
@@ -33,36 +33,3 @@ billing:
       label: "Publisher Pack"
       credits: 1400
       price_cents: 11900
-
-environments:
-  - description: "Local development"
-    origins:
-      - "http://localhost:8000"
-    auth:
-      tauthUrl: "http://localhost:8000"
-      googleClientId: "${GOOGLE_CLIENT_ID}"
-      tenantId: "crossword"
-      loginPath: "/auth/google"
-      logoutPath: "/auth/logout"
-      noncePath: "/auth/nonce"
-    authButton:
-      text: "signin_with"
-      size: "large"
-      theme: "outline"
-      shape: "circle"
-
-  - description: "Production"
-    origins:
-      - "https://llm-crossword.mprlab.com"
-    auth:
-      tauthUrl: "https://tauth.mprlab.com"
-      googleClientId: "${GOOGLE_CLIENT_ID}"
-      tenantId: "crossword"
-      loginPath: "/auth/google"
-      logoutPath: "/auth/logout"
-      noncePath: "/auth/nonce"
-    authButton:
-      text: "signin_with"
-      size: "large"
-      theme: "outline"
-      shape: "circle"

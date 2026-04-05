@@ -80,7 +80,7 @@
     var locationOrigin = getLocationOrigin();
     var authBaseUrl = resolveBaseUrl(services.authBaseUrl, locationOrigin);
     var apiBaseUrl = resolveBaseUrl(services.apiBaseUrl, locationOrigin);
-    var configUrl = resolveAbsoluteOrRelativeUrl(services.configUrl, joinUrl(apiBaseUrl, "/config.yml"));
+    var configUrl = resolveAbsoluteOrRelativeUrl(services.configUrl, joinUrl(locationOrigin, "/configs/frontend-config.yml"));
     var tauthScriptUrl = resolveAbsoluteOrRelativeUrl(services.tauthScriptUrl, joinUrl(authBaseUrl, "/tauth.js"));
 
     return Object.freeze({
