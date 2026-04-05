@@ -28,17 +28,17 @@ app.get("/tauth.js", (req, res) => {
   res.type("application/javascript").send("/* tauth.js stub for tests */");
 });
 
-app.get("/config.yml", (req, res) => {
-  const runtimeConfigPath = path.join(RUNTIME_ROOT, "config.yml");
-  const publicConfigPath = fs.existsSync(runtimeConfigPath)
+app.get("/configs/frontend-config.yml", (req, res) => {
+  const runtimeConfigPath = path.join(RUNTIME_ROOT, "public-configs", "frontend-config.yml");
+  const frontendConfigPath = fs.existsSync(runtimeConfigPath)
     ? runtimeConfigPath
-    : path.join(CONFIGS_ROOT, "config.yml");
+    : path.join(CONFIGS_ROOT, "frontend-config.yml");
 
-  if (!fs.existsSync(publicConfigPath)) {
+  if (!fs.existsSync(frontendConfigPath)) {
     return res.status(404).send("Not found");
   }
 
-  res.type("text/yaml").send(fs.readFileSync(publicConfigPath, "utf8"));
+  res.type("text/yaml").send(fs.readFileSync(frontendConfigPath, "utf8"));
 });
 
 // Serve static files

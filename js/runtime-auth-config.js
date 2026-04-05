@@ -12,7 +12,7 @@
     services: Object.freeze({
       apiBaseUrl: "",
       authBaseUrl: "",
-      configUrl: "/config.yml",
+      configUrl: "/configs/frontend-config.yml",
       tauthScriptUrl: "https://cdn.jsdelivr.net/gh/tyemirov/TAuth@v1.0.1/web/tauth.js",
     }),
   });

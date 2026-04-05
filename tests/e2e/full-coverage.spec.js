@@ -1825,7 +1825,7 @@ test.describe("Isolated script coverage", () => {
     expect(result.absoluteTrue).toBe(true);
     expect(result.authBaseUrl).toBe("http://localhost:8111");
     expect(result.apiBaseUrl).toBe("http://localhost:8111");
-    expect(result.configUrl).toBe("http://localhost:8111/config.yml");
+    expect(result.configUrl).toBe("http://localhost:8111/configs/frontend-config.yml");
     expect(result.tauthScriptUrl).toBe("http://localhost:8111/tauth.js");
     expect(result.joinedEmptyPath).toBe("https://api.example.test");
     expect(result.joinedNoBase).toBe("relative/path");
@@ -1837,7 +1837,7 @@ test.describe("Isolated script coverage", () => {
     expect(result.rawConfig).toEqual({
       apiBaseUrl: "http://localhost:8111",
       authBaseUrl: "http://localhost:8111",
-      configUrl: "http://localhost:8111/config.yml",
+      configUrl: "http://localhost:8111/configs/frontend-config.yml",
       tauthScriptUrl: "http://localhost:8111/tauth.js",
     });
   });

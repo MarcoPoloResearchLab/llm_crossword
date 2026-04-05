@@ -1,4 +1,4 @@
-/* config.js — set tauth-url on mpr-header based on environment config */
+/* config.js — set tauth-url on mpr-header from the frontend YAML config */
 (function () {
   "use strict";
 
@@ -14,10 +14,10 @@
     : window.location.origin;
   var configUrl = header.getAttribute("data-config-url")
     || (services && typeof services.getConfigUrl === "function" ? services.getConfigUrl() : "")
-    || (window.location.origin + "/config.yml");
+    || (window.location.origin + "/configs/frontend-config.yml");
 
-  // Fetch the public config document to check for environment-specific overrides.
-  _fetch(configUrl)
+  // Fetch the frontend config document to check for environment-specific overrides.
+  _fetch(configUrl, { cache: "no-store" })
     .then(function (resp) { return resp.text(); })
     .then(function (text) {
       var match = matchEnvironment(text, window.location.origin);
