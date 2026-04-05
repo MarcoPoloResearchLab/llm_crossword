@@ -11,6 +11,7 @@ readonly api_host_port="${CROSSWORD_API_HOST_PORT:-9090}"
 readonly ledger_host_port="${LEDGER_HOST_PORT:-50051}"
 readonly tauth_config_template="${TAUTH_CONFIG_TEMPLATE:-tauth.config.local.yaml}"
 readonly public_configs_directory="${runtime_directory}/public-configs"
+readonly ledger_config_path="${runtime_directory}/ledger.config.yml"
 
 escape_sed_replacement() {
   printf '%s' "$1" | sed 's/[&|]/\\&/g'
@@ -50,8 +51,26 @@ INTEGRATION_API_URL=http://localhost:$api_host_port
 APP_CONFIG_SOURCE=./$runtime_directory/config.yml
 PUBLIC_CONFIGS_SOURCE=./$public_configs_directory
 TAUTH_CONFIG_SOURCE=./$runtime_directory/tauth.config.yaml
+LEDGER_CONFIG_SOURCE=./$runtime_directory/ledger.config.yml
 EOF
   mv "$temporary_path" "$destination_path"
+}
+
+render_ledger_config() {
+  local temporary_path
+
+  temporary_path="$(mktemp "${ledger_config_path}.XXXXXX")"
+  cat > "$temporary_path" <<'EOF'
+service:
+  database_url: "${DATABASE_URL:-sqlite:///srv/data/ledger.db}"
+  listen_addr: "${GRPC_LISTEN_ADDR:-:50051}"
+
+tenants:
+  - id: "crossword"
+    name: "Crossword"
+    secret_key: "${DEFAULT_TENANT_SECRET}"
+EOF
+  mv "$temporary_path" "$ledger_config_path"
 }
 
 main() {
@@ -59,7 +78,9 @@ main() {
   rm -rf "$public_configs_directory"
   mkdir -p "$public_configs_directory"
   render_local_origin_copy "configs/config.yml" "$runtime_directory/config.yml"
+  render_local_origin_copy "configs/frontend-config.yml" "$public_configs_directory/frontend-config.yml"
   render_local_origin_copy "$tauth_config_template" "$runtime_directory/tauth.config.yaml"
+  render_ledger_config
   render_ports_file "$runtime_directory/ports.env"
 }
 

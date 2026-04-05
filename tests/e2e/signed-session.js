@@ -7,7 +7,7 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "../..");
 const RUNTIME_ROOT = path.join(ROOT, ".runtime");
-const DEFAULT_CROSSWORD_API_ENV_FILE = ".env.crosswordapi.local";
+const DEFAULT_CROSSWORD_API_ENV_FILE = "configs/.env.crosswordapi.local";
 const DEFAULT_TAUTH_CONFIG_FILE = "tauth.config.local.yaml";
 const DEFAULT_INTEGRATION_USER_ID = "integration-user";
 const DEFAULT_INTEGRATION_USER_EMAIL = "integration-user@example.com";

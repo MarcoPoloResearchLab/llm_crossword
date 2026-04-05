@@ -13,6 +13,7 @@ services:
       - "${LEDGER_HOST_PORT:-50051}:50051"
     volumes:
       - crossword_ledger_data:/srv/data
+      - ${LEDGER_CONFIG_SOURCE:-./.runtime/ledger.config.yml}:/srv/config.yml:ro
     restart: unless-stopped
 
   tauth:
@@ -20,7 +21,7 @@ services:
     container_name: crossword-tauth
     pull_policy: always
     env_file:
-      - ${TAUTH_ENV_FILE:-./.env.tauth.local}
+      - ${TAUTH_ENV_FILE:-./configs/.env.tauth.local}
     environment:
       APP_CORS_ALLOWED_ORIGINS: ${SITE_ORIGIN:-http://localhost:8000}
     volumes:
@@ -37,7 +38,8 @@ services:
     image: crossword-api:local
     container_name: crossword-api
     env_file:
-      - ${CROSSWORDAPI_ENV_FILE:-./.env.crosswordapi.local}
+      - ${CROSSWORDAPI_ENV_FILE:-./configs/.env.crosswordapi.local}
+      - ${TAUTH_ENV_FILE:-./configs/.env.tauth.local}
     environment:
       CROSSWORDAPI_ALLOWED_ORIGINS: ${SITE_ORIGIN:-http://localhost:8000}
       CROSSWORDAPI_DATABASE_DSN: "/data/crosswords.db"
@@ -45,6 +47,12 @@ services:
     depends_on:
       - ledger
       - tauth
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/healthz >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 2s
     ports:
       - "${CROSSWORD_API_HOST_PORT:-9090}:9090"
     volumes:
@@ -68,8 +76,6 @@ services:
         "/me=http://tauth:8080",
         "--proxy",
         "/tauth.js=http://tauth:8080",
-        "--proxy",
-        "/config.yml=http://crossword-api:9090",
         "--response-header",
         "/js/=Cache-Control:public,max-age=86400",
         "--response-header",
@@ -82,8 +88,10 @@ services:
       - .:/data:ro
       - ${PUBLIC_CONFIGS_SOURCE:-./.runtime/public-configs}:/data/configs:ro
     depends_on:
-      - crossword-api
-      - tauth
+      crossword-api:
+        condition: service_healthy
+      tauth:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

@@ -42,6 +42,22 @@ func TestLoadAppConfigFileAndPathsCoverage(t *testing.T) {
 		configYAML := strings.Join([]string{
 			"administrators:",
 			"  - admin@example.com",
+			"economy:",
+			"  coin_value_cents: 10",
+			"  grants:",
+			"    bootstrap_credits: 300",
+			"    daily_login_credits: 80",
+			"    low_balance_floor_credits: 40",
+			"  generation:",
+			"    cost_credits: 40",
+			"  rewards:",
+			"    owner_solve_credits: 30",
+			"    owner_no_hint_bonus_credits: 10",
+			"    owner_daily_solve_bonus_credits: 10",
+			"    owner_daily_solve_bonus_limit: 3",
+			"    creator_shared_solve_credits: 10",
+			"    creator_shared_per_puzzle_cap_credits: 100",
+			"    creator_shared_daily_cap_credits: 200",
 			"billing:",
 			"  packs:",
 			"    - code: starter",
@@ -64,6 +80,9 @@ func TestLoadAppConfigFileAndPathsCoverage(t *testing.T) {
 		if len(configFile.Billing.Packs) != 1 || configFile.Billing.Packs[0].Code != "starter" {
 			t.Fatalf("unexpected billing packs: %#v", configFile.Billing.Packs)
 		}
+		if configFile.Economy.Generation.CostCredits != 40 {
+			t.Fatalf("unexpected generation cost credits: %#v", configFile.Economy.Generation)
+		}
 
 		wrappedConfig, err := LoadAppConfig([]string{"", filepath.Join(filepath.Dir(configPath), "missing.yaml"), configPath})
 		if err != nil {
@@ -71,6 +90,15 @@ func TestLoadAppConfigFileAndPathsCoverage(t *testing.T) {
 		}
 		if len(wrappedConfig.Billing.Packs) != 1 || wrappedConfig.Billing.Packs[0].Label != "Starter Pack" {
 			t.Fatalf("unexpected wrapped config: %#v", wrappedConfig)
+		}
+
+		runtimeConfig := validConfig()
+		wrappedConfig.ApplyToRuntimeConfig(&runtimeConfig)
+		if runtimeConfig.CoinValueCents != 10 || runtimeConfig.GenerateCoins != 40 {
+			t.Fatalf("unexpected runtime economy config: %#v", runtimeConfig)
+		}
+		if runtimeConfig.CreatorSharedPerPuzzleCap != 100 || runtimeConfig.CreatorSharedDailyCap != 200 {
+			t.Fatalf("unexpected runtime reward config: %#v", runtimeConfig)
 		}
 	})
 

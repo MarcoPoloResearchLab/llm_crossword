@@ -6,7 +6,7 @@
   var runtimeServices = global.LLMCrosswordServices;
   var DEFAULT_CONFIG_URL = runtimeServices && typeof runtimeServices.getConfigUrl === "function"
     ? runtimeServices.getConfigUrl()
-    : "/config.yml";
+    : "/configs/frontend-config.yml";
   var DEFAULT_YAML_PARSER_URL = "https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js";
   var DEFAULT_HEADER_SELECTOR = "mpr-header";
   var DEFAULT_LOGIN_BUTTON_SELECTOR = "mpr-login-button";
@@ -45,7 +45,7 @@
         loginButtonSelector: DEFAULT_LOGIN_BUTTON_SELECTOR,
         userSelector: DEFAULT_USER_SELECTOR,
       },
-      options || {},
+      options || {}
     );
     return resolved;
   }
@@ -53,30 +53,30 @@
   function requireString(source, key, scope) {
     var value = source[key];
     if (typeof value !== "string" || value.trim().length === 0) {
-      throw new Error("config.yml missing " + scope + "." + key);
+      throw new Error("frontend config missing " + scope + "." + key);
     }
     return value.trim();
   }
 
   function requireStringAllowEmpty(source, key, scope) {
     if (!Object.prototype.hasOwnProperty.call(source, key)) {
-      throw new Error("config.yml missing " + scope + "." + key);
+      throw new Error("frontend config missing " + scope + "." + key);
     }
     var value = source[key];
     if (typeof value !== "string") {
-      throw new Error("config.yml missing " + scope + "." + key);
+      throw new Error("frontend config missing " + scope + "." + key);
     }
     return value.trim();
   }
 
   function resolveGoogleClientId(rawGoogleClientId) {
     if (typeof rawGoogleClientId !== "string") {
-      throw new Error("config.yml missing auth.googleClientId");
+      throw new Error("frontend config missing auth.googleClientId");
     }
 
     var normalizedGoogleClientId = rawGoogleClientId.trim();
     if (normalizedGoogleClientId.length === 0) {
-      throw new Error("config.yml missing auth.googleClientId");
+      throw new Error("frontend config missing auth.googleClientId");
     }
 
     return normalizedGoogleClientId;
@@ -85,7 +85,7 @@
   function requireObject(source, key, scope) {
     var value = source[key];
     if (!isPlainObject(value)) {
-      throw new Error("config.yml missing " + scope + "." + key);
+      throw new Error("frontend config missing " + scope + "." + key);
     }
     return value;
   }
@@ -113,11 +113,11 @@
 
   function requireEnvironments(value) {
     if (!Array.isArray(value) || value.length === 0) {
-      throw new Error("config.yml missing environments");
+      throw new Error("frontend config missing environments");
     }
     return value.map(function mapEnvironment(environment, index) {
       if (!isPlainObject(environment)) {
-        throw new Error("config.yml environment at index " + index + " must be an object");
+        throw new Error("frontend config environment at index " + index + " must be an object");
       }
       return environment;
     });
@@ -136,15 +136,15 @@
     var matches = environments.filter(function filterEnvironment(environment) {
       var origins = readStringArray(environment, SECTION_ORIGINS);
       if (origins.length === 0) {
-        throw new Error("config.yml environment missing origins");
+        throw new Error("frontend config environment missing origins");
       }
       return origins.indexOf(runtimeOrigin) !== -1;
     });
     if (matches.length === 0) {
-      throw new Error("config.yml has no environment for origin " + runtimeOrigin);
+      throw new Error("frontend config has no environment for origin " + runtimeOrigin);
     }
     if (matches.length > 1) {
-      throw new Error("config.yml has multiple environments for origin " + runtimeOrigin);
+      throw new Error("frontend config has multiple environments for origin " + runtimeOrigin);
     }
     return matches[0];
   }
@@ -230,12 +230,12 @@
 
   function fetchConfig(configUrl) {
     if (!global.fetch) {
-      return Promise.reject(new Error("fetch is required to load config.yml"));
+      return Promise.reject(new Error("fetch is required to load frontend config"));
     }
     return global.fetch(configUrl, { cache: "no-store" }).then(function parseResponse(response) {
       if (!response || !response.ok) {
         var status = response ? response.status : "unknown";
-        throw new Error("config.yml request failed (" + status + ")");
+        throw new Error("frontend config request failed (" + status + ")");
       }
       return response.text();
     });
@@ -244,7 +244,7 @@
   function parseConfigYaml(configText, parser) {
     var parsed = parser.load(configText);
     if (!isPlainObject(parsed)) {
-      throw new Error("config.yml must be an object");
+      throw new Error("frontend config must be an object");
     }
     return parsed;
   }
@@ -344,7 +344,7 @@
     }
     if (loginButtons.length > 0) {
       if (!runtimeConfig.authButton) {
-        throw new Error("config.yml missing authButton for login button");
+        throw new Error("frontend config missing authButton for login button");
       }
       loginButtons.forEach(function updateLogin(loginButton) {
         applyLoginButtonAttributes(loginButton, runtimeConfig.auth, runtimeConfig.authButton);
@@ -399,6 +399,8 @@
       });
     });
   };
+  namespace.loadConfig = namespace.loadYamlConfig;
+  namespace.applyConfig = namespace.applyYamlConfig;
   namespace.whenAutoOrchestrationReady = function whenAutoOrchestrationReady() {
     if (autoOrchestrationPromise) {
       return autoOrchestrationPromise;
@@ -406,17 +408,16 @@
     return Promise.resolve();
   };
 
-  // MU-130: Automatic orchestration for components with data-config-url
   function autoOrchestrate() {
-    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') {
+    if (typeof document === "undefined" || typeof document.querySelector !== "function") {
       return Promise.resolve();
     }
     if (autoOrchestrationPromise) {
       return autoOrchestrationPromise;
     }
-    var header = document.querySelector('mpr-header[data-config-url]');
+    var header = document.querySelector("mpr-header[data-config-url]");
     if (header) {
-      var configUrl = header.getAttribute('data-config-url');
+      var configUrl = header.getAttribute("data-config-url");
       if (configUrl) {
         var bundleMarker = document.querySelector(BUNDLE_MARKER_SELECTOR);
         autoOrchestrationPromise = global.MPRUI.applyYamlConfig({ configUrl: configUrl })
@@ -428,7 +429,7 @@
           });
         autoOrchestrationPromise.catch(function handleOrchestrationError(err) {
           // eslint-disable-next-line no-console
-          console.error('[mpr-ui-config] Auto-orchestration failed:', err);
+          console.error("[mpr-ui-config] Auto-orchestration failed:", err);
         });
         return autoOrchestrationPromise;
       }
@@ -436,9 +437,9 @@
     return Promise.resolve();
   }
 
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', autoOrchestrate);
+  if (typeof document !== "undefined") {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", autoOrchestrate);
     } else {
       autoOrchestrate();
     }

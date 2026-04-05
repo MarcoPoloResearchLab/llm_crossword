@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 readonly runtime_config_path="${RUNTIME_AUTH_CONFIG_PATH:-js/runtime-auth-config.js}"
-readonly crosswordapi_env_file="${CROSSWORDAPI_ENV_FILE:-.env.crosswordapi.local}"
+readonly crosswordapi_env_file="${CROSSWORDAPI_ENV_FILE:-configs/.env.crosswordapi.local}"
 readonly default_tauth_script_url="https://cdn.jsdelivr.net/gh/tyemirov/TAuth@v1.0.1/web/tauth.js"
 
 read_env_file_value() {
@@ -44,6 +44,11 @@ resolve_runtime_value() {
   printf '%s' "$fallback_value"
 }
 
+fail() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
 render_runtime_auth_config() {
   local billing_provider="$1"
   local paddle_environment="$2"
@@ -52,11 +57,6 @@ render_runtime_auth_config() {
   local auth_base_url="$5"
   local config_url="$6"
   local tauth_script_url="$7"
-  local billing_enabled="false"
-
-  if [ "$billing_provider" = "paddle" ] && [ -n "$paddle_environment" ] && [ -n "$paddle_client_token" ]; then
-    billing_enabled="true"
-  fi
 
   mkdir -p "$(dirname "$runtime_config_path")"
 
@@ -69,7 +69,6 @@ render_runtime_auth_config() {
   globalScope.LLMCrosswordRuntimeConfig = Object.freeze({
     billing: Object.freeze({
       clientToken: "${paddle_client_token}",
-      enabled: ${billing_enabled},
       environment: "${paddle_environment}",
       providerCode: "${billing_provider}",
     }),
@@ -100,7 +99,7 @@ main() {
   site_origin="$(resolve_runtime_value "SITE_ORIGIN" "")"
   api_base_url="$(resolve_runtime_value "LLM_CROSSWORD_API_BASE_URL" "$site_origin")"
   auth_base_url="$(resolve_runtime_value "LLM_CROSSWORD_AUTH_BASE_URL" "$site_origin")"
-  config_url="$(resolve_runtime_value "LLM_CROSSWORD_CONFIG_URL" "${api_base_url%/}/config.yml")"
+  config_url="$(resolve_runtime_value "LLM_CROSSWORD_CONFIG_URL" "${site_origin%/}/configs/frontend-config.yml")"
   tauth_script_url="$(resolve_runtime_value "LLM_CROSSWORD_TAUTH_SCRIPT_URL" "$default_tauth_script_url")"
   render_runtime_auth_config \
     "$billing_provider" \

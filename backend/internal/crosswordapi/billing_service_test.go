@@ -10,6 +10,7 @@ import (
 	"time"
 
 	creditv1 "github.com/MarkoPoloResearchLab/ledger/api/credit/v1"
+	sharedbilling "github.com/tyemirov/utils/billing"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -28,7 +29,14 @@ type mockBillingProvider struct {
 	portalSession   billingPortalSession
 	portalErr       error
 	publicConfig    billingPublicConfig
+	receivedPortal  BillingCustomerLink
+	reconcileErr    error
+	reconcileEvent  sharedbilling.WebhookEvent
+	reconcileEmail  string
+	resolveStatus   sharedbilling.CheckoutEventStatus
 	signatureErr    error
+	syncErr         error
+	syncEvents      []sharedbilling.WebhookEvent
 }
 
 func (provider *mockBillingProvider) Code() string {
@@ -65,7 +73,23 @@ func (provider *mockBillingProvider) CreateCheckout(ctx context.Context, userID 
 	return provider.checkoutSession, provider.checkoutErr
 }
 
+func (provider *mockBillingProvider) BuildUserSyncEvents(ctx context.Context, userEmail string) ([]sharedbilling.WebhookEvent, error) {
+	return provider.syncEvents, provider.syncErr
+}
+
+func (provider *mockBillingProvider) BuildCheckoutReconcileEvent(ctx context.Context, transactionID string) (sharedbilling.WebhookEvent, string, error) {
+	return provider.reconcileEvent, provider.reconcileEmail, provider.reconcileErr
+}
+
+func (provider *mockBillingProvider) ResolveCheckoutEventStatus(eventType string) sharedbilling.CheckoutEventStatus {
+	if provider.resolveStatus != "" {
+		return provider.resolveStatus
+	}
+	return sharedbilling.CheckoutEventStatusUnknown
+}
+
 func (provider *mockBillingProvider) CreatePortalSession(ctx context.Context, customerLink BillingCustomerLink) (billingPortalSession, error) {
+	provider.receivedPortal = customerLink
 	return provider.portalSession, provider.portalErr
 }
 

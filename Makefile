@@ -15,8 +15,8 @@ GHCR_CROSSWORD_API_LATEST_IMAGE ?= $(GHCR_CROSSWORD_API_REPO):latest
 GHCR_CROSSWORD_API_VERSION_IMAGE ?= $(if $(GHCR_VERSION_TAG),$(GHCR_CROSSWORD_API_REPO):$(GHCR_VERSION_TAG))
 COMPOSE_UP_ARGS ?=
 COMPOSE_DOWN_ARGS ?=
-LOCAL_CROSSWORDAPI_ENV_FILE ?= .env.crosswordapi.local
-LOCAL_TAUTH_ENV_FILE ?= .env.tauth.local
+LOCAL_CROSSWORDAPI_ENV_FILE ?= configs/.env.crosswordapi.local
+LOCAL_TAUTH_ENV_FILE ?= configs/.env.tauth.local
 LOCAL_TAUTH_CONFIG_TEMPLATE ?= tauth.config.local.yaml
 
 GO_SOURCES := $(shell find backend -name '*.go' -not -path '*/vendor/*' 2>/dev/null)
@@ -138,11 +138,11 @@ up:
 		exit 1; \
 	fi; \
 	if [ -f config.yaml ]; then \
-		echo "Legacy root config.yaml is not allowed. Move public config to configs/config.yml."; \
+		echo "Legacy root config.yaml is not allowed. Move app config to configs/config.yml."; \
 		exit 1; \
 	fi; \
 	if rg -n '^[[:space:]]*administrators:' configs/config.yml >/dev/null 2>&1; then \
-		echo "configs/config.yml is public and must not contain administrators. Move admin emails to CROSSWORDAPI_ADMIN_EMAILS in $(LOCAL_CROSSWORDAPI_ENV_FILE)."; \
+		echo "configs/config.yml must not contain administrators. Move admin emails to CROSSWORDAPI_ADMIN_EMAILS in $(LOCAL_CROSSWORDAPI_ENV_FILE)."; \
 		exit 1; \
 	fi; \
 	if find . -maxdepth 1 -type f -name 'client_secret_*.json' | grep -q .; then \
@@ -231,18 +231,25 @@ up:
 	export LEDGER_HOST_PORT="$$ledger_resolved_port"; \
 	export TAUTH_HOST_PORT="$$tauth_resolved_port"; \
 	export CROSSWORD_API_HOST_PORT="$$api_resolved_port"; \
-		export CROSSWORD_PORT="$$site_resolved_port"; \
-		export SITE_ORIGIN="http://localhost:$$site_resolved_port"; \
-		export CROSSWORDAPI_ENV_FILE="./$(LOCAL_CROSSWORDAPI_ENV_FILE)"; \
-		export TAUTH_ENV_FILE="./$(LOCAL_TAUTH_ENV_FILE)"; \
-		export TAUTH_CONFIG_TEMPLATE="./$(LOCAL_TAUTH_CONFIG_TEMPLATE)"; \
-		export APP_CONFIG_SOURCE="./$(RUNTIME_DIR)/config.yml"; \
-		export PUBLIC_CONFIGS_SOURCE="./$(RUNTIME_DIR)/public-configs"; \
-		export TAUTH_CONFIG_SOURCE="./$(RUNTIME_DIR)/tauth.config.yaml"; \
+	export CROSSWORD_PORT="$$site_resolved_port"; \
+	export SITE_ORIGIN="http://localhost:$$site_resolved_port"; \
+	export CROSSWORDAPI_ENV_FILE="./$(LOCAL_CROSSWORDAPI_ENV_FILE)"; \
+	export TAUTH_ENV_FILE="./$(LOCAL_TAUTH_ENV_FILE)"; \
+	export TAUTH_CONFIG_TEMPLATE="./$(LOCAL_TAUTH_CONFIG_TEMPLATE)"; \
+	export APP_CONFIG_SOURCE="./$(RUNTIME_DIR)/config.yml"; \
+	export PUBLIC_CONFIGS_SOURCE="./$(RUNTIME_DIR)/public-configs"; \
+	export TAUTH_CONFIG_SOURCE="./$(RUNTIME_DIR)/tauth.config.yaml"; \
+	export LEDGER_CONFIG_SOURCE="./$(RUNTIME_DIR)/ledger.config.yml"; \
 	export RUNTIME_AUTH_CONFIG_PATH="js/runtime-auth-config.override.js"; \
 	bash ./scripts/render-runtime-auth-config.sh; \
 	bash ./scripts/render-runtime-compose-configs.sh; \
-	$(DOCKER_COMPOSE) up -d --build --remove-orphans $(COMPOSE_UP_ARGS); \
+	if ! $(DOCKER_COMPOSE) up -d --build --remove-orphans --wait --wait-timeout 60 $(COMPOSE_UP_ARGS); then \
+		echo "llm_crossword failed to become healthy; stopping the partial stack." >&2; \
+		$(DOCKER_COMPOSE) logs --tail=80 crossword-api >&2 || true; \
+		$(DOCKER_COMPOSE) down --remove-orphans >/dev/null 2>&1 || true; \
+		rm -rf "$(RUNTIME_DIR)"; \
+		exit 1; \
+	fi; \
 	echo "llm_crossword is starting on $$SITE_ORIGIN"; \
 	echo "Host sidecars: TAuth=http://localhost:$$TAUTH_HOST_PORT API=http://localhost:$$CROSSWORD_API_HOST_PORT Ledger=localhost:$$LEDGER_HOST_PORT"; \
 	echo "Resolved ports written to $(RUNTIME_DIR)/ports.env"

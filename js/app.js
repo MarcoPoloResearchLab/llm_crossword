@@ -39,6 +39,7 @@
       },
     }),
   });
+  var defaultCoinValueCents = 100;
   var defaultGenerationCostCredits = 4;
   var generationBalanceLoadingMessage = "Loading your credit balance...";
   var generationBalanceUnavailableMessage = "We couldn't load your credit balance. Refresh and try again.";
@@ -78,6 +79,16 @@
 
     if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
       return defaultGenerationCostCredits;
+    }
+
+    return Math.floor(normalizedValue);
+  }
+
+  function normalizeCoinValueCents(value) {
+    var normalizedValue = Number(value);
+
+    if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
+      return defaultCoinValueCents;
     }
 
     return Math.floor(normalizedValue);
@@ -662,6 +673,7 @@
 
   function updateBalance(balance) {
     var coins;
+    var coinValueCents;
     var previousCoins = state.currentCoins;
 
     if (!balance) return;
@@ -673,7 +685,8 @@
       }
     }
 
-    coins = balance.coins != null ? balance.coins : Math.floor(balance.available_cents / 100);
+    coinValueCents = normalizeCoinValueCents(balance.coin_value_cents);
+    coins = balance.coins != null ? balance.coins : Math.floor(balance.available_cents / coinValueCents);
     state.balanceStatus = balanceStatusReady;
     state.currentCoins = coins;
     elements.creditBadge.textContent = coins + " credits";
