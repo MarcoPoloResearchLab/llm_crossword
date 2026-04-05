@@ -32,7 +32,7 @@ This is an operational checklist for reducing founder-personal exposure while ru
 
 ## Admin And Internal Access
 
-- Do not put administrator emails in `configs/config.yml`; that file is client-readable through the public `/config.yml` route.
+- Do not put administrator emails in `configs/config.yml`; expose admin allowlists only through server-side configuration.
 - Set admin allowlists through `CROSSWORDAPI_ADMIN_EMAILS` in `configs/.env.crosswordapi.local`, `configs/.env.crosswordapi.production`, or another server-side secret source.
 - Prefer role-based admin assignment in TAuth or a shared company mailbox/group over one personal Gmail account.
 
