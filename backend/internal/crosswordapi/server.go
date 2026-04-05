@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -197,7 +196,6 @@ func setupRouter(cfg Config, handler *httpHandler, validator *sessionvalidator.V
 		MaxAge:           12 * time.Hour,
 	}))
 
-	router.GET("/config.yml", handler.handlePublicConfig)
 	router.GET("/healthz", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
@@ -265,35 +263,6 @@ const (
 	adminGrantHistoryLimit = 20
 	adminGrantReasonMaxLen = 240
 )
-
-func (handler *httpHandler) handlePublicConfig(ctx *gin.Context) {
-	configPath := strings.TrimSpace(handler.cfg.PublicConfigPath)
-	if configPath == "" {
-		ctx.JSON(http.StatusNotFound, errorResponse("not_found", "config unavailable"))
-		return
-	}
-
-	configBytes, err := os.ReadFile(configPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			ctx.JSON(http.StatusNotFound, errorResponse("not_found", "config unavailable"))
-			return
-		}
-		handler.logger.Error("read public config failed", zap.Error(err), zap.String("path", configPath))
-		ctx.JSON(http.StatusInternalServerError, errorResponse("config_read_failed", "could not load config"))
-		return
-	}
-
-	expandedConfigText, err := expandConfigEnvVariables(string(configBytes))
-	if err != nil {
-		handler.logger.Error("expand public config env failed", zap.Error(err), zap.String("path", configPath))
-		ctx.JSON(http.StatusInternalServerError, errorResponse("config_read_failed", "could not load config"))
-		return
-	}
-
-	ctx.Header("Cache-Control", "no-store")
-	ctx.Data(http.StatusOK, "text/yaml; charset=utf-8", []byte(expandedConfigText))
-}
 
 func (handler *httpHandler) handleSession(ctx *gin.Context) {
 	claims := getClaims(ctx)
