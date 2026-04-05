@@ -50,7 +50,6 @@ type Config struct {
 	LLMProxyKey               string
 	LLMProxyTimeout           time.Duration
 	DatabaseDSN               string
-	PublicConfigPath          string
 	AdminEmails               []string
 	CoinValueCents            int64
 	BootstrapCoins            int64
